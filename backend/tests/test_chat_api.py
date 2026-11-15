@@ -267,6 +267,40 @@ def test_failed_provider_preserves_user_history_and_retries_without_duplicate(ap
     assert len(client.get(path).json()['messages']) == before + 1
 
 
+@pytest.mark.parametrize('failure', ['schema_400', 'invalid_json', 'incomplete_proposal'])
+def test_structured_failure_never_persists_plan_and_retry_is_idempotent(api, monkeypatch, failure):
+    import json
+    from google.genai import errors
+    from test_gemini import SDKDouble
+    client, store, _ = api
+    path = new(client, store)
+    turn(client, path, action='instrument_no')
+    fid = attach_dataset(client, path)
+    result = {'schema_400': errors.APIError(400, {'error': {'message': 'Unknown name "additional_properties" at generation_config.response_schema'}}),
+              'invalid_json': '{"response":',
+              'incomplete_proposal': '{"response":"Plan","suggested_stage":"proposal","proposals":[{"title":"Incompleto"}]}'}[failure]
+    sdk = SDKDouble([result, json.dumps(reply(proposals=[plan(fid)], suggested_stage='proposal'))])
+    monkeypatch.setattr('app.services.gemini.genai.Client', lambda **kwargs: sdk)
+    client.app.state.provider = GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia'))
+    rid = str(uuid4())
+    before = client.get(path).json()
+    response = turn(client, path, action='files_ready', request_id=rid)
+    assert response.status_code == 502
+    assert response.headers['X-Statia-Error'] == ('gemini_schema' if failure == 'schema_400' else 'gemini_invalid_response')
+    failed = client.get(path).json()
+    assert not failed['proposals']
+    assert len(failed['messages']) == len(before['messages']) + 1
+    assert failed['messages'][-1]['role'] == 'user'
+    assert failed['retry_turn']['request_id'] == rid
+    assert turn(client, path, action='files_ready', request_id=rid).status_code == 200
+    completed = client.get(path).json()
+    assert len(completed['proposals']) == 1
+    assert len(completed['messages']) == len(before['messages']) + 2
+    assert turn(client, path, action='files_ready', request_id=rid).json()['replayed']
+    assert len(client.get(path).json()['messages']) == len(completed['messages'])
+    assert len(sdk.calls) == 2
+
+
 def test_invalid_columns_correct_once_and_never_persist_invalid_plan(api):
     client, store, provider = api
     path = new(client, store)

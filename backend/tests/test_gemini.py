@@ -16,6 +16,7 @@ from app.models.chat import AssistantReply, Turn
 from app.services.gemini import GeminiProvider, build_context, redact, validate_reply
 from app.services.profiling import inspect_file
 from app.services.supabase import SupabaseStore
+from app.services.gemini_schema import reply_schema
 
 
 def run(awaitable):
@@ -114,15 +115,16 @@ class SDKDouble:
         return SimpleNamespace(text=result)
 
 
-def test_sdk_uses_model_schema_and_retries_transient_errors(monkeypatch):
+@pytest.mark.parametrize('model', ['gemini-3.5-flash-lite', 'gemini-3.8-flash'])
+def test_sdk_uses_model_schema_and_retries_transient_errors(monkeypatch, model):
     sdk = SDKDouble([errors.ServerError(503, {'error': {'message': 'No disponible'}}), '{"response":"Comprendí los datos","suggested_stage":"goal"}'])
     monkeypatch.setattr('app.services.gemini.genai.Client', lambda **kwargs: sdk)
     monkeypatch.setattr('app.services.gemini.asyncio.sleep', AsyncMock())
-    response = run(GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia', gemini_model='modelo-configurado')).generate({}))
+    response = run(GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia', gemini_model=model)).generate({}))
     assert response.suggested_stage == 'goal'
     assert len(sdk.calls) == 2
-    assert sdk.calls[0]['model'] == 'modelo-configurado'
-    assert sdk.calls[0]['config'].response_schema is AssistantReply
+    assert sdk.calls[0]['model'] == model
+    assert sdk.calls[0]['config'].response_schema == reply_schema()
     assert sdk.calls[0]['config'].automatic_function_calling.disable
 
 
@@ -148,7 +150,7 @@ def test_official_sdk_serializes_actual_contract_without_external_network(monkey
     assert 'proposals' in config['responseSchema']['properties']
 
 
-@pytest.mark.parametrize('code,expected', [(429, 429), (500, 502), (503, 502), (403, 502), (404, 502)])
+@pytest.mark.parametrize('code,expected', [(400, 502), (429, 429), (500, 502), (503, 503), (504, 504), (403, 502), (404, 502)])
 def test_quota_and_provider_errors_never_return_fake_response(monkeypatch, code, expected):
     sdk = SDKDouble([errors.APIError(code, {'error': {'message': 'Fallo controlado'}})] * 2)
     monkeypatch.setattr('app.services.gemini.genai.Client', lambda **kwargs: sdk)
@@ -157,6 +159,124 @@ def test_quota_and_provider_errors_never_return_fake_response(monkeypatch, code,
         run(GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia')).generate({}))
     assert exc.value.status_code == expected
     assert len(sdk.calls) <= 2
+
+
+def test_transport_schema_excludes_internal_constraints_without_weakening_validation():
+    forbidden = {'additionalProperties', 'additional_properties', '$defs', '$ref', 'default', 'minimum', 'maximum',
+                 'minItems', 'maxItems', 'minLength', 'maxLength', 'anyOf', 'const'}
+    def visit(node):
+        if isinstance(node, dict):
+            assert not forbidden.intersection(node)
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+    schema = reply_schema()
+    visit(schema)
+    assert schema['required'] == list(schema['properties'])
+    schema['properties'].clear()
+    assert reply_schema()['properties']  # No mutación entre llamadas/modelos.
+    internal = AssistantReply.model_json_schema()
+    assert internal['additionalProperties'] is False
+    assert internal['$defs']['Plan']['properties']['variables']['minItems'] == 1
+    assert internal['$defs']['Plan']['properties']['schema_version']['minimum'] == 1
+
+
+def test_official_sdk_reproduces_additional_properties_rejection_and_new_schema_passes(monkeypatch):
+    original_client = genai.Client
+    async def scenario():
+        def handler(request):
+            schema = json.loads(request.content)['generationConfig']['responseSchema']
+            if 'additionalProperties' in schema or 'additional_properties' in schema:
+                # Mensaje observado en Gemini real; el SDK antiguo serializa este campo.
+                return httpx.Response(400, json={'error': {'code': 400, 'status': 'INVALID_ARGUMENT', 'message':
+                    'Invalid JSON payload received. Unknown name "additional_properties" at \'generation_config.response_schema\': Cannot find field.'}})
+            return httpx.Response(200, json={'candidates': [{'content': {'parts': [
+                {'text': '{"response":"Necesito aclarar el objetivo","suggested_stage":"goal"}'}]}, 'finishReason': 'STOP'}]})
+        transport = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        async with original_client(api_key='clave-ficticia', http_options=genai.types.HttpOptions(
+                httpx_async_client=transport, retry_options=genai.types.HttpRetryOptions(attempts=1))).aio as client:
+            with pytest.raises(errors.APIError) as exc:
+                await client.models.generate_content(model='modelo-configurable', contents='Caso sintético',
+                    config={'response_mime_type': 'application/json', 'response_schema': AssistantReply})
+            assert exc.value.code == 400 and 'additional_properties' in exc.value.message
+        transport = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        def create_client(**kwargs):
+            kwargs['http_options'].httpx_async_client = transport
+            return original_client(**kwargs)
+        monkeypatch.setattr('app.services.gemini.genai.Client', create_client)
+        result = await GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia', gemini_model='modelo-configurable')).generate({})
+        assert result.suggested_stage == 'goal'
+        await transport.aclose()
+    run(scenario())
+
+
+@pytest.mark.parametrize('message,category', [
+    ('Unknown name "additional_properties" at generation_config.response_schema', 'schema'),
+    ('response_schema requires too many states', 'schema'),
+    ('Invalid temperature parameter', 'invalid_request'),
+    ('JSON mode is not enabled for this model', 'model'),
+    ('API key not valid', 'credentials'),
+])
+def test_400_is_classified_by_details_without_retry_or_private_logging(monkeypatch, caplog, message, category):
+    secret = 'clave-ficticia-privada'
+    private = 'ana@example.org token-privado filas-completas'
+    sdk = SDKDouble([errors.APIError(400, {'error': {'message': message + ' ' + private + ' ' + secret}})])
+    monkeypatch.setattr('app.services.gemini.genai.Client', lambda **kwargs: sdk)
+    with pytest.raises(HTTPException) as exc:
+        run(GeminiProvider(Settings(_env_file=None, gemini_api_key=secret)).generate({'history': private}))
+    assert exc.value.headers['X-Statia-Error'] == f'gemini_{category}'
+    assert exc.value.headers['X-Gemini-Status'] == '400'
+    assert exc.value.status_code == 502
+    assert len(sdk.calls) == 1
+    assert secret not in caplog.text and private not in caplog.text
+    assert secret not in exc.value.detail and private not in exc.value.detail
+
+
+@pytest.mark.parametrize('code,category,retries', [(429, 'quota', 2), (503, 'unavailable', 2), (504, 'timeout', 1),
+                                                 (403, 'permissions', 1), (404, 'model', 1), (401, 'credentials', 1)])
+def test_upstream_diagnostic_and_bounded_retries(monkeypatch, code, category, retries):
+    sdk = SDKDouble([errors.APIError(code, {'error': {'message': 'Error controlado'}})] * 2)
+    monkeypatch.setattr('app.services.gemini.genai.Client', lambda **kwargs: sdk)
+    monkeypatch.setattr('app.services.gemini.asyncio.sleep', AsyncMock())
+    with pytest.raises(HTTPException) as exc:
+        run(GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia')).generate({}))
+    assert exc.value.headers['X-Statia-Error'] == f'gemini_{category}'
+    assert exc.value.headers['X-Gemini-Status'] == str(code)
+    assert len(sdk.calls) == retries
+
+
+@pytest.mark.parametrize('payload', [
+    {'response': 'Plan incompleto', 'suggested_stage': 'proposal', 'proposals': [{'title': 'Sin variables'}]},
+    {'response': 'Etapa inválida', 'suggested_stage': 'execute'},
+    {'response': 'Inyección', 'suggested_stage': 'goal', 'sql': 'select 1'},
+    {'response': 'Demasiadas preguntas', 'suggested_stage': 'clarification', 'questions': ['Pregunta'] * 9},
+    {'response': 'Sin variables', 'suggested_stage': 'proposal', 'proposals': [plan(variables=[])]},
+    {'response': 'Versión inválida', 'suggested_stage': 'proposal', 'proposals': [plan(schema_version=2)]},
+])
+def test_transport_json_still_requires_complete_internal_validation(monkeypatch, payload):
+    sdk = SDKDouble([json.dumps(payload)])
+    monkeypatch.setattr('app.services.gemini.genai.Client', lambda **kwargs: sdk)
+    with pytest.raises(HTTPException) as exc:
+        run(GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia')).generate({}))
+    assert exc.value.headers['X-Statia-Error'] == 'gemini_invalid_response'
+    assert len(sdk.calls) == 1
+
+
+def test_transport_accepts_complete_proposal_and_retains_semantic_checks(monkeypatch):
+    payload = {'response': 'Compara las mediciones', 'suggested_stage': 'proposal', 'proposals': [plan()],
+               'selected_variables': plan()['variables']}
+    sdk = SDKDouble([json.dumps(payload)])
+    monkeypatch.setattr('app.services.gemini.genai.Client', lambda **kwargs: sdk)
+    result = run(GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia')).generate({}))
+    validate_reply(result, files(), {'project_type': 'general'})
+    assert result.proposals[0].schema_version == 1
+    with pytest.raises(ValueError, match='metodológicas'):
+        validate_reply(result, files(), {'project_type': 'thesis'})
+    result.proposals[0].variables[0].column = 'inexistente'
+    with pytest.raises(ValueError, match='Columna inexistente'):
+        validate_reply(result, files(), {'project_type': 'general'})
 
 
 @pytest.mark.parametrize('failure,status', [('no es json', 502), (TimeoutError(), 504), (httpx.ConnectError('fallo'), 502)])

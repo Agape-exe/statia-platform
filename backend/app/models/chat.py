@@ -46,7 +46,7 @@ class Join(StrictModel):
 
 
 class Plan(StrictModel):
-    # El SDK convierte Literal numérico a un `const` no admitido por response_schema.
+    # Versión interna exacta; no forma parte del contrato enviado al proveedor.
     schema_version: int = Field(default=1, ge=1, le=1, strict=True)
     title: str = Field(min_length=1, max_length=160)
     objective: str = Field(min_length=1, max_length=2000)

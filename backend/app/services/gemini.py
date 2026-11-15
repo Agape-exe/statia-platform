@@ -12,6 +12,8 @@ from pydantic import ValidationError
 from app.core.config import Settings
 from app.models.chat import AssistantReply
 from app.services.profiling import SENSITIVE
+from app.services.gemini_errors import api_diagnostic, diagnostic
+from app.services.gemini_schema import reply_schema
 
 SYSTEM = """Eres el asistente estadístico de Statia. Responde exclusivamente en español.
 Tu tarea es comprender datos y preparar planes, NO ejecutar análisis inferenciales.
@@ -103,7 +105,7 @@ class GeminiProvider:
 
     async def generate(self, context, correction=None):
         if not self.settings.gemini_api_key.get_secret_value():
-            raise HTTPException(503, 'Falta habilitar Gemini: un administrador debe configurar GEMINI_API_KEY en el backend.')
+            raise diagnostic('not_configured', 503)
         prompt = json.dumps(context, ensure_ascii=False)
         if correction:
             prompt += '\nCorrige la respuesta anterior: ' + correction
@@ -118,7 +120,7 @@ class GeminiProvider:
                         response = await client.models.generate_content(
                             model=self.settings.gemini_model, contents=prompt,
                             config=types.GenerateContentConfig(system_instruction=SYSTEM, response_mime_type='application/json',
-                                                               response_schema=AssistantReply, max_output_tokens=7000,
+                                                               response_schema=reply_schema(), max_output_tokens=7000,
                                                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)),
                         )
                     return AssistantReply.model_validate_json(response.text or '')
@@ -127,17 +129,15 @@ class GeminiProvider:
                     if status in (429, 500, 503) and attempt == 0:
                         await asyncio.sleep(1)
                         continue
-                    message = ('Gemini no pudo completar la consulta por cuota o límite de solicitudes. Inténtalo más tarde.' if status == 429
-                               else 'Gemini no está disponible. Revisa el modelo, permisos y configuración del proveedor e inténtalo de nuevo.')
-                    raise HTTPException(429 if status == 429 else 502, message) from None
+                    raise api_diagnostic(exc) from None
                 except (TimeoutError, httpx.TimeoutException):
-                    raise HTTPException(504, 'Gemini tardó demasiado. Tu mensaje se conservó; puedes reintentar.') from None
+                    raise diagnostic('timeout', 504) from None
                 except ValidationError:
-                    raise HTTPException(502, 'Gemini devolvió una respuesta estructurada inválida. Puedes reintentar.') from None
+                    raise diagnostic('invalid_response') from None
                 except ValueError:
-                    raise HTTPException(502, 'El SDK de Gemini no pudo procesar el contrato configurado. Revisa la versión del proveedor.') from None
+                    raise diagnostic('sdk_contract') from None
                 except httpx.HTTPError:
-                    raise HTTPException(502, 'No se pudo conectar con Gemini. Tu mensaje se conservó.') from None
+                    raise diagnostic('connectivity') from None
 
 
 def validate_reply(reply, files, project):
