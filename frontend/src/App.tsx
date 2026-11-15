@@ -1,11 +1,15 @@
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
 import { AuthProvider } from './components/AuthProvider'
 import { PrivateRoute, PublicRoute } from './components/RouteGuards'
 import { AuthPage } from './pages/AuthPage'
 import { Dashboard } from './pages/Dashboard'
-import { Workspace } from './pages/Workspace'
 import { supabase } from './lib/supabase'
-import { Brand } from './components/ui'
+import { Brand, Loading } from './components/ui'
+
+const Workspace = lazy(() =>
+  import('./pages/Workspace').then((module) => ({ default: module.Workspace })),
+)
 
 export default function App() {
   return (
@@ -37,10 +41,21 @@ export default function App() {
             </Route>
             <Route element={<PrivateRoute />}>
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/proyectos/:projectId" element={<Workspace />} />
+              <Route
+                path="/proyectos/:projectId"
+                element={
+                  <Suspense fallback={<Loading />}>
+                    <Workspace />
+                  </Suspense>
+                }
+              />
               <Route
                 path="/proyectos/:projectId/:module"
-                element={<Workspace />}
+                element={
+                  <Suspense fallback={<Loading />}>
+                    <Workspace />
+                  </Suspense>
+                }
               />
             </Route>
             <Route

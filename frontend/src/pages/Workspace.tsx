@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import {
   Link,
   Navigate,
@@ -22,6 +22,11 @@ import { errorMessage } from '../lib/errors'
 import type { Project } from '../types/project'
 import { typeLabel } from '../types/project'
 import { Alert, Loading } from '../components/ui'
+const StatisticalChat = lazy(() =>
+  import('../components/StatisticalChat').then((module) => ({
+    default: module.StatisticalChat,
+  })),
+)
 
 const modules = [
   {
@@ -30,7 +35,7 @@ const modules = [
     icon: MessageSquare,
     text: 'Un espacio para hacer preguntas y orientar tu análisis.',
     detail:
-      'La conversación se habilitará al integrar el motor de IA. Por ahora, puedes organizar tus proyectos y explorar los módulos de tu espacio de trabajo.',
+      'Comprende tus datasets y prepara planes estadísticos en una conversación persistente.',
   },
   {
     path: 'contexto',
@@ -46,7 +51,7 @@ const modules = [
     icon: Database,
     text: 'El punto de partida de cada descubrimiento.',
     detail:
-      'Aquí podrás gestionar datasets e instrumentos de tu proyecto. La carga y el procesamiento de archivos se habilitarán en una próxima sesión.',
+      'Carga datasets e instrumentos desde el Asistente Estadístico. Allí puedes revisar sus perfiles y reutilizarlos entre conversaciones del proyecto.',
   },
   {
     path: 'resultados',
@@ -122,7 +127,11 @@ export function Workspace() {
     return <Navigate to={`/proyectos/${project.id}/asistente`} replace />
   const Icon = current.icon
   return (
-    <>
+    <div
+      className={
+        module === 'asistente' ? 'workspace-shell assistant-shell' : undefined
+      }
+    >
       <AppHeader />
       <div className="workspace">
         <aside className="sidebar">
@@ -185,24 +194,40 @@ export function Workspace() {
             <h1>{current.title}</h1>
             <p className="muted">{current.text}</p>
           </header>
-          <section className="module-placeholder">
-            <span className="empty-icon">
-              <Icon size={34} />
-            </span>
-            <span className="badge neutral">Próximamente</span>
-            <h2>
-              {module === 'asistente'
-                ? 'Tu investigación tiene mucho que contar'
-                : current.text}
-            </h2>
-            <p className="muted">{current.detail}</p>
-            <div className="module-status">
-              <span />
-              Módulo preparado para una próxima sesión
-            </div>
-          </section>
+          {module === 'asistente' ? (
+            <Suspense fallback={<Loading />}>
+              <StatisticalChat key={project.id} project={project} />
+            </Suspense>
+          ) : (
+            <section className="module-placeholder">
+              <span className="empty-icon">
+                <Icon size={34} />
+              </span>
+              <span className="badge neutral">
+                {module === 'datos'
+                  ? 'Disponible en el asistente'
+                  : 'Próximamente'}
+              </span>
+              <h2>{current.text}</h2>
+              <p className="muted">{current.detail}</p>
+              {module === 'datos' && (
+                <Link
+                  className="btn primary"
+                  to={`/proyectos/${project.id}/asistente`}
+                >
+                  Abrir asistente y archivos
+                </Link>
+              )}
+              <div className="module-status">
+                <span />
+                {module === 'datos'
+                  ? 'Archivos privados de tu proyecto'
+                  : 'Módulo preparado para una próxima sesión'}
+              </div>
+            </section>
+          )}
         </main>
       </div>
-    </>
+    </div>
   )
 }

@@ -1,8 +1,23 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr
 
 
 class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
+    supabase_url: str = ""
+    supabase_publishable_key: str = ""
+    gemini_api_key: SecretStr = SecretStr("")
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_timeout_seconds: int = Field(default=35, ge=5, le=45)
+    gemini_context_chars: int = Field(default=45000, ge=4000, le=100000)
+    max_file_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
+    max_rows: int = Field(default=20000, ge=1, le=100000)
+    max_columns: int = Field(default=120, ge=1, le=300)
+    max_expanded_bytes: int = Field(default=30 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
+    max_conversation_files: int = Field(default=12, ge=1, le=30)
+    missing_value_markers: str = 'NA,N/A,null,NaN,None,<NA>'
+    # Decisiones explícitas por columna; no se deducen categorías ausentes por su nombre.
+    missing_value_overrides: dict[str, list[str]] = Field(default_factory=dict)
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
