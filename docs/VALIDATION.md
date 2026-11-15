@@ -28,7 +28,21 @@ Regresión: 75 pruebas pytest, 27 Vitest y 2 suites SQL aprobadas; TypeScript, l
 
 Pendiente en esta corrección: repetir el recorrido completo con el archivo Palmer Penguins original y Supabase real; verificar las respuestas estructuradas en 3.6/3.8 cuando su acceso/disponibilidad y tiempo de espera lo permitan. No se cambiaron `.env`, migraciones, infraestructura ni motor estadístico.
 
-## Límites conocidos
+## Corrección integral de perfilado, metodología y continuidad
+
+Regresión final: **121 pytest**, **31 Vitest**, **2 suites SQL/PGlite**, TypeScript, lint, Prettier y build aprobados; `pip check` sin dependencias rotas. pytest usa dobles, no llamadas reales. Se conservan las regresiones anteriores de idempotencia, aislamiento y contrato compatible de `e8334a3`.
+
+El fixture público original de Palmer Penguins quedó congelado por SHA-256 y `.gitattributes`; origen/licencia CC0 en `backend/tests/fixtures/README.md`. Una lectura independiente con `csv.DictReader` confirma 344 filas, 8 columnas y 19 `NA`: 2 en cada medida y 11 en `sex`. Las cuatro medidas ahora son numéricas/cuantitativas. El perfil prudente interpreta las 8 ausencias numéricas y conserva las 11 de texto como ambiguas; con `missing_value_overrides={'sex':['NA']}` coincide exactamente con la referencia (19). El hash no cambia después del perfilado. Regresiones: NA legítimo, otros marcadores, mezclas, vacíos, IDs, años, fechas nativas y calendarios inválidos.
+
+Causas corregidas: inferencia contaminada por marcadores; falta de exigencia de alternativas pertinentes; alcance/efecto de Welch no estructurados; etiquetas funcionales tratadas como objetivos; falta de transición para No después de reutilizar. Se añadieron campos JSONB opcionales de planificación y un indicador de aclaración imprescindible, sin modificar tablas ni planes aceptados. Se rechazan grupos/tipos/métodos inviables y decisiones esenciales incompletas, pero se permiten supuestos evaluables después y preguntas opcionales. Se verifican elección y estados de propuestas, títulos manuales, finalidades separadas, persistencia y nombres legibles.
+
+**Gemini real 3.5 Flash-Lite**, solo con metadatos del CSV público: comprensión con finalidad nula tras el botón funcional; cuatro propuestas válidas (descriptiva, correlación, comparación global entre especies e integral); Welch independiente para Adelie, con filtro exacto, d de Cohen definida con SD combinada y sin multiplicidad arbitraria; y comparación exploratoria por las tres especies con alcance explícito, efecto definido y Holm justificado. Hubo correcciones semánticas acotadas durante los ensayos; estas ayudaron a detectar el bloqueo indebido de preguntas opcionales, también corregido. Reutilización → No y aclaración de especie ambigua avanzaron sin llamadas al proveedor ni finalidad heredada. La orquestación de estos ensayos usó repositorio en memoria: **no es un recorrido de Supabase real** y no modificó conversaciones del usuario. No se enviaron archivos completos ni se calcularon resultados inferenciales.
+
+Pendiente manual: repetir desde UI/Supabase los recorridos de SETUP con conversaciones nuevas y perfil v2, aceptar/recargar y comprobar dos cuentas. No se revalidaron 3.6/3.8 remotamente. La revisión de cada respuesta sigue siendo necesaria; una generación inválida no produce planes parciales ni alternativas ficticias.
+
+Referencias metodológicas: [t de Welch en R](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/t.test.html), [Holm y multiplicidad](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/p.adjust.html), [definiciones y estandarizadores de tamaños del efecto](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2013.00863/full).
+
+## Límites vigentes
 
 - Sin OCR ni ejecución inferencial; los planes aceptados quedan preparados para Sesión 03.
 - La inferencia de tipos/semántica y la detección de datos sensibles son parciales; requieren revisión del usuario. El regex que rechaza estadísticos en el texto complementa el contrato y las instrucciones, no demuestra la veracidad de cualquier frase generada.

@@ -65,6 +65,16 @@ Requiere migración remota, sesiones de usuario y credenciales Gemini autorizada
 
 ## Problemas frecuentes
 
+### Comprobar perfilado y continuidad corregidos
+
+No se requiere otra migración. Reiniciar API/Vite y crear conversaciones nuevas para validar. Volver a cargar el CSV original para obtener `profile_version=2`; los perfiles previos y las propuestas aceptadas no se recalculan ni sobrescriben. Después se puede reutilizar ese archivo sin duplicarlo físicamente.
+
+`MISSING_VALUE_MARKERS` configura candidatos separados por comas. `MISSING_VALUE_OVERRIDES` es JSON por columna, vacío por defecto. Solo después de confirmar el significado, por ejemplo en Palmer Penguins, se puede usar `MISSING_VALUE_OVERRIDES={"sex":["NA"]}` y volver a perfilar. No aplicar ese ejemplo universalmente a otros datasets. Sin override se muestran 8 ausencias numéricas y 11 posibles ausencias ambiguas de sexo; con esa decisión coincide con las 19 de referencia.
+
+Recorrido: comprobar las cuatro medidas cuantitativas y `year` temporal; pedir recomendaciones sin objetivo conocido; revisar varias alternativas e integral; solicitar Welch entre sexos de «una misma especie», elegir Adelie o todas y revisar alcance, efecto y multiplicidad antes de aceptar. Abrir otro chat, reutilizar y responder No: debe preguntar finalidad sin repetir presentación ni mostrar IDs. Recargar para comprobar persistencia y estados de las demás propuestas. El modelo de la prueba real fue `gemini-3.5-flash-lite`; `GEMINI_MODEL` sigue configurable.
+
+### Diagnóstico general
+
 - Pantalla «Conecta tu espacio»: revisar nombres y ubicación de `frontend/.env.local`, URL y clave; reiniciar Vite.
 - Registro sin acceso inmediato: revisar correo, spam, requisitos de confirmación y Redirect URLs. Supabase limita envíos; esperar o configurar SMTP propio si hace falta.
 - Correo/contraseña incorrectos: confirmar correo, revisar proyecto configurado y credenciales; no desactivar seguridad.
