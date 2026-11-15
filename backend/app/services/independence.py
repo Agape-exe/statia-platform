@@ -2,6 +2,7 @@
 import re
 
 from app.services.conversation_text import action_of, normalize
+from app.services.planning_errors import PlanningError
 
 
 def user_independence_evidence(messages, previous=None):
@@ -33,8 +34,8 @@ def validate_independence(text, context=None, *, require_pending=True):
             continue
         negated = re.search(r'no .*?(?:garantiz|confirmad|verificad|asegurad|demostrad)', clause)
         if re.search(r'garantiz\w*.{0,60}independen|independen.{0,60}garantiz', clause) and not negated:
-            raise ValueError('No garantizar independencia por filas o individuos distintos; documenta el diseño informado o un supuesto pendiente.')
+            raise PlanningError('independence', 'No garantizar independencia por filas o individuos distintos; documenta el diseño informado o un supuesto pendiente.')
         if not evidence and re.search(r'confirmada|verificada|asegurada|demostrada', clause) and not negated:
-            raise ValueError('La independencia no está confirmada: falta evidencia metodológica del usuario.')
+            raise PlanningError('independence', 'La independencia no está confirmada: falta evidencia metodológica del usuario.')
     if require_pending and not evidence and not pending:
-        raise ValueError('Sin evidencia metodológica suficiente del usuario, registra independencia como supuesto pendiente de verificar, no confirmado.')
+        raise PlanningError('independence', 'Sin evidencia metodológica suficiente del usuario, registra independencia como supuesto pendiente de verificar, no confirmado.')

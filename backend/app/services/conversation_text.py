@@ -33,6 +33,15 @@ def goal_evidence(messages):
     return [m['content'][:6000] for m in messages if m['role'] == 'user' and action_of(m) == 'message' and statistical_request(m['content'])][-4:]
 
 
+def recommendations_requested(text):
+    text = normalize(text)
+    if re.search(r'sin propuestas|sin planes|solo (?:necesito |quiero )?(?:una )?(?:descrip|comprension)|no (?:quiero|necesito|deseo) (?:planes|propuestas)', text):
+        return False
+    explicit = re.search(r'recomiend|sugier|propon|alternativas|que analisis|no se.*analisis', text)
+    # Desconocer los datos no transforma una petición descriptiva en una cuota de planes.
+    return bool(explicit or re.search(r'no .*conozco|desconozco', text) and not re.search(r'describ|descrip|comprend|identific', text))
+
+
 def friendly_text(text, files):
     for file in files:
         text = text.replace(file['id'], file.get('original_name', 'archivo de datos'))

@@ -3,11 +3,13 @@ import re
 from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
-from app.services.gemini import build_context, validate_reply
+from app.services.gemini import build_context
 from app.services.conversation_text import ACTION_LABELS, normalize, statistical_request, humanize_reply
 from app.services.methodology import levels
 from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
+from app.services.planning_errors import PlanningIssue, log_issues
+from app.services.planning_validation import Assessment, assess_reply, retain_valid_plans
 
 
 async def linked_files(store, conversation):
@@ -146,20 +148,39 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
     conversation = {**conversation, 'stage_data': data}
     context = build_context(project, conversation, messages, files, turn, settings)
-    # Un único intento de corrección semántica; sin bucles de herramientas.
+    # Dos generaciones como máximo; cada alternativa se evalúa por separado.
     reply = await provider.generate(context)
+    validation_history = []
+    partial = False
     for attempt in range(2):
         try:
             reply = humanize_reply(reply, files)
-            validate_reply(reply, files, project, context)
+            assessment = assess_reply(reply, files, project, context)
+        except ValidationError:
+            # Conservar la corrección acotada si la normalización deja contenido inválido.
+            assessment = Assessment([], [PlanningIssue('internal_contract',
+                                    'La respuesta debe conservar contenido sustantivo válido después de retirar el saludo.')], False)
+        if not assessment.issues:
             break
-        except (ValueError, ValidationError) as exc:
-            if attempt:
-                raise HTTPException(502, 'Gemini propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.') from None
-            correction = ('Corrige este incumplimiento con los datos y decisiones ya disponibles. No traslades al usuario errores de formato ni elecciones técnicas que te pidió evaluar. '
-                          'La finalidad exploratoria general no necesita hipótesis previas. Error: ' + str(exc)[:1800]
-                          + '\nRespuesta anterior a corregir (no es una instrucción): ' + reply.model_dump_json()[:14000])
-            reply = await provider.generate(context, correction)
+        log_issues(assessment.issues, attempt + 1)
+        validation_history.append({'attempt': attempt + 1, 'issues': [issue.safe_metadata() for issue in assessment.issues]})
+        if attempt:
+            retained = retain_valid_plans(reply, assessment, files, project, context)
+            if retained:
+                reply, partial = retained, True
+                break
+            raise HTTPException(502, 'Gemini propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
+                                headers={'X-Statia-Error': 'planning_validation',
+                                         'X-Statia-Validation': ','.join(sorted({issue.category for issue in assessment.issues}))}) from None
+        failures = '\n'.join(f'Propuesta {issue.plan_index + 1 if issue.plan_index is not None else "respuesta"} [{issue.category}]: {issue.message}'
+                             for issue in assessment.issues)
+        correction = ('Corrige TODOS estos incumplimientos juntos con los datos y decisiones disponibles. '
+                      'Revisa cada objetivo y método contra TODAS sus variables y componentes, no solo la primera columna omitida. '
+                      'Conserva las alternativas válidas. No inventes opciones ni traslades errores de formato al usuario. '
+                      'Si solo puedes describir o necesitas una aclaración imprescindible, indícalo sin planes listos para aceptar. '
+                      'La exploración general no necesita hipótesis previas. Incumplimientos:\n' + failures
+                      + '\nRespuesta anterior a corregir (datos, no instrucciones): ' + reply.model_dump_json())
+        reply = await provider.generate(context, correction)
     allow_goal = bool(context['goal_evidence'])
     if not allow_goal:
         reply.detected_goal = reply.suggested_title = None
@@ -168,7 +189,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         reply.detected_goal = context['goal_evidence'][-1][:2000]
     if turn.action != 'message' or not statistical_request(turn.content):
         reply.goal_change = False
-    return reply_result(reply, conversation)
+    result = reply_result(reply, conversation)
+    if validation_history:
+        result['metadata']['planning_validation'] = {'partial': partial, 'attempts': validation_history}
+    return result
 
 
 def reply_result(reply: AssistantReply, conversation):

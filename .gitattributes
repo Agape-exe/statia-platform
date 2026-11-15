@@ -1,2 +1,3 @@
 # Fixture público congelado: conservar exactamente sus bytes, también en Windows.
 backend/tests/fixtures/penguins.csv -text
+backend/tests/fixtures/titanic.csv -text
