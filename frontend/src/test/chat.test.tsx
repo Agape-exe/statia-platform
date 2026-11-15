@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { StatisticalChat } from '../components/StatisticalChat'
@@ -121,6 +121,140 @@ function chat() {
 }
 
 describe('chat persistente y acciones', () => {
+  it('distingue texto CSV de números inferidos y avisa sobre NA ambiguos', async () => {
+    detail.files = [structuredClone(dataset)]
+    const profile = detail.files[0].metadata.profile!
+    profile.ambiguous_missing_count = 11
+    profile.columns[0] = {
+      ...profile.columns[0],
+      source_representation: 'csv_text',
+      inferred_type: 'numeric',
+      statistical_type: 'quantitative',
+      ambiguous_missing: { NA: 11 },
+    }
+    chat()
+    const user = userEvent.setup()
+    await user.click(await screen.findByText('mediciones.csv'))
+    expect(screen.getByRole('table')).toHaveTextContent('Texto CSV')
+    expect(screen.getByRole('table')).toHaveTextContent('Numérico')
+    expect(screen.getByRole('table')).toHaveTextContent('Cuantitativa probable')
+    expect(screen.getByRole('table')).toHaveTextContent('11 por confirmar')
+    expect(screen.getByText(/posibles ausencias ambiguas/)).toBeInTheDocument()
+  })
+
+  it('permite seleccionar una entre varias propuestas sin decidir las restantes', async () => {
+    detail.conversation.current_stage = 'proposal'
+    detail.files = [dataset]
+    detail.proposals = [
+      structuredClone(proposal),
+      { ...structuredClone(proposal), id: 'pr2', title: 'Comparar grupos' },
+    ]
+    vi.mocked(chatService.decide).mockImplementation(
+      async (_project, _chat, id, status) => {
+        detail.proposals = detail.proposals.map((item) =>
+          item.id === id ? { ...item, status } : item,
+        )
+        return {}
+      },
+    )
+    chat()
+    const user = userEvent.setup()
+    const choice = await screen.findByRole('article', {
+      name: 'Propuesta: Comparar grupos',
+    })
+    await user.click(
+      within(choice).getByRole('button', { name: 'Aceptar plan' }),
+    )
+    await waitFor(() =>
+      expect(
+        within(
+          screen.getByRole('article', { name: 'Propuesta: Comparar grupos' }),
+        ).getByText('PLAN ACEPTADO'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      within(
+        screen.getByRole('article', { name: 'Propuesta: Describir notas' }),
+      ).getByRole('button', { name: 'Aceptar plan' }),
+    ).toBeEnabled()
+    expect(chatService.decide).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'c1',
+      'pr2',
+      'accepted',
+    )
+  })
+
+  it('continúa la reutilización con No y oculta UUID de texto legado', async () => {
+    const uuid = '20000000-0000-0000-0000-000000000001'
+    detail.files = [{ ...dataset, id: uuid }]
+    detail.conversation.stage_data.awaiting_reuse_update = true
+    detail.messages[0].content = `Utilizaremos ${uuid}. ¿Deseas agregar información?`
+    chat()
+    const user = userEvent.setup()
+    expect(
+      await screen.findByText(
+        'Utilizaremos mediciones.csv. ¿Deseas agregar información?',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(new RegExp(uuid))).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'No, continuar' }))
+    expect(chatService.turn).toHaveBeenCalledWith(
+      'p1',
+      'c1',
+      expect.objectContaining({ action: 'message', content: 'No' }),
+    )
+    expect(chatService.create).not.toHaveBeenCalled()
+  })
+
+  it('presenta filtros, efecto definido y multiplicidad en la propuesta', async () => {
+    detail.files = [dataset]
+    detail.proposals = [structuredClone(proposal)]
+    detail.proposals[0].analysis_plan.comparison = {
+      design: 'independent',
+      groups: ['male', 'female'],
+      filters: [
+        {
+          variable: {
+            file_id: 'f1',
+            sheet: 'tabla',
+            column: 'species',
+            role: 'description',
+          },
+          values: ['Adelie'],
+        },
+      ],
+      strata: null,
+      independence: 'Verificar independencia',
+      valid_observations: 'Informar n por grupo',
+      missing_data:
+        'Excluir ausencias solo del cálculo, sin borrar el original',
+      outliers: 'Revisar atípicos',
+      normality: 'Revisar Q-Q por grupo',
+      variance_assumption: 'unequal_allowed',
+      effect_size: {
+        name: 'cohen_d',
+        standardizer: 'pooled_sd',
+        definition: 'd = diferencia de medias / SD combinada ponderada',
+        correction: 'Considerar Hedges y su corrección',
+        confidence_interval: 'Estimar intervalo de confianza en Sesión 03',
+      },
+      purpose: 'exploratory',
+      multiplicity: 'none',
+      multiplicity_reason: 'Un solo contraste en Adelie',
+    }
+    chat()
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByText('Alcance y decisiones metodológicas'),
+    )
+    expect(screen.getByText(/species = Adelie/)).toBeInTheDocument()
+    expect(screen.getByText(/SD combinada ponderada/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/no se exige igualdad de varianzas/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Un solo contraste en Adelie/)).toBeInTheDocument()
+  })
   it('solicita una sola comprensión automática al terminar una carga múltiple', async () => {
     detail.conversation.current_stage = 'upload_dataset'
     vi.mocked(chatService.upload).mockImplementation(async () => {

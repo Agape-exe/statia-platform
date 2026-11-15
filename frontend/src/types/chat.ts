@@ -16,6 +16,7 @@ export interface Conversation {
   current_stage: Stage
   updated_at: string
   stage_data: {
+    awaiting_reuse_update?: boolean
     reuse_file_ids?: string[]
     goal_change?: {
       goal: string | null
@@ -35,9 +36,14 @@ export interface Message {
 export interface Column {
   name: string
   physical_type: string
+  source_representation?: string
+  inferred_type?: string
   statistical_type: string
   semantic_hint: string
   missing: number
+  missing_confirmed?: number
+  missing_inferred?: number
+  ambiguous_missing?: Record<string, number>
   unique: number
   min?: number | string
   max?: number | string
@@ -55,10 +61,12 @@ export interface ProjectFile {
     pages?: number
     warnings?: string[]
     profile?: {
+      profile_version?: number
       row_count: number
       column_count: number
       duplicate_rows: number
       missing_count: number
+      ambiguous_missing_count?: number
       columns: Column[]
     }
   }
@@ -81,6 +89,29 @@ export interface Plan {
   limitations: string[]
   expected_outputs: string[]
   joins: { left: Variable; right: Variable; justification: string }[]
+  components?: { procedure: string; method: string; variables: Variable[] }[]
+  comparison?: {
+    design: 'independent' | 'paired' | 'unknown'
+    groups: string[]
+    filters: { variable: Variable; values: string[] }[]
+    strata: { variable: Variable; values: string[] } | null
+    independence: string
+    valid_observations: string
+    missing_data: string
+    outliers: string
+    normality: string
+    variance_assumption: string
+    effect_size: {
+      name: string
+      standardizer: string
+      definition: string
+      correction: string
+      confidence_interval: string
+    }
+    purpose: string
+    multiplicity: string
+    multiplicity_reason: string
+  } | null
 }
 export interface Proposal {
   id: string

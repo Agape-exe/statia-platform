@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { MessageSquarePlus, Paperclip, Send } from 'lucide-react'
 import { chatService } from '../services/chat'
 import { ApiError } from '../lib/api'
+import { visibleChatText } from '../lib/chat-text'
 import type { Project } from '../types/project'
 import {
   stageLabel,
@@ -221,6 +222,19 @@ export function StatisticalChat({ project }: { project: Project }) {
     })
 
   const conversation = detail?.conversation
+  const visible = (value: string) =>
+    visibleChatText(value, detail?.files || projectFiles)
+  const answerReuse = (content: string) =>
+    perform(() =>
+      submitTurn(selectedRef.current, {
+        request_id: crypto.randomUUID(),
+        action: 'message',
+        content,
+        file_ids: [],
+        share_samples: samples,
+        share_instrument_text: instrumentText,
+      }),
+    )
   const disabled = busy || opening
   const candidates = projectFiles.filter((file) =>
     conversation?.stage_data.reuse_file_ids?.includes(file.id),
@@ -256,7 +270,7 @@ export function StatisticalChat({ project }: { project: Project }) {
               disabled={disabled}
               onClick={() => open(item.id)}
             >
-              <strong>{item.title}</strong>
+              <strong>{visible(item.title)}</strong>
               <small>{stageLabel[item.current_stage]}</small>
             </button>
           ))}
@@ -308,14 +322,14 @@ export function StatisticalChat({ project }: { project: Project }) {
           <>
             <header className="chat-heading">
               <div>
-                <h2>{conversation.title}</h2>
+                <h2>{visible(conversation.title)}</h2>
                 <small>{stageLabel[conversation.current_stage]}</small>
               </div>
               <div className="chat-actions">
                 <button
                   className="btn secondary"
                   disabled={disabled}
-                  onClick={() => setRename(conversation.title)}
+                  onClick={() => setRename(visible(conversation.title))}
                 >
                   Renombrar
                 </button>
@@ -362,7 +376,8 @@ export function StatisticalChat({ project }: { project: Project }) {
               )}
               {conversation.primary_goal && (
                 <p className="goal-note">
-                  <strong>Finalidad:</strong> {conversation.primary_goal}
+                  <strong>Finalidad:</strong>{' '}
+                  {visible(conversation.primary_goal)}
                 </p>
               )}
               {detail.messages.map((message) => (
@@ -377,18 +392,18 @@ export function StatisticalChat({ project }: { project: Project }) {
                         ? 'Statia'
                         : 'Estado del plan'}
                   </strong>
-                  <p>{message.content}</p>
+                  <p>{visible(message.content)}</p>
                   {!!message.metadata.questions?.length && (
                     <ul>
                       {message.metadata.questions.map((question, i) => (
-                        <li key={i}>{question}</li>
+                        <li key={i}>{visible(question)}</li>
                       ))}
                     </ul>
                   )}
                   {!!message.metadata.warnings?.length && (
                     <ul className="muted">
                       {message.metadata.warnings.map((warning, i) => (
-                        <li key={i}>{warning}</li>
+                        <li key={i}>{visible(warning)}</li>
                       ))}
                     </ul>
                   )}
@@ -521,6 +536,30 @@ export function StatisticalChat({ project }: { project: Project }) {
                     Comprender archivos con Gemini
                   </button>
                 )}
+              {conversation.stage_data.awaiting_reuse_update && (
+                <div className="chat-actions">
+                  <button
+                    className="btn primary"
+                    disabled={disabled || !!pending}
+                    onClick={() => answerReuse('No')}
+                  >
+                    No, continuar
+                  </button>
+                  <button
+                    className="btn secondary"
+                    disabled={disabled || !!pending}
+                    onClick={() => answerReuse('Sí')}
+                  >
+                    Sí, añadir información
+                  </button>
+                </div>
+              )}
+              {detail.proposals.length > 1 && (
+                <p className="notice">
+                  Elige la propuesta que prefieras. Aceptarla conserva el estado
+                  de las demás; todavía no se ejecutan análisis.
+                </p>
+              )}
               {detail.proposals.map((proposal) => (
                 <ProposalCard
                   key={proposal.id}
@@ -543,7 +582,7 @@ export function StatisticalChat({ project }: { project: Project }) {
               {conversation.stage_data.goal_change && (
                 <div className="flow-card">
                   <h3>¿Abrir otra conversación?</h3>
-                  <p>{conversation.stage_data.goal_change.reason}</p>
+                  <p>{visible(conversation.stage_data.goal_change.reason)}</p>
                   <p>
                     El nuevo chat te permitirá elegir archivos para reutilizar.
                     Esta conversación conservará su finalidad.
@@ -722,8 +761,8 @@ export function StatisticalChat({ project }: { project: Project }) {
           onClose={() => setRemoving(false)}
         >
           <p>
-            Se eliminarán «{conversation?.title}», sus mensajes y propuestas.
-            Los archivos seguirán disponibles en el proyecto.
+            Se eliminarán «{visible(conversation?.title || '')}», sus mensajes y
+            propuestas. Los archivos seguirán disponibles en el proyecto.
           </p>
           <button
             className="btn danger"

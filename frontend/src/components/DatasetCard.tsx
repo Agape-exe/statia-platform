@@ -5,6 +5,16 @@ const physical: Record<string, string> = {
   numeric: 'Numérico',
   text: 'Texto',
   boolean: 'Booleano',
+  mixed: 'Mixto: números y texto',
+}
+const source: Record<string, string> = {
+  csv_text: 'Texto CSV',
+  native_numeric: 'Valores numéricos nativos',
+  native_text: 'Texto nativo',
+  native_mixed: 'Valores nativos mixtos',
+  native_temporal: 'Fecha nativa',
+  native_boolean: 'Booleano nativo',
+  empty: 'Vacía',
 }
 const statistical: Record<string, string> = {
   identifier: 'Identificador probable',
@@ -12,6 +22,8 @@ const statistical: Record<string, string> = {
   categorical_or_ordinal: 'Categórica u ordinal',
   quantitative: 'Cuantitativa probable',
   categorical: 'Categórica probable',
+  mixed: 'Mixta; requiere aclaración',
+  unknown: 'Sin datos para inferir',
 }
 
 export function DatasetCard({
@@ -71,9 +83,29 @@ export function DatasetCard({
         )}
         {profile && (
           <>
+            {profile.profile_version !== 2 && (
+              <p className="notice">
+                Este perfil se creó antes de la corrección de tipos y ausencias.
+                Para validar nuevos planes con el perfil actualizado, vuelve a
+                cargar el original en una conversación nueva; los planes
+                anteriores se conservan.
+              </p>
+            )}
             <p>
               {profile.missing_count} celdas ausentes · {profile.duplicate_rows}{' '}
               posibles filas duplicadas. El original permanece intacto.
+            </p>
+            {!!profile.ambiguous_missing_count && (
+              <p>
+                {profile.ambiguous_missing_count} posibles ausencias ambiguas se
+                conservan como cadenas hasta confirmar su significado.
+              </p>
+            )}
+            <p className="muted">
+              Ausentes incluye vacíos y marcadores interpretados con evidencia.
+              Un origen de texto CSV puede representar medidas numéricas; no
+              implica conversión manual. El significado semántico sigue
+              pendiente de confirmar.
             </p>
             <div className="table-scroll">
               <table>
@@ -81,7 +113,8 @@ export function DatasetCard({
                 <thead>
                   <tr>
                     <th>Columna</th>
-                    <th>Tipo físico</th>
+                    <th>Representación de origen</th>
+                    <th>Tipo inferido</th>
                     <th>Tipo estadístico tentativo</th>
                     <th>Ausentes</th>
                     <th>Distintos</th>
@@ -93,13 +126,24 @@ export function DatasetCard({
                     <tr key={column.name}>
                       <th scope="row">{column.name}</th>
                       <td>
-                        {physical[column.physical_type] || column.physical_type}
+                        {source[column.source_representation || ''] ||
+                          'No informada en este perfil'}
+                      </td>
+                      <td>
+                        {physical[
+                          column.inferred_type || column.physical_type
+                        ] || column.physical_type}
                       </td>
                       <td>
                         {statistical[column.statistical_type] ||
                           column.statistical_type}
                       </td>
-                      <td>{column.missing}</td>
+                      <td>
+                        {column.missing}
+                        {!!column.ambiguous_missing &&
+                          Object.keys(column.ambiguous_missing).length > 0 &&
+                          ` (+${Object.values(column.ambiguous_missing).reduce((total, count) => total + count, 0)} por confirmar)`}
+                      </td>
                       <td>{column.unique}</td>
                       <td>
                         {column.min === undefined
