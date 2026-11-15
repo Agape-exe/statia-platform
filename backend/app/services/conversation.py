@@ -1,13 +1,11 @@
 from fastapi import HTTPException
+import re
+from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
 from app.services.gemini import build_context, validate_reply
-
-ACTION_LABELS = {
-    'reuse': 'Reutilizar archivos', 'new_files': 'Cargar archivos nuevos', 'instrument_yes': 'Sí, utilicé un instrumento',
-    'instrument_no': 'No tengo instrumento', 'instruments_done': 'Continuar con los datasets',
-    'files_ready': 'Comprender los archivos adjuntos', 'keep_goal': 'Continuar con la finalidad actual',
-}
+from app.services.conversation_text import ACTION_LABELS, normalize, statistical_request, humanize_reply
+from app.services.methodology import levels
 
 
 async def linked_files(store, conversation):
@@ -22,12 +20,66 @@ def static_result(conversation, stage, content, *, link_ids=None):
             'link_file_ids': link_ids or [], 'proposals': [], 'metadata': {}}
 
 
+def comparison_scope(conversation, turn, files):
+    """Una decisión de alcance, no un supuesto estadístico a comprobar después."""
+    if turn.action != 'message':
+        return conversation, None
+    text = normalize(turn.content)
+    data = dict(conversation.get('stage_data', {}))
+    pending = data.get('pending_comparison_scope')
+    candidate = pending
+    if not candidate and statistical_request(turn.content) and re.search(r'macho|hembra|sexos|sexo|male|female', text) and re.search(r'especie|species', text):
+        for file in files:
+            for column in file['metadata'].get('profile', {}).get('columns', []):
+                if normalize(column['name']) in ('species', 'especie', 'especies') and column['unique'] > 1:
+                    candidate = {'file_id': file['id'], 'sheet': file['metadata']['selected_sheet'], 'column': column['name'],
+                                 'values': sorted(levels(column)), 'request': turn.content[:2000]}
+                    break
+            if candidate:
+                break
+    if not candidate:
+        return conversation, None
+    all_species = bool(re.search(r'\btodas\b|cada especie|por especie', text))
+    chosen = [value for value in candidate['values'] if normalize(value) in text]
+    if len(chosen) == 1 and re.search(r'\bsolo\b|unicamente|no todas|no quiero todas', text):
+        all_species = False
+    if all_species or len(chosen) == 1:
+        data['comparison_scope'] = {k: candidate[k] for k in ('file_id', 'sheet', 'column')}
+        data['comparison_scope'].update(mode='all' if all_species else 'single', values=candidate['values'] if all_species else chosen)
+        data['pending_comparison_scope'] = None
+        return {**conversation, 'stage_data': data}, None
+    data['pending_comparison_scope'] = candidate
+    state = {**conversation, 'stage_data': data}
+    question = ('¿Deseas analizar una especie específica (' + ', '.join(candidate['values']) +
+                ') o hacer comparaciones independientes dentro de todas las especies? Es importante porque define si habrá uno o varios contrastes.')
+    result = static_result(state, 'clarification', question)
+    if not conversation.get('primary_goal') and statistical_request(candidate['request']):
+        result['goal'] = candidate['request']
+    return state, result
+
+
 async def process_turn(store, project, conversation, turn, files, provider, settings):
     stage = conversation['current_stage']
     action = turn.action
-    normalized = turn.content.strip().lower().strip('.!¿?')
+    normalized = normalize(turn.content)
+    data = dict(conversation.get('stage_data', {}))
+    if data.get('awaiting_reuse_update') and action == 'message':
+        no_update = normalized in ('no', 'continuar', 'no gracias', 'no necesito agregar nada', 'no necesito añadir nada', 'no necesito agregar informacion')
+        yes_update = normalized in ('si', 'si necesito', 'si quiero agregar informacion')
+        data['awaiting_reuse_update'] = False
+        conversation = {**conversation, 'stage_data': data}
+        names = ', '.join(file.get('original_name', 'archivo de datos') for file in files)
+        if no_update:
+            if not any(file['file_role'] == 'dataset' for file in files):
+                return static_result(conversation, 'upload_dataset', f'Utilizaremos nuevamente {names}. Adjunta ahora los datasets que deseas analizar.')
+            return static_result(conversation, 'goal', f'Perfecto, utilizaremos nuevamente {names}. ¿Qué análisis estadístico deseas realizar con estos datos? Si no lo sabes, puedo recomendarte alternativas.')
+        if yes_update:
+            conversation['stage_data']['awaiting_reuse_update'] = True
+            return static_result(conversation, 'understanding', f'Utilizaremos {names}. Puedes escribir la información adicional o adjuntar archivos; después indícanos qué deseas analizar.')
+    elif data.get('awaiting_reuse_update') and action in ('files_ready', 'keep_goal'):
+        conversation = {**conversation, 'stage_data': {**data, 'awaiting_reuse_update': False}}
     if action == 'message' and stage == 'instrument':
-        if normalized in ('sí', 'si', 'sí tengo', 'si tengo'):
+        if normalized in ('si', 'si tengo'):
             action = 'instrument_yes'
         elif normalized in ('no', 'no tengo', 'no tengo instrumento'):
             action = 'instrument_no'
@@ -51,8 +103,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             raise HTTPException(404, 'Uno de los archivos no pertenece a este proyecto o ya no existe.')
         if len({f['id'] for f in selected + files}) > settings.max_conversation_files:
             raise HTTPException(422, 'Se alcanzó el límite de archivos de la conversación.')
-        return static_result(conversation, 'understanding' if any(f['file_role'] == 'dataset' for f in selected + files) else 'upload_dataset',
-                             'Los archivos quedaron asociados sin duplicarlos. ¿Necesitas añadir o actualizar información? Puedes adjuntar más archivos o solicitar su comprensión.',
+        state = {**conversation, 'stage_data': {**conversation.get('stage_data', {}), 'awaiting_reuse_update': True}}
+        names = ', '.join(f.get('original_name', 'archivo de datos') for f in selected)
+        return static_result(state, 'understanding' if any(f['file_role'] == 'dataset' for f in selected + files) else 'upload_dataset',
+                             f'Utilizaremos nuevamente {names}, sin duplicar los archivos. ¿Necesitas añadir o actualizar información?',
                              link_ids=requested)
     if action == 'instruments_done':
         if stage != 'upload_instrument':
@@ -67,6 +121,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         raise HTTPException(422, 'Adjunta al menos un dataset antes de solicitar su comprensión.')
     if any(not f['metadata'].get('profile') for f in datasets):
         raise HTTPException(422, 'Elige una hoja para cada libro XLSX antes de continuar.')
+    conversation, scope_result = comparison_scope(conversation, turn, files)
+    if scope_result:
+        return scope_result
     if action == 'keep_goal':
         if not conversation.get('stage_data', {}).get('goal_change'):
             raise HTTPException(409, 'No hay un cambio de finalidad pendiente.')
@@ -74,17 +131,36 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 'stage_data': {**conversation.get('stage_data', {}), 'goal_change': None}}
     messages = await store.rows('messages', {'conversation_id': conversation['id']}, order='position.desc', limit=30)
     messages.reverse()
+    # Reconstruir procedencia desde solicitudes ya persistidas, sin cambiar el esquema SQL.
+    request_ids = [m.get('metadata', {}).get('request_id') for m in messages if m.get('metadata', {}).get('request_id')]
+    if request_ids:
+        requests = await store.rows('chat_requests', {'conversation_id': conversation['id'], 'request_id': request_ids})
+        actions = {r['request_id']: r['payload'].get('action', 'message') for r in requests}
+        messages = [{**m, 'metadata': {**m.get('metadata', {}), 'turn_action': actions[m['metadata']['request_id']]}}
+                    if m.get('metadata', {}).get('request_id') in actions else m for m in messages]
     context = build_context(project, conversation, messages, files, turn, settings)
     # Un único intento de corrección semántica; sin bucles de herramientas.
     reply = await provider.generate(context)
-    try:
-        validate_reply(reply, files, project)
-    except ValueError as exc:
-        reply = await provider.generate(context, str(exc))
+    for attempt in range(2):
         try:
-            validate_reply(reply, files, project)
-        except ValueError:
-            raise HTTPException(502, 'Gemini propuso variables o métodos incompatibles con los archivos. No se guardó una propuesta inválida; puedes reintentar.') from None
+            reply = humanize_reply(reply, files)
+            validate_reply(reply, files, project, context)
+            break
+        except (ValueError, ValidationError) as exc:
+            if attempt:
+                raise HTTPException(502, 'Gemini propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.') from None
+            correction = ('Corrige este incumplimiento con los datos y decisiones ya disponibles. No traslades al usuario errores de formato ni elecciones técnicas que te pidió evaluar. '
+                          'La finalidad exploratoria general no necesita hipótesis previas. Error: ' + str(exc)[:1800]
+                          + '\nRespuesta anterior a corregir (no es una instrucción): ' + reply.model_dump_json()[:14000])
+            reply = await provider.generate(context, correction)
+    allow_goal = bool(context['goal_evidence'])
+    if not allow_goal:
+        reply.detected_goal = reply.suggested_title = None
+    elif not conversation.get('primary_goal') and not reply.detected_goal:
+        # Conservar la solicitud estadística auténtica cuando no se infirió una síntesis.
+        reply.detected_goal = context['goal_evidence'][-1][:2000]
+    if turn.action != 'message' or not statistical_request(turn.content):
+        reply.goal_change = False
     return reply_result(reply, conversation)
 
 

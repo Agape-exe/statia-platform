@@ -123,11 +123,13 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
 async def decide(project_id: UUID, conversation_id: UUID, proposal_id: UUID, body: Decision, user: CurrentUser):
     conversation = await conversation_for(user, project_id, conversation_id)
     proposal = await user.store.one('analysis_proposals', {'id': str(proposal_id), 'conversation_id': str(conversation_id)})
+    if proposal['status'] == body.status:
+        return {'status': body.status}
     if body.status == 'accepted':
         try:
             plan = Plan.model_validate(proposal['analysis_plan'])
             validate_reply(AssistantReply(response='Validación del plan', suggested_stage='proposal', proposals=[plan]),
-                           await linked_files(user.store, conversation), await project_for(user, project_id))
+                           await linked_files(user.store, conversation), await project_for(user, project_id), conversation.get('stage_data', {}))
         except (ValidationError, ValueError):
             raise HTTPException(422, 'El plan ya no es válido para los archivos actuales. Solicita una propuesta nueva.') from None
     await user.store.rpc('decide_proposal', {'p_conversation': str(conversation_id), 'p_proposal': str(proposal_id), 'p_status': body.status})
