@@ -9,5 +9,9 @@ HTMLDialogElement.prototype.close = function () {
   this.removeAttribute('open')
 }
 Object.defineProperty(window, 'matchMedia', {
-  value: vi.fn(() => ({ matches: false })),
+  value: vi.fn(() => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  })),
 })

@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { StatisticalChat } from '../components/StatisticalChat'
@@ -473,5 +479,172 @@ describe('chat persistente y acciones', () => {
       await screen.findByRole('link', { name: 'Recuperar acceso' }),
     ).toBeInTheDocument()
     expect(chatService.turn).toHaveBeenCalledWith('p1', 'c1', detail.retry_turn)
+  })
+})
+
+describe('compositor y navegación accesibles', () => {
+  it('Enter envía una sola vez, conserva el foco y bloquea envíos durante la solicitud', async () => {
+    let finish!: (value: { status: string }) => void
+    vi.mocked(chatService.turn).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    chat()
+    const user = userEvent.setup()
+    const input = await screen.findByRole('textbox', {
+      name: 'Mensaje para Statia',
+    })
+    await user.type(input, 'Quiero explorar los datos{Enter}{Enter}')
+    expect(chatService.turn).toHaveBeenCalledTimes(1)
+    expect(chatService.turn).toHaveBeenCalledWith(
+      'p1',
+      'c1',
+      expect.objectContaining({
+        content: 'Quiero explorar los datos',
+        action: 'message',
+      }),
+    )
+    expect(input).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'preparando una respuesta',
+    )
+    finish({ status: 'completed' })
+    await waitFor(() => expect(input).toBeEnabled())
+    expect(input).toHaveValue('')
+    expect(input).toHaveFocus()
+  })
+
+  it('Shift + Enter inserta una línea y no envía; el clic envía el texto multilínea', async () => {
+    chat()
+    const user = userEvent.setup()
+    const input = await screen.findByRole('textbox', {
+      name: 'Mensaje para Statia',
+    })
+    await user.type(input, 'Primera línea{Shift>}{Enter}{/Shift}Segunda línea')
+    expect(input).toHaveValue('Primera línea\nSegunda línea')
+    expect(chatService.turn).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+    expect(chatService.turn).toHaveBeenCalledWith(
+      'p1',
+      'c1',
+      expect.objectContaining({ content: 'Primera línea\nSegunda línea' }),
+    )
+  })
+
+  it('ignora Enter durante IME, native isComposing y keyCode 229', async () => {
+    chat()
+    const input = await screen.findByRole('textbox', {
+      name: 'Mensaje para Statia',
+    })
+    fireEvent.change(input, { target: { value: '解析' } })
+    fireEvent.compositionStart(input)
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    fireEvent.compositionEnd(input)
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(chatService.turn).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(chatService.turn).toHaveBeenCalledTimes(1))
+  })
+
+  it('no envía mensajes vacíos y ofrece adjuntar con etiqueta accesible', async () => {
+    chat()
+    const user = userEvent.setup()
+    await user.type(
+      await screen.findByRole('textbox', { name: 'Mensaje para Statia' }),
+      '   {Enter}',
+    )
+    expect(screen.getByRole('button', { name: 'Enviar' })).toBeDisabled()
+    expect(chatService.turn).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('button', { name: 'Adjuntar archivos' }),
+    ).toBeEnabled()
+    expect(screen.getByText(/Enter envía/)).toBeInTheDocument()
+  })
+
+  it('oculta y recupera el historial sin recargar, perder el borrador ni el reintento', async () => {
+    chat()
+    const user = userEvent.setup()
+    const input = await screen.findByLabelText('Mensaje para Statia')
+    await user.type(input, 'Un borrador')
+    await user.click(screen.getByRole('button', { name: 'Ocultar historial' }))
+    expect(
+      screen.getByRole('button', { name: 'Mostrar historial' }),
+    ).toHaveAttribute('aria-expanded', 'false')
+    expect(
+      screen.queryByRole('navigation', { name: 'Conversaciones' }),
+    ).not.toBeInTheDocument()
+    expect(input).toHaveValue('Un borrador')
+    await user.click(screen.getByRole('button', { name: 'Mostrar historial' }))
+    expect(
+      screen.getByRole('button', { name: 'Ocultar historial' }),
+    ).toHaveAttribute('aria-expanded', 'true')
+    expect(chatService.get).toHaveBeenCalledTimes(1)
+    vi.mocked(chatService.turn).mockRejectedValueOnce(
+      new ApiError('Error recuperable', 503),
+    )
+    await user.keyboard('{Tab}')
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+    await screen.findByText('Error recuperable')
+    await user.click(screen.getByRole('button', { name: 'Ocultar historial' }))
+    expect(
+      screen.getByRole('button', { name: 'Reintentar solicitud' }),
+    ).toBeEnabled()
+  })
+
+  it('muestra el título completo en el nombre accesible y selecciona otra conversación', async () => {
+    const longTitle =
+      'Análisis exploratorio de mediciones y comparación de grupos con un título deliberadamente muy largo para el historial'
+    const second = { ...detail.conversation, id: 'c2', title: longTitle }
+    vi.mocked(chatService.list).mockResolvedValue([detail.conversation, second])
+    vi.mocked(chatService.get).mockImplementation(async (_project, id) => ({
+      ...structuredClone(detail),
+      conversation: id === 'c2' ? second : detail.conversation,
+    }))
+    chat()
+    const user = userEvent.setup()
+    const item = await screen.findByRole('button', {
+      name: `Abrir conversación: ${longTitle}`,
+    })
+    expect(item).toHaveAttribute('title', longTitle)
+    await user.click(item)
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: longTitle }),
+      ).toBeInTheDocument(),
+    )
+    expect(item).toHaveAttribute('aria-current', 'page')
+    expect(chatService.get).toHaveBeenCalledWith('p1', 'c2')
+  })
+
+  it('en móvil usa un diálogo temporal, cierra al seleccionar y conserva el chat', async () => {
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList)
+    chat()
+    const user = userEvent.setup()
+    await screen.findByLabelText('Mensaje para Statia')
+    expect(
+      screen.queryByRole('navigation', { name: 'Conversaciones' }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mostrar historial' }))
+    expect(
+      screen.getByRole('dialog', { name: 'Historial de conversaciones' }),
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Abrir conversación: Nueva conversación',
+      }),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    )
+    expect(
+      await screen.findByLabelText('Mensaje para Statia'),
+    ).toBeInTheDocument()
   })
 })

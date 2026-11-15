@@ -127,7 +127,11 @@ export function Workspace() {
     return <Navigate to={`/proyectos/${project.id}/asistente`} replace />
   const Icon = current.icon
   return (
-    <>
+    <div
+      className={
+        module === 'asistente' ? 'workspace-shell assistant-shell' : undefined
+      }
+    >
       <AppHeader />
       <div className="workspace">
         <aside className="sidebar">
@@ -224,6 +228,6 @@ export function Workspace() {
           )}
         </main>
       </div>
-    </>
+    </div>
   )
 }
