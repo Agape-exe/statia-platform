@@ -15,7 +15,8 @@ from app.services.profiling import SENSITIVE
 from app.services.gemini_errors import api_diagnostic, diagnostic
 from app.services.gemini_schema import reply_schema
 from app.services.conversation_text import action_of, goal_evidence
-from app.services.methodology import available_analyses, validate_methodology
+from app.services.methodology import available_analyses, validate_methodology, validate_objective_columns
+from app.services.independence import validate_independence
 
 SYSTEM = """Eres el asistente estadístico de Statia. Responde exclusivamente en español.
 Tu tarea es comprender datos y preparar planes, NO ejecutar análisis inferenciales.
@@ -91,6 +92,18 @@ un factor, ANOVA de Welch o alternativa justificada); comparison=null. No es una
 Welch de dos muestras. comparison=null también para descriptivos y correlaciones.
 Si el usuario pide evaluar un tamaño del efecto, recomiéndalo tú con fórmula, denominador
 y limitaciones; no conviertas esa elección técnica en una pregunta obligatoria al usuario.
+Individuos o filas distintos NO garantizan independencia. Usa independence_evidence como
+información metodológica aportada por el usuario; el perfil no la verifica. Si no existe,
+comparison.independence debe indicar «Supuesto pendiente de verificar con el diseño» y
+explicar muestreo, repetición, pareamiento y conglomerados a revisar. No bloquear exploración.
+Para g de Hedges con pooled_sd: g=J(ν_H)*(mean1-mean2)/s_p, ν_H=n1+n2−2;
+J(ν_H)≈1−3/(4*ν_H−1). Los grados de libertad Welch–Satterthwaite pertenecen al contraste
+y NO a esa corrección convencional de g. Define ambos por separado; los IC son productos futuros.
+Audita cada objetivo y método contra variables antes de responder: incluye los nombres de
+columnas EXACTOS junto a sus etiquetas legibles en objetivo y método. No prometas medidas
+ausentes de variables; si nombras varias medidas de una dimensión, decláralas todas.
+Escribe las referencias de columna entre backticks, incluso nombres cortos como `x`.
+Cada componente integral debe ejecutar únicamente sus variables y cubrir la selección raíz.
 """
 
 
@@ -112,6 +125,8 @@ def build_context(project, conversation, messages, files, turn, settings):
                'turn': {'kind': 'action' if turn.action != 'message' else 'user_message', 'action': turn.action},
                'goal_evidence': [redact(text) for text in goal_evidence(messages)],
                'comparison_scope': conversation.get('stage_data', {}).get('comparison_scope'),
+               'independence_evidence': conversation.get('stage_data', {}).get('independence_evidence', []),
+               'canonical_objectives': True,
                'recommendations_requested': bool(re.search(r'alternativas|no .*conozco|desconozco|no s[eé].*an[aá]lisis|qu[eé] an[aá]lisis', turn.content, re.I)),
                'available_analyses': available_analyses(files),
                'history': [{'role': 'system' if action_of(m) != 'message' else m['role'],
@@ -202,6 +217,7 @@ class GeminiProvider:
 
 def validate_reply(reply, files, project, context=None):
     known = {f['id']: f for f in files}
+    validate_independence(reply.response, context, require_pending=False)
     if re.search(r'(?i)\b(?:p|t|f|r|d|chi2|χ²)\s*(?:\([^)]{0,40}\))?\s*=\s*[-+]?\d*[.,]?\d+', reply.response):
         raise ValueError('No presentes estadísticos inferenciales calculados: solo se preparan planes para la Sesión 03.')
 
@@ -234,6 +250,7 @@ def validate_reply(reply, files, project, context=None):
             raise ValueError('Incluye una alternativa integral con componentes explícitos y viables, sin inventar procedimientos.')
     for plan in reply.proposals:
         columns = [column_for(v) for v in plan.variables]
+        validate_objective_columns(plan, known, context)
         validate_methodology(plan, column_for, context)
         tables = {(v.file_id, v.sheet) for v in plan.variables}
         if len(tables) > 1 and plan.procedure not in ('descriptive', 'exploratory') and not plan.joins:

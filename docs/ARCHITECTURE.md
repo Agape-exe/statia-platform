@@ -53,3 +53,11 @@ OpenAPI en `/docs`. Rutas privadas bajo `/projects/{project_id}` con Bearer:
 Acciones: `message`, `reuse` (`file_ids` opcionales), `new_files`, `instrument_yes`, `instrument_no`, `instruments_done`, `files_ready`, `keep_goal`. Una carga múltiple solicita una comprensión al terminar; se espera si faltan elegir hojas. HTTP: 401 sesión, 403 permisos del usuario, 404 recurso ajeno/inexistente, 409 conflicto/ocupado, 413 límites, 422 formato/acción, 429 cuota, 502 proveedor/persistencia, 503 configuración o servicio Gemini no disponible, 504 timeout local o del proveedor. Credenciales/permisos del proveedor usan 502 con diagnóstico propio para no confundirlos con la sesión Supabase.
 
 Sin Redis, colas ni arquitectura multiagente. Vercel/Render siguen siendo destinos previstos; no se despliegan en esta sesión. Producción requerirá fallback SPA, orígenes CORS y redirects Auth.
+
+## Ajustes finales del asistente
+
+El workspace del asistente ocupa `100dvh` con columnas flexibles, historial plegable y transcripción con scroll propio; el compositor permanece dentro del panel. `ConversationHistory`, `ChatComposer` y `useChatScroll` concentran presentación, teclado/IME y seguimiento/paginación. Conservan servicios, UUID de reintento y bloqueo de mutaciones existentes.
+
+`titles.py` deriva títulos breves de la finalidad auténtica cuando falta la sugerencia; el fallback permanece provisional hasta elegir un plan. `202611150003_chat_titles.sql` actualiza ese título dentro de `decide_proposal`, respetando el bloqueo, la idempotencia y `title_manual`.
+
+La independencia se conserva como supuesto pendiente salvo evidencia metodológica suficiente informada por el usuario; filas distintas no la garantizan. La detección de evidencia es conservadora, no una verificación empírica del diseño. Los objetivos nuevos incluyen nombres de columnas junto a etiquetas legibles para auditar referencias y componentes al proponer y aceptar. Esa comprobación no interpreta exhaustivamente toda prosa libre. La g de Hedges con SD combinada exige ν_H=n1+n2−2 en su corrección, separado de Welch–Satterthwaite. El contrato de transporte Gemini, el perfilado y los planes ya aceptados se conservan.

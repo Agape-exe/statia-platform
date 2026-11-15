@@ -73,6 +73,12 @@ No se requiere otra migración. Reiniciar API/Vite y crear conversaciones nuevas
 
 Recorrido: comprobar las cuatro medidas cuantitativas y `year` temporal; pedir recomendaciones sin objetivo conocido; revisar varias alternativas e integral; solicitar Welch entre sexos de «una misma especie», elegir Adelie o todas y revisar alcance, efecto y multiplicidad antes de aceptar. Abrir otro chat, reutilizar y responder No: debe preguntar finalidad sin repetir presentación ni mostrar IDs. Recargar para comprobar persistencia y estados de las demás propuestas. El modelo de la prueba real fue `gemini-3.5-flash-lite`; `GEMINI_MODEL` sigue configurable.
 
+### Actualizar el asistente final de Sesión 02
+
+Aplicar `202611150003_chat_titles.sql` después de las dos migraciones existentes y reiniciar frontend/backend. Reemplaza únicamente `decide_proposal`, con la misma firma, permisos invoker y RLS: al aceptar actualiza un título provisional en la misma transacción. No crea tablas, no modifica planes aceptados ni retitula conversaciones en lote; los títulos manuales prevalecen.
+
+El historial se puede plegar; en móvil/tablet abre un diálogo temporal. Enter envía, Shift + Enter inserta una línea y la composición IME no envía. Probar conversaciones nuevas: solicitar exploración sin `suggested_title`, elegir un plan integral y comprobar título/estado tras recargar. Revisar que independencia figure pendiente sin evidencia de diseño y que g con SD combinada use ν_H=n1+n2−2, separado de los gl de Welch. No se calculan resultados.
+
 ### Diagnóstico general
 
 - Pantalla «Conecta tu espacio»: revisar nombres y ubicación de `frontend/.env.local`, URL y clave; reiniciar Vite.

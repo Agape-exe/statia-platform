@@ -112,8 +112,16 @@ class MemoryStore:
             c['active_request_id'] = None
             await self.update('chat_requests', {'conversation_id': cid, 'request_id': data['p_request']}, {'status': 'failed'})
         elif name == 'decide_proposal':
+            proposal = await self.one('analysis_proposals', {'id': data['p_proposal']})
+            if proposal['status'] == data['p_status']:
+                return
             await self.update('analysis_proposals', {'id': data['p_proposal']}, {'status': data['p_status']})
             c['current_stage'] = 'ready' if data['p_status'] == 'accepted' else 'goal'
+            if data['p_status'] == 'accepted' and not c.get('title_manual') and (c['stage_data'].get('title_provisional') or c['title'] == 'Nueva conversación'):
+                from app.services.titles import compact_title
+                c['title'] = compact_title(proposal['title'])
+                c['primary_goal'] = c['primary_goal'] or proposal['objective']
+                c['stage_data']['title_provisional'] = False
 
 
 class ControlledProvider:
@@ -155,7 +163,7 @@ def reply(**kwargs):
 
 
 def plan(fid, thesis=False):
-    return {'title': 'Describir las mediciones', 'objective': 'Conocer la distribución de las notas',
+    return {'title': 'Describir las mediciones', 'objective': 'Conocer la distribución de las notas (nota)',
             'variables': [{'file_id': fid, 'sheet': 'tabla', 'column': 'nota', 'role': 'outcome'}],
             'procedure': 'descriptive', 'method': 'Resúmenes descriptivos y frecuencias',
             'justification': 'Hay una medición numérica disponible.', 'requirements': ['Confirmar el significado de nota'],

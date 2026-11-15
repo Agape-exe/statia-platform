@@ -32,9 +32,12 @@ test('chat: migraciones, RLS, integridad, idempotencia, planes y reutilización 
       grant select,insert,delete on storage.objects to authenticated;
       insert into auth.users values ('${a}'),('${b}');
     `)
-    for (const name of ['202611150001_projects.sql', '202611150002_chat.sql'])
+    for (const name of ['202611150001_projects.sql', '202611150002_chat.sql', '202611150003_chat_titles.sql'])
       await db.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8'))
     assert.equal((await q('select public from storage.buckets'))[0].public, false)
+    assert.equal((await q("select has_function_privilege('anon','public.decide_proposal(uuid,uuid,text)','execute') as allowed"))[0].allowed, false)
+    assert.equal((await q("select has_function_privilege('authenticated','public.decide_proposal(uuid,uuid,text)','execute') as allowed"))[0].allowed, true)
+    assert.equal((await q("select prosecdef from pg_proc where oid='public.decide_proposal(uuid,uuid,text)'::regprocedure"))[0].prosecdef, false)
     await db.exec(`set role authenticated; set request.jwt.claim.sub='${a}';`)
     await q("insert into public.projects(id,user_id,name,project_type) values ($1,$2,'General A','general'),($3,$2,'Tesis A','thesis')", [projectA, a, projectA2])
     const cid = (await q('select public.create_conversation($1) as id', [projectA]))[0].id
@@ -85,6 +88,26 @@ test('chat: migraciones, RLS, integridad, idempotencia, planes y reutilización 
     assert.equal((await q('select status from public.analysis_proposals where id=$1', [proposal]))[0].status, 'accepted')
     assert.equal((await q('select current_stage from public.conversations where id=$1', [cid]))[0].current_stage, 'ready')
     await assert.rejects(q("select public.decide_proposal($1,$2,'rejected')", [cid, proposal]))
+
+    // Aceptación y título forman una sola operación; el plan JSON nunca se reescribe.
+    assert.equal((await q('select title from public.conversations where id=$1', [cid]))[0].title, 'Mi conversación')
+    for (const [originalTitle, provisional] of [['Nueva conversación', false], ['Exploración provisional', true]]) {
+      const titleChat = (await q('select public.create_conversation($1) as id', [projectA]))[0].id
+      await q("update public.conversations set title=$2,stage_data=$3 where id=$1", [titleChat, originalTitle, JSON.stringify({title_provisional:provisional})])
+      const acceptedPlan = {title:'Análisis integral de mediciones', objective:'Explorar medidas y sus relaciones', schema_version:1}
+      const planId = (await q("insert into public.analysis_proposals(conversation_id,title,objective,analysis_plan) values($1,$2,$3,$4) returning id", [titleChat, acceptedPlan.title, acceptedPlan.objective, JSON.stringify(acceptedPlan)]))[0].id
+      await q("select public.decide_proposal($1,$2,'accepted')", [titleChat, planId])
+      const state = (await q('select title,primary_goal,stage_data from public.conversations where id=$1', [titleChat]))[0]
+      assert.equal(state.title, acceptedPlan.title)
+      assert.equal(state.primary_goal, acceptedPlan.objective)
+      assert.equal(state.stage_data.title_provisional, false)
+      assert.deepEqual((await q('select analysis_plan from public.analysis_proposals where id=$1', [planId]))[0].analysis_plan, acceptedPlan)
+      const count = (await q('select id from public.messages where conversation_id=$1', [titleChat])).length
+      await q("update public.conversations set title='Mi renombrado',title_manual=true where id=$1", [titleChat])
+      await q("select public.decide_proposal($1,$2,'accepted')", [titleChat, planId])
+      assert.equal((await q('select title from public.conversations where id=$1', [titleChat]))[0].title, 'Mi renombrado')
+      assert.equal((await q('select id from public.messages where conversation_id=$1', [titleChat])).length, count)
+    }
 
     await db.exec(`set request.jwt.claim.sub='${b}';`)
     await q("insert into public.projects(id,user_id,name,project_type) values($1,$2,'General B','general')", [projectB, b])

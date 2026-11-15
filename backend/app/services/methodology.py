@@ -1,5 +1,38 @@
 """Viabilidad y decisiones de planificación; no ejecuta pruebas estadísticas."""
 import re
+from app.services.conversation_text import normalize
+from app.services.independence import validate_independence
+
+
+def validate_objective_columns(plan, files, context=None):
+    """Referencias comprobables en prosa y componentes, sin diccionario por dataset."""
+    def mentioned(name, text):
+        if len(name) < 3 and '_' not in name:
+            return f'`{name}`' in text
+        name = re.escape(normalize(name)).replace('_', r'[ _]')
+        return bool(re.search(r'(?<!\w)' + name + r'(?!\w)', normalize(text)))
+
+    def check(text, variables):
+        selected = {_key(v) for v in variables}
+        for file in files.values():
+            for column in file['metadata'].get('profile', {}).get('columns', []):
+                if mentioned(column['name'], text) and not any(key[2] == column['name'] for key in selected):
+                    raise ValueError(f'El objetivo o método promete analizar {column["name"]}, pero no está declarada entre sus variables. Alinea objetivo, método y selección.')
+    check(plan.objective + '\n' + plan.method, plan.variables)
+    # La prosa nueva debe ser auditable aun cuando las etiquetas sean traducciones.
+    # Los planes anteriores siguen legibles; su aceptación repetida no los reinterpreta.
+    if (context or {}).get('canonical_objectives'):
+        if any(not mentioned(v.column, plan.objective) for v in plan.variables if v.role in ('outcome', 'predictor')):
+            raise ValueError('El objetivo debe identificar por su nombre exacto todas las columnas de resultado o predictoras que promete analizar, junto a las etiquetas legibles. Alinea también método y componentes.')
+    for step in plan.components:
+        check(step.method, step.variables)
+    validate_independence('\n'.join([plan.objective, plan.method, plan.justification, *plan.requirements, *plan.limitations]), context, require_pending=False)
+    if plan.procedure == 'integral':
+        used = {_key(v) for step in plan.components for v in step.variables}
+        selectors = ([s.variable for s in plan.comparison.filters] + ([plan.comparison.strata.variable] if plan.comparison.strata else [])) if plan.comparison else []
+        used.update(_key(v) for v in selectors)
+        if any(_key(v) not in used for v in plan.variables):
+            raise ValueError('Cada variable del plan integral debe participar en un componente, filtro o estrato declarado.')
 
 
 def available_analyses(files):
@@ -69,6 +102,7 @@ def validate_methodology(plan, column_for, context=None):
     comparison = plan.comparison
     if not comparison:
         return
+    validate_independence(comparison.independence, context)
     if not any(s.procedure in ('group_comparison', 'paired_comparison') for s in steps):
         raise ValueError('Los detalles de comparación deben corresponder a un componente comparativo.')
     if has_welch and comparison.design != 'independent':
@@ -119,6 +153,11 @@ def validate_methodology(plan, column_for, context=None):
         raise ValueError('g de Hedges debe documentar su factor de corrección por sesgo.')
     if effect.name == 'hedges_g' and not re.search(r'df|\bgl\b|grados|n_?1|n₁', effect.correction, re.I):
         raise ValueError('Documenta los grados de libertad o tamaños de grupo usados por la corrección de Hedges.')
+    if effect.name == 'hedges_g' and effect.standardizer == 'pooled_sd':
+        correction = normalize(effect.correction).translate(str.maketrans('₁₂−', '12-'))
+        correction = re.sub(r'[\s_{}()]', '', correction)
+        if not re.search(r'n1\+n2-2', correction) or re.search(r'j(?:df|gl|ν)?welch|(?:df|gl|ν)h=(?:welch|satterthwaite|νw|dfw)', correction):
+            raise ValueError('Con SD combinada, Hedges usa ν_H=n1+n2−2 en J(ν_H); no usar los grados de libertad Welch–Satterthwaite del contraste. Diferencia ambos y conserva el IC previsto.')
     if effect.standardizer == 'pooled_sd' and not any(re.search(r'varianz|heterog|estandariz|combinad', limitation, re.I) for limitation in plan.limitations):
         raise ValueError('Explica la interpretación y limitación de un estandarizador combinado con varianzas potencialmente distintas.')
     if comparison.strata and len(comparison.strata.values) > 1 and comparison.purpose == 'confirmatory' and comparison.multiplicity == 'pending':

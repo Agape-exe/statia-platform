@@ -25,11 +25,15 @@ def variable(column, role='outcome'):
 
 
 def base_plan(procedure='descriptive', **kwargs):
-    return {'title': 'Explorar las medidas', 'objective': 'Conocer las características morfológicas',
+    result = {'title': 'Explorar las medidas', 'objective': 'Conocer las características morfológicas',
             'variables': [variable('body_mass_g')], 'procedure': procedure, 'method': 'Resúmenes descriptivos',
             'justification': 'Hay medidas cuantitativas disponibles.', 'requirements': ['Revisar observaciones válidas'],
             'limitations': ['No inferir causalidad; considerar heterogeneidad de varianzas'],
             'expected_outputs': ['Tabla de resultados al ejecutar en Sesión 03'], **kwargs}
+
+    if 'objective' not in kwargs:
+        result['objective'] += ' (' + ', '.join(v['column'] for v in result['variables'] if v['role'] in ('outcome', 'predictor')) + ')'
+    return result
 
 
 def alternatives():
@@ -237,6 +241,8 @@ def test_welch_ambiguous_scope_is_deterministic_then_selected_species_is_persist
     detail = client.get(path).json()
     assert detail['conversation']['current_stage'] == 'clarification'
     assert 'una especie específica' in detail['messages'][-1]['content']
+    assert detail['conversation']['title'] != 'Nueva conversación'
+    assert detail['conversation']['stage_data']['title_provisional'] is True
     assert not detail['proposals'] and not provider.contexts
     provider.replies.append(reply(proposals=[replace_file_ids(welch_plan(), fid)], suggested_stage='proposal'))
     assert turn(client, path, content=answer).status_code == 200
@@ -301,3 +307,135 @@ def test_accepted_legacy_proposals_are_not_rewritten_or_reinterpreted(api):
     assert client.patch(path + '/proposals/' + old['id'], json={'status': 'accepted'}).status_code == 200
     assert store.data['analysis_proposals'] == [old]
     assert not provider.contexts
+
+
+def test_missing_title_uses_real_goal_then_accepted_plan_without_extra_calls(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action='instrument_no')
+    fid = attach_penguins(client, path)
+    provider.replies.append(reply(detected_goal=None, suggested_title=None,
+                                  proposals=replace_file_ids(alternatives(), fid)))
+    assert turn(client, path, content='No conozco el dataset, recomiéndame alternativas para analizarlo.').status_code == 200
+    detail = client.get(path).json()
+    assert detail['conversation']['title'] == 'Exploración estadística de los datos'
+    assert detail['conversation']['stage_data']['title_provisional'] is True
+    chosen = detail['proposals'][-1]
+    assert client.patch(path + '/proposals/' + chosen['id'], json={'status': 'accepted'}).status_code == 200
+    state = client.get(path).json()['conversation']
+    assert state['title'] == chosen['title']
+    assert state['stage_data']['title_provisional'] is False
+    assert len(provider.contexts) == 1
+    assert client.patch(path + '/proposals/' + chosen['id'], json={'status': 'accepted'}).status_code == 200
+    assert client.get(path).json()['conversation'] == state
+
+
+def test_fallback_and_acceptance_preserve_manual_titles(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action='instrument_no')
+    fid = attach_penguins(client, path)
+    client.patch(path, json={'title': 'Mi título personalizado'})
+    provider.replies.append(reply(detected_goal='Explorar medidas', suggested_title=None,
+                                  proposals=[replace_file_ids(base_plan(), fid)]))
+    assert turn(client, path, content='Quiero explorar las medidas.').status_code == 200
+    detail = client.get(path).json()
+    assert client.patch(path + '/proposals/' + detail['proposals'][0]['id'], json={'status': 'accepted'}).status_code == 200
+    assert client.get(path).json()['conversation']['title'] == 'Mi título personalizado'
+
+
+def test_titles_are_compact_and_action_labels_are_not_final_titles():
+    from app.services.titles import automatic_title
+    title, provisional = automatic_title({'title': 'Nueva conversación'}, 'Comprender los archivos adjuntos', 'Comparar ' + 'mediciones ' * 30)
+    assert len(title) <= 80 and title.startswith('Comparar') and provisional
+    assert automatic_title({'title': 'Un título útil'}, 'Otro título', 'Explorar')[0] is None
+
+
+@pytest.mark.parametrize('text', [
+    'Los individuos son distintos, garantizando independencia.',
+    'Independencia confirmada por tener una fila por individuo.',
+    'Los registros son de individuos diferentes.',
+    'Independencia verificada; verificar otros supuestos después.',
+])
+def test_distinct_rows_do_not_confirm_independence(text):
+    plan = welch_plan()
+    plan['comparison']['independence'] = text
+    with pytest.raises(ValueError, match='independencia|Independencia'):
+        validated(plan, scope())
+
+
+def test_independence_pending_does_not_block_exploration_and_evidence_is_user_only():
+    from app.services.independence import user_independence_evidence
+    validated(welch_plan(), scope())
+    sufficient = 'Muestreo aleatorio individual, una sola medición por individuo, sin pareamiento ni conglomerados.'
+    assert not user_independence_evidence([{'role': 'assistant', 'content': sufficient}])
+    assert not user_independence_evidence([{'role': 'user', 'content': 'Son individuos distintos.'}])
+    assert not user_independence_evidence([{'role': 'user', 'content': 'No hubo ' + sufficient}])
+    evidence = user_independence_evidence([{'role': 'user', 'content': sufficient}])
+    assert evidence
+    assert not user_independence_evidence([{'role': 'user', 'content': 'Me equivoqué, hay mediciones repetidas.'}], evidence)
+    plan = welch_plan()
+    plan['comparison']['independence'] = 'Independencia informada por el usuario según muestreo y diseño, no deducida del perfil.'
+    validated(plan, {**scope(), 'independence_evidence': evidence})
+
+
+@pytest.mark.parametrize('correction', [
+    'J(df_Welch); df_Welch = Welch-Satterthwaite.',
+    'J(df_Welch), aunque n1+n2-2 se usa en la SD combinada.',
+    'J(df) para corregir sesgo, grados de libertad pendientes.',
+])
+def test_pooled_hedges_requires_its_own_degrees_of_freedom(correction):
+    plan = welch_plan()
+    plan['comparison']['effect_size'].update(name='hedges_g', correction=correction)
+    with pytest.raises(ValueError, match='Hedges usa'):
+        validated(plan, scope())
+
+
+def test_hedges_and_welch_df_are_distinguished_and_ci_is_retained():
+    plan = welch_plan()
+    plan['comparison']['effect_size'].update(name='hedges_g',
+        correction='J(ν_H)≈1−3/(4ν_H−1), ν_H=n₁+n₂−2. Los gl Welch–Satterthwaite pertenecen solo al contraste.')
+    result = validated(plan, scope())
+    assert result.proposals[0].comparison.effect_size.confidence_interval
+
+
+@pytest.mark.parametrize('kind', ['objective', 'method', 'component', 'unused'])
+def test_objective_method_and_component_variables_must_agree(kind):
+    plan = base_plan()
+    if kind == 'objective': plan['objective'] = 'Analizar body_mass_g y bill_length_mm'
+    elif kind == 'method': plan['method'] = 'Calcular descriptivos de bill_length_mm'
+    else:
+        plan = alternatives()[-1]
+        if kind == 'component': plan['components'][0]['method'] = 'Resumir bill_length_mm'
+        else: plan['variables'].append(variable('bill_length_mm'))
+    with pytest.raises(ValueError, match='variables|variable|declarada'):
+        validated(plan)
+
+
+def test_incoherent_proposal_cannot_be_accepted(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action='instrument_no')
+    fid = attach_penguins(client, path)
+    plan = replace_file_ids(base_plan(objective='Analizar body_mass_g y bill_length_mm'), fid)
+    proposal_id = str(uuid4())
+    store.data['analysis_proposals'].append({'id': proposal_id, 'conversation_id': path.split('/')[-1], 'status': 'proposed', 'analysis_plan': plan})
+    assert client.patch(path + '/proposals/' + proposal_id, json={'status': 'accepted'}).status_code == 422
+    assert store.data['analysis_proposals'][0]['status'] == 'proposed'
+
+
+def test_new_objectives_must_bind_human_labels_to_canonical_columns():
+    plan = base_plan(objective='Estudiar masa corporal y dimensiones del pico')
+    with pytest.raises(ValueError, match='nombre exacto'):
+        validated(plan, {'canonical_objectives': True})
+    plan['objective'] = 'Estudiar masa corporal (body_mass_g) y dimensiones del pico (bill_length_mm)'
+    with pytest.raises(ValueError, match='no está declarada'):
+        validated(plan, {'canonical_objectives': True})
+    plan['variables'].append(variable('bill_length_mm'))
+    validated(plan, {'canonical_objectives': True})
+
+
+def test_guarantee_in_assistant_prose_is_rejected_even_with_pending_plan():
+    result = AssistantReply.model_validate(reply(response='Son individuos distintos, garantizando la independencia.', proposals=[welch_plan()]))
+    with pytest.raises(ValueError, match='No garantizar'):
+        validate_reply(result, penguins(), {'project_type': 'general'}, scope())

@@ -6,6 +6,8 @@ from app.models.chat import AssistantReply
 from app.services.gemini import build_context, validate_reply
 from app.services.conversation_text import ACTION_LABELS, normalize, statistical_request, humanize_reply
 from app.services.methodology import levels
+from app.services.titles import automatic_title
+from app.services.independence import user_independence_evidence
 
 
 async def linked_files(store, conversation):
@@ -55,6 +57,8 @@ def comparison_scope(conversation, turn, files):
     result = static_result(state, 'clarification', question)
     if not conversation.get('primary_goal') and statistical_request(candidate['request']):
         result['goal'] = candidate['request']
+        result['title'], provisional = automatic_title(conversation, None, result['goal'])
+        result['stage_data'] = {**data, 'title_provisional': provisional}
     return state, result
 
 
@@ -138,6 +142,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         actions = {r['request_id']: r['payload'].get('action', 'message') for r in requests}
         messages = [{**m, 'metadata': {**m.get('metadata', {}), 'turn_action': actions[m['metadata']['request_id']]}}
                     if m.get('metadata', {}).get('request_id') in actions else m for m in messages]
+    data = dict(conversation.get('stage_data', {}))
+    data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
+    conversation = {**conversation, 'stage_data': data}
     context = build_context(project, conversation, messages, files, turn, settings)
     # Un único intento de corrección semántica; sin bucles de herramientas.
     reply = await provider.generate(context)
@@ -174,13 +181,16 @@ def reply_result(reply: AssistantReply, conversation):
         return {'stage': conversation['current_stage'], 'content': reply.response, 'message_type': 'confirmation',
                 'stage_data': data, 'metadata': metadata, 'proposals': []}
     data['goal_change'] = None
+    title, provisional = automatic_title(conversation, reply.suggested_title, conversation.get('primary_goal') or reply.detected_goal)
+    data['title_provisional'] = provisional
     # El modelo solo sugiere; la aplicación decide las transiciones y nunca acepta planes.
     if reply.proposals:
+        data['canonical_objectives'] = True
         stage, kind = 'proposal', 'proposal'
     elif reply.questions:
         stage, kind = 'clarification', 'question'
     else:
         stage, kind = ('goal' if reply.suggested_stage == 'proposal' else reply.suggested_stage), 'dataset_summary'
     return {'stage': stage, 'content': reply.response, 'message_type': kind, 'stage_data': data,
-            'goal': reply.detected_goal, 'title': reply.suggested_title, 'metadata': metadata,
+            'goal': reply.detected_goal, 'title': title, 'metadata': metadata,
             'proposals': [p.model_dump(mode='json') for p in reply.proposals]}

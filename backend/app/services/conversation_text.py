@@ -18,7 +18,7 @@ def statistical_request(text):
     if re.search(r'que (es|significa)|como funciona|explicame|puedes explicar', text) and not re.search(r'quiero (compar|analiz|explor)|deseo (compar|analiz|explor)', text):
         return False
     intent = re.search(r'quiero|deseo|me gustaria|necesito|recomiend|sugier|prop[oó]n|que analisis|puedes|compara|analiza|explora|no .*conozco|no se', text)
-    subject = re.search(r'anal[iy]s|compar|explor|describ|distribu|correla|relacion|asocia|mejoraron|diferenc|investig|welch|rendimiento|estim|determina', text)
+    subject = re.search(r'anal[iy]s|analiz|alternativas|compar|explor|describ|distribu|correla|relacion|asocia|mejoraron|diferenc|investig|welch|rendimiento|estim|determina', text)
     return bool(intent and subject)
 
 
