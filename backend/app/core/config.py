@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     max_columns: int = Field(default=120, ge=1, le=300)
     max_expanded_bytes: int = Field(default=30 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     max_conversation_files: int = Field(default=12, ge=1, le=30)
+    missing_value_markers: str = 'NA,N/A,null,NaN,None,<NA>'
+    # Decisiones explícitas por columna; no se deducen categorías ausentes por su nombre.
+    missing_value_overrides: dict[str, list[str]] = Field(default_factory=dict)
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

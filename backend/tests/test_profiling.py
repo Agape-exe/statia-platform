@@ -1,6 +1,10 @@
 import io
 import json
 import zipfile
+import csv
+import hashlib
+from pathlib import Path
+from datetime import date
 
 import pytest
 from fastapi import HTTPException
@@ -103,3 +107,77 @@ def test_pdf_no_text_is_retained_without_ocr():
 def test_filename_cannot_escape_path():
     assert safe_name('../../datos.csv') == 'datos.csv'
     assert '/' not in safe_name('..\\..\\año 2026.csv')
+
+
+@pytest.mark.parametrize('marker', ['NA', 'N/A', 'null', 'NaN', 'None', '<NA>', ''])
+def test_numeric_missing_markers_preserve_source_and_infer_number(marker):
+    # Una segunda columna evita que un registro vacío se interprete como línea en blanco.
+    data = f'masa_g,grupo\n10,A\n{marker},B\n20,A'.encode()
+    result = inspect_file('datos.csv', data, 'dataset', Settings())
+    column = result['profile']['columns'][0]
+    assert column['physical_type'] == 'numeric'
+    assert column['source_representation'] == 'csv_text'
+    assert column['statistical_type'] == 'quantitative'
+    assert column['missing'] == 1 and column['mean'] == 15
+    assert data.decode().splitlines()[2] == f'{marker},B'
+
+
+def test_legitimate_category_na_mixed_empty_ids_and_year():
+    data = b'estudiante_id,region,medida,vacia,year\n1,NA,10,,2007\n2,EU,invalido,,2008\n3,NA,20,,2009'
+    profile = inspect_file('datos.csv', data, 'dataset', Settings())['profile']
+    columns = {c['name']: c for c in profile['columns']}
+    assert columns['region']['missing'] == 0
+    assert columns['region']['ambiguous_missing'] == {'NA': 2}
+    assert columns['region']['unique'] == 2
+    assert columns['medida']['inferred_type'] == 'mixed'
+    assert columns['medida']['missing'] == 0
+    assert columns['medida']['warnings']
+    assert columns['vacia']['statistical_type'] == 'unknown'
+    assert columns['vacia']['missing'] == 3
+    assert columns['estudiante_id']['possible_identifier']
+    assert columns['year']['possible_temporal']
+    assert 'year' not in profile['numeric_variables']
+    assert 'estudiante_id' not in profile['numeric_variables']
+
+
+def test_configurable_markers_and_explicit_decision_for_categorical_data():
+    settings = Settings(missing_value_markers='NA,desconocido', missing_value_overrides={'region': ['NA']})
+    profile = inspect_file('datos.csv', b'masa_g,region\n10,NA\ndesconocido,EU\n20,AS', 'dataset', settings)['profile']
+    assert [c['missing'] for c in profile['columns']] == [1, 1]
+    assert profile['columns'][1]['ambiguous_missing'] == {}
+
+
+def test_temporal_native_origin_and_invalid_calendar_values():
+    book = Workbook()
+    book.active.append(['fecha', 'year'])
+    book.active.append([date(2020, 1, 1), 2020])
+    book.active.append([date(2020, 2, 1), 2020])
+    out = io.BytesIO()
+    book.save(out)
+    profile = inspect_file('fechas.xlsx', out.getvalue(), 'dataset', Settings())['profile']
+    assert profile['columns'][0]['source_representation'] == 'native_temporal'
+    assert profile['columns'][0]['possible_temporal']
+    invalid = inspect_file('fechas.csv', b'fecha\n2020-99-99\n2020-01-01', 'dataset', Settings())['profile']
+    assert not invalid['columns'][0]['possible_temporal']
+
+
+def test_original_penguins_against_independent_reference_without_modifying_bytes():
+    data = (Path(__file__).parent / 'fixtures/penguins.csv').read_bytes()
+    digest = 'f204db2c753b0937caac3cb35258562c14f073e4bbc76be24b4c51ce22767a93'
+    assert hashlib.sha256(data).hexdigest() == digest
+    reference = list(csv.DictReader(io.StringIO(data.decode())))
+    counts = {name: sum(row[name] == 'NA' for row in reference) for name in reference[0]}
+    profile = inspect_file('penguins.csv', data, 'dataset', Settings())['profile']
+    assert profile['row_count'] == len(reference) == 344
+    assert profile['column_count'] == len(reference[0]) == 8
+    for column in profile['columns']:
+        if column['name'] in ('bill_length_mm', 'bill_depth_mm', 'flipper_length_mm', 'body_mass_g'):
+            assert column['physical_type'] == 'numeric'
+            assert column['statistical_type'] == 'quantitative'
+            assert column['missing'] == counts[column['name']] == 2
+    assert profile['missing_count'] == 8
+    assert profile['ambiguous_missing_count'] == counts['sex'] == 11
+    confirmed = inspect_file('penguins.csv', data, 'dataset', Settings(missing_value_overrides={'sex': ['NA']}))['profile']
+    assert {c['name']: c['missing'] for c in confirmed['columns']} == counts
+    assert confirmed['missing_count'] == 19
+    assert hashlib.sha256(data).hexdigest() == digest

@@ -56,47 +56,88 @@ def numeric(value):
         return None
 
 
-def table_profile(headers, records, settings):
+def temporal_value(value):
+    if not re.match(r'^\d{4}-\d{2}-\d{2}(?:T.*)?$', str(value)):
+        return False
+    try:
+        datetime.fromisoformat(str(value))
+        return True
+    except ValueError:
+        return False
+
+
+def table_profile(headers, records, settings, source='native'):
     if not headers or len(headers) > settings.max_columns:
         invalid(f'La tabla debe tener entre 1 y {settings.max_columns} columnas.')
     headers = [str(h).strip() if h is not None else '' for h in headers]
     if any(not h or len(h) > 240 for h in headers) or len(set(headers)) != len(headers):
         invalid('Las columnas deben tener nombres únicos, no vacíos y de hasta 240 caracteres.')
     rows = []
+    origins = [set() for _ in headers]
     for record in records:
         if len(rows) >= settings.max_rows:
             invalid(f'La tabla supera el límite preliminar de {settings.max_rows} filas. Divide el archivo.')
         if len(record) != len(headers):
             invalid('Hay filas con un número de celdas diferente al encabezado.')
-        rows.append([clean(value) for value in record])
+        cleaned = [clean(value) for value in record]
+        for index, value in enumerate(record):
+            if cleaned[index] is not None:
+                origins[index].add('native_temporal' if isinstance(value, (date, datetime)) else 'native_boolean' if isinstance(value, bool)
+                                   else 'native_numeric' if isinstance(value, (int, float)) else 'native_text')
+        rows.append(cleaned)
     if not rows:
         invalid('La tabla no contiene registros.')
     columns = []
+    marker_tokens = {v.strip().casefold() for v in settings.missing_value_markers.split(',') if v.strip()}
     for i, name in enumerate(headers):
-        values = [r[i] for r in rows if r[i] is not None]
+        original = [r[i] for r in rows]
+        present = [v for v in original if v is not None]
+        explicit_tokens = {v.casefold() for v in settings.missing_value_overrides.get(name, [])}
+        candidates = Counter(v for v in present if isinstance(v, str) and v.casefold() in marker_tokens | explicit_tokens)
+        ordinary = [v for v in present if not (isinstance(v, str) and v in candidates)]
+        numeric_evidence = len(ordinary) >= 2 and all(numeric(v) is not None for v in ordinary)
+        # Solo inferir ausencia en columnas por lo demás numéricas. En texto, NA se conserva.
+        inferred_tokens = {v for v in candidates if numeric_evidence or v.casefold() in explicit_tokens}
+        values = [v for v in present if v not in inferred_tokens]
+        ambiguous = {v: count for v, count in candidates.items() if v not in inferred_tokens}
+        inferred_missing = sum(candidates[v] for v in inferred_tokens)
         counts = Counter((type(v).__name__, str(v)) for v in values)
         unique = len(counts)
         numbers = [numeric(v) for v in values]
         is_number = bool(values) and all(v is not None for v in numbers)
-        temporal = bool(values) and all(re.match(r'^\d{4}-\d{2}-\d{2}(?:T.*)?$', str(v)) for v in values)
+        year = bool(values) and bool(re.search(r'(^|_)(year|año|anio)(_|$)', name, re.I)) and is_number and all(v.is_integer() and 1000 <= v <= 3000 for v in numbers)
+        temporal = year or (bool(values) and all(temporal_value(v) for v in values))
         identifier = bool(values) and (bool(re.search(r'(^id$|_id$|^id_|identificador|c[oó]digo|dni)', name, re.I)) or
-                                               (unique == len(rows) and not is_number and not temporal))
+            all(re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', str(v), re.I) for v in values))
         physical = 'empty' if not values else 'boolean' if all(isinstance(v, bool) for v in values) else 'numeric' if is_number else 'text'
-        statistical = 'identifier' if identifier else 'temporal' if temporal else 'categorical_or_ordinal' if unique <= 12 else 'quantitative' if is_number else 'categorical'
+        mixed = bool(values) and any(numeric(v) is not None for v in values) and not is_number
+        measurement = bool(re.search(r'(_mm|_cm|_kg|_g|length|depth|mass|longitud|masa|peso)(_|$)', name, re.I))
+        statistical = ('identifier' if identifier else 'temporal' if temporal else 'unknown' if not values else 'mixed' if mixed
+                       else 'quantitative' if is_number and (measurement or unique > 12) else 'categorical_or_ordinal' if unique <= 12 else 'categorical')
         column = {'name': name, 'physical_type': physical, 'statistical_type': statistical,
+                  'source_representation': 'csv_text' if source == 'csv' else next(iter(origins[i])) if len(origins[i]) == 1 else 'native_mixed' if origins[i] else 'empty',
+                  'inferred_type': 'mixed' if mixed else physical,
                   'semantic_hint': 'Identificador probable; confirmar su significado.' if identifier else 'Significado por confirmar con el usuario.',
                   'missing': len(rows) - len(values), 'unique': unique, 'possible_identifier': identifier,
+                  'missing_confirmed': len(rows) - len(present), 'missing_inferred': inferred_missing,
+                  'ambiguous_missing': ambiguous, 'missing_markers': dict(candidates),
+                  'warnings': ([f'{name}: se interpretaron {inferred_missing} marcadores como ausencia para el perfil, sin modificar el original.'] if inferred_missing else [])
+                              + ([f'{name}: {sum(ambiguous.values())} cadenas podrían indicar ausencia o categorías legítimas; se conservan hasta confirmar su significado.'] if ambiguous else [])
+                              + ([f'{name}: mezcla números y texto no interpretable como número; no se convirtió ni descartó ese texto.'] if mixed else []),
                   'possible_temporal': temporal, 'sensitive': bool(SENSITIVE.search(name)),
                   'distribution': [{'value': value[:120], 'count': count} for (_, value), count in counts.most_common(5)]}
+        if unique <= 20 and not column['sensitive'] and not identifier:
+            column['levels'] = [{'value': value, 'count': count} for (_, value), count in counts.items()]
         if is_number:
             column.update(min=min(numbers), max=max(numbers), mean=statistics.fmean(numbers))
         elif temporal:
             column.update(min=min(str(v) for v in values), max=max(str(v) for v in values))
         columns.append(column)
-    return {'row_count': len(rows), 'column_count': len(headers), 'columns': columns,
+    return {'profile_version': 2, 'row_count': len(rows), 'column_count': len(headers), 'columns': columns,
             'missing_count': sum(c['missing'] for c in columns),
+            'ambiguous_missing_count': sum(sum(c['ambiguous_missing'].values()) for c in columns),
             'duplicate_rows': len(rows) - len({tuple((type(v).__name__, str(v)) for v in r) for r in rows}),
-            'numeric_variables': [c['name'] for c in columns if c['physical_type'] == 'numeric'],
+            'numeric_variables': [c['name'] for c in columns if c['physical_type'] == 'numeric' and not c['possible_identifier'] and not c['possible_temporal']],
             'categorical_variables': [c['name'] for c in columns if c['statistical_type'] in ('categorical', 'categorical_or_ordinal')],
             'possible_identifiers': [c['name'] for c in columns if c['possible_identifier']],
             'possible_temporal_variables': [c['name'] for c in columns if c['possible_temporal']],
@@ -163,7 +204,7 @@ def _inspect_file(name: str, data: bytes, role: str, settings: Settings, sheet: 
                     invalid('La hoja supera los límites preliminares de filas o columnas.')
                 iterator = tab.iter_rows(values_only=True)
                 headers = next(iterator, [])
-                profile = table_profile(headers, iterator, settings)
+                profile = table_profile(headers, iterator, settings, 'xlsx')
             finally:
                 book.close()
         else:
@@ -178,7 +219,7 @@ def _inspect_file(name: str, data: bytes, role: str, settings: Settings, sheet: 
                     delimiter = ';' if text.splitlines()[0].count(';') > text.splitlines()[0].count(',') else ','
                 iterator = csv.reader(io.StringIO(text), delimiter=delimiter, strict=True)
                 headers = next(iterator, [])
-                profile = table_profile(headers, iterator, settings)
+                profile = table_profile(headers, iterator, settings, 'csv')
                 names, selected = ['tabla'], 'tabla'
             else:
                 records = json.loads(text, parse_constant=lambda x: invalid('El JSON contiene valores no finitos.'))
@@ -187,11 +228,12 @@ def _inspect_file(name: str, data: bytes, role: str, settings: Settings, sheet: 
                 if len(records) > settings.max_rows:
                     invalid(f'El JSON supera {settings.max_rows} filas.')
                 headers = list(dict.fromkeys(k for record in records for k in record))
-                profile = table_profile(headers, ([record.get(h) for h in headers] for record in records), settings)
+                profile = table_profile(headers, ([record.get(h) for h in headers] for record in records), settings, 'json')
                 names, selected = ['tabla'], 'tabla'
         return {'file_type': extension, 'sheets': names, 'selected_sheet': selected,
                 'needs_sheet_selection': False, 'profile': profile,
-                'warnings': ['Los tipos estadísticos y semánticos son hipótesis, no decisiones metodológicas. No se han corregido faltantes ni duplicados.']}
+                'warnings': ['Los tipos estadísticos y semánticos son hipótesis, no decisiones metodológicas. No se han corregido faltantes ni duplicados.']
+                            + [warning for column in profile['columns'] for warning in column['warnings']]}
     except HTTPException:
         raise
     except Exception:
