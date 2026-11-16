@@ -1,5 +1,11 @@
 # Arquitectura
 
+La corrección de UX de Sesión 03 incorpora preparación determinista y aclaraciones en el mismo chat. `execution_preparation.py` orquesta la relectura privada compartida con ejecución; `statistics/automatic.py` comprueba originales y catálogo en el proceso acotado existente. `methods.py` reconoce conservadoramente nombres/códigos de planes v1 y preserva alternativas ambiguas. No hay otro motor ni ejecución de código generado.
+
+Las acciones aditivas `prepare_execution`, `clarify_execution` y `cancel_execution` pasan por `begin_chat_turn`/`finish_chat_turn`. `stage_data.execution_preparation` conserva propuesta, respuestas por pregunta con hash y evaluación; cada respuesta del asistente conserva la evaluación en metadata. No se cambia la finalidad, la etapa ni el plan aceptado. El UUID/payload del turno protege mensajes y concurrencia con ejecuciones. No se requiere una migración adicional.
+
+`ExecutionPreparation` v1 diferencia READY, NEEDS_CLARIFICATION y UNSUPPORTED. Su especificación conserva `decisions_confirmed=false`; la acción final del usuario lo confirma. El request de ejecución añade opcionalmente `preparation_fingerprint`; el servidor contrasta UUID, propuesta, estado, huella y especificación, y el hijo revalida los originales antes de calcular. El UUID automático es estable para propuesta/huella y evita duplicados tras reabrir/repreparar. Los clientes avanzados anteriores siguen usando ExecutionSpec v1 y se someten a las comprobaciones comunes. Detalles en [EXECUTION_UX](EXECUTION_UX.md).
+
 El navegador conserva Supabase JS para Auth y CRUD de proyectos. `AuthProvider` recupera y renueva la sesión; guards esperan la inicialización y las rutas privadas se remontan al cambiar de usuario. El chat se carga bajo demanda dentro del workspace existente. Presentación en `components`/`pages`, consultas en `services`, clientes en `lib`, contratos en `types`.
 
 `lib/api.ts` adjunta el JWT a FastAPI, renueva una vez ante 401 y permite recuperar acceso si vence la sesión. `core/auth.py` consulta `/auth/v1/user`, sin confiar en una identidad proporcionada por el cliente. REST/Storage usan ese mismo JWT y la clave publicable. No hay `service_role` ni CRUD duplicado de proyectos.
