@@ -73,8 +73,12 @@ def validate_spec(plan: Plan, spec: ExecutionSpec):
                 spec.multiplicity == comparison.multiplicity, "Conserva el ajuste de multiplicidad del plan aceptado."
             )
         require(
-            comparison.effect_size.standardizer in ("pooled_sd", "none"),
-            "Este plan pide otro estandarizador de efecto. Solicita un plan con SD combinada o diferencia sin estandarizar.",
+            (
+                comparison.effect_size.name in ("cohen_d", "hedges_g")
+                and comparison.effect_size.standardizer == "pooled_sd"
+            )
+            or (comparison.effect_size.name == "mean_difference" and comparison.effect_size.standardizer == "none"),
+            "Este plan pide otro efecto o estandarizador. Solicita un plan con d/g de SD combinada o diferencia sin estandarizar.",
         )
     scope_keys = {key(f.variable) for f in required_filters} | (
         {key(comparison.strata.variable)} if comparison and comparison.strata else set()

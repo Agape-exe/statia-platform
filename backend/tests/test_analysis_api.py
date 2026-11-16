@@ -224,6 +224,10 @@ def test_execute_reload_list_zip_idempotency_and_context(analysis_client):
 
 def test_rejected_cross_scope_unlinked_and_ambiguous_requests(analysis_client):
     client, store, endpoint, body = analysis_client
+    store.data["projects"][0]["project_type"] = "thesis"
+    assert client.post(endpoint, json=body).status_code == 422
+    assert not store.data["analysis_runs"]
+    store.data["projects"][0]["project_type"] = "general"
     store.data["analysis_proposals"][0]["status"] = "rejected"
     assert client.post(endpoint, json=body).status_code == 409
     store.data["analysis_proposals"][0]["status"] = "accepted"

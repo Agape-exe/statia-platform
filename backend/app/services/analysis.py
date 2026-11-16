@@ -56,6 +56,10 @@ async def public_run(store, run, *, detail=False):
 async def execute(store, identity, project, conversation, proposal, body, settings):
     try:
         plan = Plan.model_validate(proposal["analysis_plan"])
+        if project.get("project_type") == "thesis" and not plan.methodology_confirmed:
+            raise AnalysisError(
+                "La metodología de tesis no está confirmada en el plan actual. Solicita una propuesta revisada."
+            )
         validate_spec(plan, body.specification)
     except (ValidationError, AnalysisError) as exc:
         raise HTTPException(
