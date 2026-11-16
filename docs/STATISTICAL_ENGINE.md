@@ -1,5 +1,7 @@
 # Motor estadístico — Sesión 03
 
+Sesión 04: la preparación de hosting y las mediciones reproducibles en Windows/Linux están en [DEPLOYMENT](DEPLOYMENT.md) y [SESSION04_VALIDATION](SESSION04_VALIDATION.md). No se modificaron fórmulas ni métodos. La prueba de memoria ahora completa el descriptivo sin intervalos inferenciales y falla si no se calcula realmente.
+
 La consulta de resultados parciales conserva las aclaraciones pendientes. Revisar componentes abre sus detalles sin volver a preparar; ver [la corrección de conversación y revisión](RESULTS_CONVERSATION.md).
 
 Los planes integrales se preparan por componentes y permiten ejecución parcial confirmada. Los descriptivos automáticos describen observaciones sin IC de media; no se confirma independencia implícitamente. Las familias Holm y las dependencias conservan sus restricciones. Véase [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md).

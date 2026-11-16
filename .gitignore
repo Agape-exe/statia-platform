@@ -11,3 +11,4 @@ coverage/
 *.tsbuildinfo
 .vercel/
 .ruff_cache/
+frontend/__qa__/

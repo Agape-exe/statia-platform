@@ -120,7 +120,11 @@ async def main():
                 ensure_ascii=False,
             )
         )
-        if child.returncode or result.get("error") or result.get("result", {}).get("status") not in ("completed", "partial"):
+        if (
+            child.returncode
+            or result.get("error")
+            or result.get("result", {}).get("status") not in ("completed", "partial")
+        ):
             raise SystemExit("La medición no completó un análisis; revisar el contrato o el entorno.")
     finally:
         if child.returncode is None:
