@@ -11,6 +11,7 @@ from app.services.independence import user_independence_evidence
 from app.services.planning_errors import PlanningIssue, log_issues
 from app.services.planning_validation import Assessment, assess_reply, retain_valid_plans
 from app.services.analysis_context import saved_results_context
+from app.services.research_context import current_context
 
 
 async def linked_files(store, conversation):
@@ -160,7 +161,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
     conversation = {**conversation, 'stage_data': data}
     analysis_results = await saved_results_context(store, conversation, turn.content)
-    context = build_context(project, conversation, messages, files, turn, settings, analysis_results)
+    research = await current_context(store, project)
+    context = build_context(project, conversation, messages, files, turn, settings, analysis_results, research)
     discussion = bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
     if discussion:
         from app.services.analysis_context import safe_text
@@ -230,6 +232,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     if turn.action != 'message' or not statistical_request(turn.content):
         reply.goal_change = False
     result = reply_result(reply, conversation)
+    if research:
+        result['metadata']['research_context_revision'] = research['revision']
     if discussion:
         result['stage'] = conversation['current_stage']
         result['goal'] = result['title'] = None

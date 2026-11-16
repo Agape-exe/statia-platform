@@ -1,5 +1,7 @@
 # Configuración local
 
+Sesión 04: aplicar únicamente la migración aditiva 006 si aún no está instalada para habilitar [Contexto de tesis](THESIS_CONTEXT.md). La preparación y publicación manual de backend/frontend, variables de producción y Auth se explican en [DEPLOYMENT](DEPLOYMENT.md). Conservar el acceso local; no repetir 001–005 ya aplicadas.
+
 Actualización integral: aplicar `202611160005_chat_timeline.sql` después de 001–004 y reiniciar API/Vite. No modificar ni repetir migraciones ya aplicadas. El recorrido parcial, continuación y validaciones pendientes se explica en [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md).
 
 ## 1. Supabase

@@ -1,14 +1,15 @@
-import logging
 import asyncio
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.health import router
-from app.core.config import Settings
-from app.api.chat import router as chat_router
 from app.api.analysis import router as analysis_router
+from app.api.chat import router as chat_router
+from app.api.health import router
+from app.api.research_context import router as context_router
+from app.core.config import Settings
 from app.services.gemini import GeminiProvider
 
 
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(chat_router)
     app.include_router(analysis_router)
+    app.include_router(context_router)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
