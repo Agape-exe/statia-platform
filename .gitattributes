@@ -1,3 +1,8 @@
+# Formato reproducible entre Windows y CI Linux.
+frontend/** text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.sql text eol=lf
 # Fixture público congelado: conservar exactamente sus bytes, también en Windows.
 backend/tests/fixtures/penguins.csv -text
 backend/tests/fixtures/titanic.csv -text

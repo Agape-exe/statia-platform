@@ -138,8 +138,12 @@ $$;
 
 create function public.finish_analysis_run(p_run uuid, p_token uuid, p_result jsonb, p_artifacts jsonb)
 returns void language plpgsql security invoker set search_path = '' as $$
-declare r public.analysis_runs; item jsonb; v_status text;
+declare r public.analysis_runs; item jsonb; v_status text; v_conversation uuid;
 begin
+    -- Mismo orden de bloqueos que begin_analysis_run: conversación, después ejecución.
+    select conversation_id into v_conversation from public.analysis_runs where id=p_run;
+    if not found then raise exception 'Ejecución no disponible'; end if;
+    perform 1 from public.conversations where id=v_conversation for update;
     select * into r from public.analysis_runs where id=p_run for update;
     if not found or r.status <> 'running' or r.lease_token <> p_token then raise exception 'La concesión de ejecución ya no es válida'; end if;
     v_status := p_result->>'status';
@@ -161,6 +165,7 @@ begin
     where id=r.id;
     insert into public.messages(conversation_id,role,content,message_type,metadata)
     values(r.conversation_id,'assistant',p_result->>'summary','event',jsonb_build_object('analysis_run_id',r.id));
+    update public.conversations set updated_at=now() where id=r.conversation_id;
 end;
 $$;
 

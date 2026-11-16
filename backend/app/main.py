@@ -17,8 +17,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Statia Platform API", version="0.3.0")
     app.state.settings = settings
     app.state.provider = GeminiProvider(settings)
-    app.state.profile_lock = asyncio.Semaphore(1)
     app.state.analysis_lock = asyncio.Semaphore(1)
+    app.state.profile_lock = app.state.analysis_lock
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins,
