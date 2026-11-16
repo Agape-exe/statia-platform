@@ -66,11 +66,14 @@ def comparison_scope(conversation, turn, files):
 
 
 async def process_turn(store, project, conversation, turn, files, provider, settings):
-    from app.services.execution_preparation import EXECUTION_ACTIONS, bind_descriptive_scope, descriptive_request, normalized_preparation, preparation_turn
+    from app.services.execution_preparation import bind_descriptive_scope, descriptive_request, normalized_preparation, preparation_turn, preparation_message_route, result_discussion
     preparation = normalized_preparation(conversation.get('stage_data', {}).get('execution_preparation'))
     alternative = await descriptive_request(store, conversation, turn) if turn.action == 'request_descriptive' else None
-    if not alternative and (turn.action in EXECUTION_ACTIONS or (turn.action == 'message' and not preparation.get('paused') and preparation.get('result', {}).get('status') in ('NEEDS_CLARIFICATION', 'BLOCKED_UNCERTAINTY', 'PARTIALLY_READY'))):
+    route = preparation_message_route(turn, preparation)
+    if not alternative and route == 'execution':
         return await preparation_turn(store, project, conversation, turn, settings)
+    if not alternative and route == 'ambiguous':
+        return static_result(conversation, conversation['current_stage'], '¿Quieres responder a la aclaración pendiente o hacer una consulta sobre tus resultados o metodología? Puedes seguir preguntando sin resolver ahora la preparación.')
     if alternative:
         conversation = {**conversation, 'stage_data': {**conversation.get('stage_data', {}), 'execution_preparation': preparation}}
         turn = turn.model_copy(update={'action': 'message', 'content': 'Quiero una nueva propuesta exclusivamente descriptiva como alternativa al análisis pendiente, con los mismos archivos, hojas, columnas y alcance aceptado. No cambies ni ejecutes el plan original.'})
@@ -136,7 +139,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         raise HTTPException(422, 'Adjunta al menos un dataset antes de solicitar su comprensión.')
     if any(not f['metadata'].get('profile') for f in datasets):
         raise HTTPException(422, 'Elige una hoja para cada libro XLSX antes de continuar.')
-    conversation, scope_result = (conversation, None) if alternative else comparison_scope(conversation, turn, files)
+    conversation, scope_result = (conversation, None) if alternative or result_discussion(turn.content) else comparison_scope(conversation, turn, files)
     if scope_result:
         return scope_result
     if action == 'keep_goal':
@@ -158,6 +161,16 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     conversation = {**conversation, 'stage_data': data}
     analysis_results = await saved_results_context(store, conversation, turn.content)
     context = build_context(project, conversation, messages, files, turn, settings, analysis_results)
+    discussion = bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
+    if discussion:
+        from app.services.analysis_context import safe_text
+        context['files'] = [{k: f[k] for k in ('file_id', 'file_name', 'role', 'sheets', 'selected_sheet') if k in f} | {'columns': [{k: c[k] for k in ('name', 'physical_type', 'statistical_type') if k in c} for c in f.get('columns', [])]} for f in context['files']]
+        context['result_discussion'] = True
+        context['recommendations_requested'] = False
+        context['preparation_pending'] = {'proposal_id': preparation.get('proposal_id'), 'status': preparation.get('result', {}).get('status'), 'questions': [{'prompt': safe_text(q['prompt'])[:300], 'status': q.get('status'), 'limitation': safe_text(q.get('limitation', ''))[:450]} for q in preparation.get('result', {}).get('clarifications', [])[:8]]}
+        import json
+        if len(json.dumps(context, ensure_ascii=False)) > settings.gemini_context_chars:
+            raise HTTPException(413, 'El contexto de resultados supera el límite configurado. Identifica una ejecución o una tabla concreta; tus resultados y aclaraciones se conservan.')
     if alternative:
         context['execution_alternative'] = alternative
         context['recommendations_requested'] = False
@@ -179,6 +192,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         try:
             if alternative:
                 reply = bind_descriptive_scope(reply, alternative)
+            if discussion and (reply.proposals or reply.goal_change):
+                raise ValueError('Esta consulta interpreta resultados guardados o revisa metodología del mismo análisis. Responde sin propuestas nuevas ni cambio de finalidad y sin exigir resolver aclaraciones pendientes.')
             reply = humanize_reply(reply, files)
             assessment = assess_reply(reply, files, project, context)
         except (ValidationError, ValueError) as exc:
@@ -215,6 +230,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     if turn.action != 'message' or not statistical_request(turn.content):
         reply.goal_change = False
     result = reply_result(reply, conversation)
+    if discussion:
+        result['stage'] = conversation['current_stage']
+        result['goal'] = result['title'] = None
+        result['stage_data'] = dict(conversation.get('stage_data', {}))
     if alternative:
         result['goal'] = result['title'] = None
         result['metadata']['execution_alternative_source'] = alternative['source_proposal_id']

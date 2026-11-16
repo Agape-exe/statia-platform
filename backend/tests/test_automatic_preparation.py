@@ -322,8 +322,6 @@ def test_preparation_rejects_unaccepted_or_unlinked_plan(preparation_client):
     [
         "No sé qué método corresponde",
         "No conozco el significado de esos códigos",
-        "Haz el análisis que consideres apropiado",
-        "No entiendo qué significa independencia",
         "No sé si esos valores son datos faltantes",
     ],
 )

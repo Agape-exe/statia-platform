@@ -1,6 +1,7 @@
 """Aclaraciones del mismo chat: persistencia con begin/finish_chat_turn existentes."""
 
 import base64
+import re
 from copy import deepcopy
 
 from fastapi import HTTPException
@@ -99,13 +100,57 @@ def text_answer(question, text):
             "no se",
             "no lo se",
             "no conozco el significado de esos codigos",
-            "no entiendo que significa independencia",
             "no se si esos valores son datos faltantes",
             "no se que metodo corresponde",
-            "haz el analisis que consideres apropiado",
         },
     }
     return selected or next((c["value"] for c in question["choices"] if text in aliases.get(c["value"], set())), None)
+
+
+def preparation_message_route(turn, state):
+    """Solo respuestas reconocibles entran al flujo; el resto sigue conversando."""
+    if turn.action in EXECUTION_ACTIONS:
+        return "execution"
+    if turn.action != "message" or state.get("paused"):
+        return "conversation"
+    result = state.get("result", {})
+    if result.get("status") not in {"NEEDS_CLARIFICATION", "BLOCKED_UNCERTAINTY", "PARTIALLY_READY"}:
+        return "conversation"
+    questions = result.get("questions", [])
+    question = (
+        next((q for q in result.get("clarifications", []) if q["id"] == turn.question_id), None)
+        if turn.question_id
+        else next(iter(questions), None)
+    )
+    if question and text_answer(question, turn.content) is not None:
+        return "execution"
+    # Una incertidumbre reconocida puede repetirse sin reabrirla ni llamar al proveedor.
+    if (
+        not questions
+        and normalized(turn.content).strip(".¡!¿? ") in {"no se", "no lo se"}
+        and any(q.get("status") == "unknown" for q in result.get("clarifications", []))
+    ):
+        return "execution"
+    if turn.question_id or re.fullmatch(
+        r"si|no|vale|de acuerdo|continuar|seguir|quizas|tal vez|eso|no entiendo|haz el analisis que consideres apropiado",
+        normalized(turn.content).strip(".¡!¿? "),
+    ):
+        return "ambiguous"
+    return "conversation"
+
+
+def result_discussion(text):
+    """Pistas para conservar la finalidad, no un clasificador de todas las preguntas."""
+    text = normalized(text)
+    management = bool(
+        re.search(r"revisar|completar|cambiar|volver|reanudar", text)
+        and re.search(r"pendientes|preparar|respuesta|independencia", text)
+    )
+    interpretation = bool(
+        re.search(r"explic|interpret|significa|conclusion|que indican|que procedimientos|por que no", text)
+        and re.search(r"resultad|tabla|grafico|media|mediana|frecuencia|desviacion|anova|pearson|pendiente", text)
+    )
+    return management or interpretation
 
 
 async def originals_for(store, project, conversation, plan, settings):
@@ -218,9 +263,7 @@ async def preparation_turn(store, project, conversation, turn, settings):
     clarifications = previous.get("result", {}).get("clarifications", [])
     reviewing = previous.get("review_question_id") if previous.get("proposal_id") == proposal_id else None
     if turn.action == "message" and (
-        previous.get("result", {}).get("status") == "BLOCKED_UNCERTAINTY"
-        or previous.get("result", {}).get("status") == "PARTIALLY_READY"
-        and not questions
+        previous.get("result", {}).get("status") in {"BLOCKED_UNCERTAINTY", "PARTIALLY_READY"} and not questions
     ):
         return result(preparation_message(previous["result"]), previous["result"])
     if turn.action == "review_execution":

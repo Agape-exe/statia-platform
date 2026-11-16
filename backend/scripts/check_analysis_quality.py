@@ -17,6 +17,7 @@ TARGETS = [
     "tests/test_automatic_preparation.py",
     "tests/test_execution_uncertainty.py",
     "tests/test_integral_execution.py",
+    "tests/test_result_conversation.py",
     "tests/test_statistics.py",
     "tests/test_statistics_additional.py",
     "tests/test_analysis_api.py",

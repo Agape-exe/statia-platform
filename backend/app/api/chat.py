@@ -66,13 +66,15 @@ async def get_conversation(project_id: UUID, conversation_id: UUID, user: Curren
         if preparation_run:
             preparation_run = {k: preparation_run[k] for k in ('id', 'request_id', 'status')}
     proposals = await user.store.rows('analysis_proposals', {'conversation_id': str(conversation_id)}, order='created_at.asc')
+    latest = await user.store.rows('analysis_runs', {'conversation_id': str(conversation_id), 'project_id': str(project_id)}, order='created_at.desc', limit=1, select='id,proposal_id,status')
+    latest_run = {k: latest[0][k] for k in ('id', 'proposal_id', 'status')} if latest else None
     turns = await user.store.rows('chat_requests', {'conversation_id': str(conversation_id)}, order='created_at.desc', limit=1)
     retry = None
     if turns and turns[0]['status'] == 'failed':
         retry = {key: value for key, value in turns[0]['payload'].items() if key != 'display'}
         retry['request_id'] = turns[0]['request_id']
     return {'conversation': conversation, 'messages': messages, 'files': await linked_files(user.store, conversation), 'proposals': proposals,
-            'retry_turn': retry, 'has_more_messages': len(messages) == 100, 'preparation_run': preparation_run}
+            'retry_turn': retry, 'has_more_messages': len(messages) == 100, 'preparation_run': preparation_run, 'latest_analysis_run': latest_run}
 
 
 @router.get('/conversations/{conversation_id}/messages', summary='Recuperar historial anterior por posición, sin perder mensajes antiguos')
@@ -132,7 +134,8 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
         # Tiempo total menor que la concesión durable de 180 segundos.
         async with asyncio.timeout(150):
             preparation = normalized_preparation(conversation.get('stage_data', {}).get('execution_preparation'))
-            preparing = body.action in ('prepare_execution', 'clarify_execution', 'review_execution') or (body.action == 'message' and not preparation.get('paused') and preparation.get('result', {}).get('status') in ('NEEDS_CLARIFICATION', 'PARTIALLY_READY') and bool(preparation.get('result', {}).get('questions')))
+            from app.services.execution_preparation import preparation_message_route
+            preparing = preparation_message_route(body, preparation) == 'execution' and (body.action in ('prepare_execution', 'clarify_execution', 'review_execution') or bool(preparation.get('result', {}).get('questions')))
             if preparing:
                 if request.app.state.analysis_lock.locked():
                     raise HTTPException(409, 'El motor está ocupado. Reintenta la misma solicitud en un momento.')
