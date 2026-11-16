@@ -1,5 +1,7 @@
 # Motor estadístico — Sesión 03
 
+La consulta de resultados parciales conserva las aclaraciones pendientes. Revisar componentes abre sus detalles sin volver a preparar; ver [la corrección de conversación y revisión](RESULTS_CONVERSATION.md).
+
 Los planes integrales se preparan por componentes y permiten ejecución parcial confirmada. Los descriptivos automáticos describen observaciones sin IC de media; no se confirma independencia implícitamente. Las familias Holm y las dependencias conservan sus restricciones. Véase [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md).
 
 ## Contrato y procedimientos

@@ -1,5 +1,7 @@
 # Corrección UX de ejecución — Sesión 03
 
+La consulta de resultados parciales conserva las aclaraciones pendientes. Revisar componentes abre sus detalles sin volver a preparar; ver [la corrección de conversación y revisión](RESULTS_CONVERSATION.md).
+
 La corrección integral más reciente se documenta en [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md): preparación por componentes, ejecución parcial confirmada, continuidad, historial cronológico y resultados visibles. Esta ampliación sustituye el bloqueo global descrito en la versión inicial. Requiere la migración aditiva 005 para los vínculos cronológicos nuevos.
 
 ## Corrección del bucle «No lo sé»

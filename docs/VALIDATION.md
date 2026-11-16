@@ -1,5 +1,15 @@
 # Validación — historial de sesiones
 
+## Consultas de resultados y revisión de pendientes (16 de noviembre de 2026)
+
+- Backend: **264 pytest aprobadas**, 333,99 s; HTTP y cálculo Python reales con Auth/REST/Storage y proveedor controlados. Se comprueban consultas consecutivas con preparación PARTIALLY_READY y NEEDS_CLARIFICATION, conservación del estado, respuestas explícitas, incertidumbre, acceso por proyecto/conversación, agregados/frecuencias, privacidad y rechazo de cifras/inferencia inventadas. Una comprobación adicional identifica la agrupación realmente calculada.
+- Frontend: **64 Vitest aprobadas**. Abrir pendientes no envía turnos ni ejecuta/prepara; cambiar una selección requiere guardar explícitamente, y el encabezado parcial se recupera al remontar. Se mantienen las regresiones de cronología, scroll, compositor y descargas.
+- **3 suites SQL/PGlite aprobadas**; no hay SQL nuevo. TypeScript, oxlint, Prettier, build, Ruff (27 archivos), compileall y pip check aprobados. Auditoría npm de dependencias de producción: cero vulnerabilidades informadas. Continúan las advertencias conocidas Starlette/httpx y paquete principal Vite de 500,71 kB.
+- Integración HTTP con **Gemini real**: tres preguntas consecutivas sobre medias/frecuencias, desviación estándar y bloqueo de Pearson, usando agregados sintéticos calculados. Se conservaron finalidad/preparación, una ejecución y el contador de descargas de originales. Un primer intento obtuvo 503 del proveedor y conservó el estado. Auth/REST/Storage fueron dobles locales; no acredita Supabase remoto autenticado.
+- Navegador: la conexión de la herramienta falló al abrir y reiniciar. No hay evidencia visual nueva de esta corrección. Queda repetir con Supabase y sesión reales la consulta tras recarga, revisión sin mensajes, cambio explícito de respuesta, preparación y ejecución confirmada; comprobar aislamiento entre cuentas y pantallas pequeñas.
+
+No se modifican fórmulas, métodos estadísticos, Auth, RLS, originales ni ZIP. No requiere migración nueva; la migración 005 de la corrección anterior sigue siendo parte del PR. Detalles, límites y archivos en [RESULTS_CONVERSATION](RESULTS_CONVERSATION.md).
+
 ## Ejecución integral parcial y UX (16 de noviembre de 2026)
 
 Backend: **260 pytest en la suite completa** (234,73 s), más **1 regresión adicional** de recuperación de un run histórico sin aplicar requisitos de una ejecución nueva. Incluye Titanic original 891×15, nombres sintéticos, múltiples archivos, estados selectivos, dependencias/ciclos, aceptación, todos/ninguno disponible, continuación, hashes, bloqueo de especificaciones alteradas, ausencia de IC descriptivos sin independencia, ZIP e idempotencia. Se mantienen referencias numéricas analíticas/SciPy y los recorridos de Penguins, NA, incertidumbre y alternativa descriptiva. Las rutas/proceso/cálculos son reales; Auth/REST/Storage en esas pruebas son dobles.

@@ -1,5 +1,7 @@
 # Statia Platform
 
+La consulta de resultados parciales conserva las aclaraciones pendientes. Revisar componentes abre sus detalles sin volver a preparar; ver [la corrección de conversación y revisión](docs/RESULTS_CONVERSATION.md).
+
 Los análisis integrales admiten preparación y ejecución parcial confirmada por componentes, con continuidad y resultados cronológicos. Requiere la migración aditiva 005; consulta [la documentación](docs/INTEGRAL_EXECUTION.md).
 
 Plataforma de análisis estadístico conversacional para investigaciones y datasets. Conserva Auth, proyectos y conversaciones con Gemini; incorpora ejecución estadística Python, resultados persistentes y recursos privados descargables. Contexto solo aparece en tesis y su persistencia sigue pendiente.

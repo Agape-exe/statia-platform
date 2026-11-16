@@ -1,5 +1,7 @@
 # Ejecución integral por componentes
 
+La consulta de resultados parciales conserva las aclaraciones pendientes. Revisar componentes abre sus detalles sin volver a preparar; ver [la corrección de conversación y revisión](RESULTS_CONVERSATION.md).
+
 ## Causa y comportamiento
 
 La preparación evaluaba preguntas, incertidumbres y errores como listas globales. Una respuesta desconocida de independencia impedía validar incluso un descriptivo que no dependía de ella. Ahora cada pregunta e impedimento se vincula a sus componentes y se reutilizan `ExecutionSpec`, el catálogo, `prepare`, `validate_spec`, `check_conditions` y el mismo despachador Python.
