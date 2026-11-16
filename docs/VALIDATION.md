@@ -1,5 +1,15 @@
 # Validación — historial de sesiones
 
+## Corrección del bucle de aclaraciones desconocidas (16 de noviembre de 2026)
+
+Regresión completa: **251 pytest** (180,49 s), **57 Vitest**, **3 suites PostgreSQL/PGlite**, TypeScript, oxlint, Prettier, build Vite, Ruff/formato del alcance de análisis y pip check aprobados. Se conservan las advertencias conocidas de Starlette/httpx y del paquete principal Vite de 500,71 kB. No se cambiaron fórmulas ni procedimientos estadísticos.
+
+Se actualizaron las pruebas que antes esperaban NEEDS_CLARIFICATION después de `unknown`: ahora esperan BLOCKED_UNCERTAINTY y la retirada de esa pregunta activa. Las doce regresiones backend adicionales cubren botón/texto, tres respuestas desconocidas sucesivas sin repetir la pregunta, recarga, decisión NA de sexo conservada, revisión explícita, avance a READY y ejecución Python de Penguins con 146 casos, UUID/reintentos, alternativa descriptiva generada/validada/aceptada por separado, filtro Adelie conservado, Gemini no disponible, propuesta incompatible, estados antiguos e invalidación limitada al archivo afectado. Se comprueba también una sola aclaración de diseño para componentes que comparten tabla y alcance.
+
+Las nuevas pruebas HTTP usan rutas y proceso Python reales, archivos públicos originales y repositorio/Auth/Storage en memoria; Gemini es un proveedor controlado en estas pruebas. No son una integración remota de Supabase o Gemini. Dos regresiones UI adicionales verifican que la pregunta y «No lo sé» desaparecen al reconocer incertidumbre, que el estado se conserva al remontar, y que las acciones de revisión, propuesta alternativa y dejar pendiente no ejecutan cálculos. SQL/PGlite verifica persistencia de unknown, preguntas vacías, ids y huellas, revisión explícita con respuestas anteriores intactas, idempotencia y RLS, mediante migraciones/RPC existentes.
+
+El problema con Supabase real fue **informado por el usuario**. En esta corrección no se realizaron nuevas escrituras remotas, llamadas reales a Gemini ni pruebas en navegador; la evidencia anterior se conserva en su sección histórica. Pendiente manual: reiniciar API/Vite, abrir el mismo chat real con la respuesta desconocida ya guardada y comprobar que no se repite la pregunta al recargar o escribir «No lo sé». Probar revisión → respuesta suficiente → confirmación explícita de ejecución, y alternativa descriptiva → aceptación separada → preparación con Adelie. Probar proveedor deshabilitado y reintento sin duplicar mensajes/propuestas. No se requiere migración nueva. Ver [EXECUTION_UX](EXECUTION_UX.md) y [SETUP](SETUP.md).
+
 ## Corrección UX/IA de ejecución (16 de noviembre de 2026)
 
 Validación de esta corrección: **239 pytest** (442,42 s en esta laptop), **55 Vitest**, **3 suites PostgreSQL/PGlite**, TypeScript estricto, oxlint, Prettier, build Vite, Ruff/formato del alcance de análisis, compileall y pip check. Las cifras anteriores de 202/48 se mantienen como antecedentes. Hay una deprecación conocida de Starlette/httpx y la advertencia previa del paquete principal Vite de 500,71 kB; no fallan los checks.

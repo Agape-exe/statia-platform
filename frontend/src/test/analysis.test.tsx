@@ -370,6 +370,8 @@ describe('preparación conversacional', () => {
         conversationId="chat"
         busy={false}
         onAnswer={vi.fn()}
+        onReview={vi.fn()}
+        onDescriptive={vi.fn()}
         onCancel={vi.fn()}
         onAdvanced={vi.fn()}
         onExecute={vi.fn()}
@@ -463,6 +465,103 @@ describe('preparación conversacional', () => {
       screen.getByRole('button', { name: 'Opciones avanzadas' }),
     )
     expect(advanced).toHaveBeenCalledOnce()
+  })
+  it('retira la pregunta tras No lo sé y conserva la incertidumbre al recargar', async () => {
+    const question = {
+      id: 'diseno',
+      prompt: '¿Las observaciones son independientes?',
+      explanation: 'El archivo no documenta la recolección.',
+      choices: [
+        { value: 'yes', label: 'Sí, conozco la recolección y lo confirmo' },
+        { value: 'unknown', label: 'No lo sé' },
+      ],
+      limitation:
+        'No tenemos información suficiente para confirmar la independencia de las observaciones.',
+    }
+    const answer = vi.fn()
+    const execute = vi.fn()
+    const first = prepared({
+      onAnswer: answer,
+      onExecute: execute,
+      preparation: {
+        ...preparation,
+        status: 'NEEDS_CLARIFICATION',
+        questions: [question],
+      },
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'No lo sé' }))
+    expect(answer).toHaveBeenCalledWith('diseno', 'unknown', 'No lo sé')
+    first.unmount()
+    const blocked = {
+      ...preparation,
+      status: 'BLOCKED_UNCERTAINTY' as const,
+      questions: [],
+      clarifications: [
+        { ...question, status: 'unknown' as const, answer: 'unknown' },
+      ],
+    }
+    const reload = prepared({ onExecute: execute, preparation: blocked })
+    expect(
+      screen.getByRole('heading', {
+        name: 'Preparación detenida por incertidumbre',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(question.prompt)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'No lo sé' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Ejecutar análisis' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(question.limitation)).toBeVisible()
+    reload.unmount()
+    prepared({ preparation: blocked })
+    expect(
+      screen.queryByRole('button', { name: 'No lo sé' }),
+    ).not.toBeInTheDocument()
+    expect(execute).not.toHaveBeenCalled()
+  })
+  it('ofrece revisar, solicitar otra propuesta o dejar pendiente sin ejecutar', async () => {
+    const review = vi.fn(),
+      descriptive = vi.fn(),
+      cancel = vi.fn(),
+      execute = vi.fn()
+    prepared({
+      onReview: review,
+      onDescriptive: descriptive,
+      onCancel: cancel,
+      onExecute: execute,
+      preparation: {
+        ...preparation,
+        status: 'BLOCKED_UNCERTAINTY',
+        questions: [],
+        clarifications: [
+          {
+            id: 'diseno',
+            prompt: '¿Las observaciones son independientes?',
+            explanation: 'Hace falta información del diseño.',
+            choices: [],
+            status: 'unknown',
+            answer: 'unknown',
+          },
+        ],
+      },
+    })
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Revisar respuesta y cambiarla' }),
+    )
+    expect(review).toHaveBeenCalledWith('diseno')
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Solicitar propuesta descriptiva alternativa',
+      }),
+    )
+    expect(descriptive).toHaveBeenCalledOnce()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Dejar pendiente y volver al chat' }),
+    )
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(execute).not.toHaveBeenCalled()
   })
   it('deshabilita controles durante la preparación o el cálculo', () => {
     prepared({ busy: true })

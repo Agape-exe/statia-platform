@@ -684,6 +684,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                   />
                 ))}
                 {conversation.stage_data.execution_preparation &&
+                  !conversation.stage_data.execution_preparation.paused &&
                   (() => {
                     const state = conversation.stage_data.execution_preparation
                     const proposal = detail.proposals.find(
@@ -714,6 +715,33 @@ export function StatisticalChat({ project }: { project: Project }) {
                           )
                         }
                         onCancel={() => send('cancel_execution')}
+                        onReview={(questionId) =>
+                          perform(() =>
+                            submitTurn(selected, {
+                              request_id: crypto.randomUUID(),
+                              action: 'review_execution',
+                              content: '',
+                              file_ids: [],
+                              share_samples: false,
+                              share_instrument_text: false,
+                              proposal_id: proposal.id,
+                              question_id: questionId,
+                            }),
+                          )
+                        }
+                        onDescriptive={() =>
+                          perform(() =>
+                            submitTurn(selected, {
+                              request_id: crypto.randomUUID(),
+                              action: 'request_descriptive',
+                              content: '',
+                              file_ids: [],
+                              share_samples: false,
+                              share_instrument_text: false,
+                              proposal_id: proposal.id,
+                            }),
+                          )
+                        }
                         onAdvanced={() => setReviewProposal(proposal)}
                         onExecute={(body) => executeAnalysis(body, proposal.id)}
                       />

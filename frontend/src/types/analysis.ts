@@ -54,9 +54,21 @@ export interface ExecuteRequest {
   specification: ExecutionSpec
   preparation_fingerprint?: string
 }
+export interface PreparationQuestion {
+  id: string
+  prompt: string
+  explanation: string
+  choices: { value: string; label: string }[]
+  limitation?: string
+}
+export interface PreparationClarification extends PreparationQuestion {
+  status: 'pending' | 'answered' | 'unknown'
+  answer: string | null
+}
 export interface ExecutionPreparation {
   request_id: string
-  status: 'READY' | 'NEEDS_CLARIFICATION' | 'UNSUPPORTED'
+  status:
+    'READY' | 'NEEDS_CLARIFICATION' | 'BLOCKED_UNCERTAINTY' | 'UNSUPPORTED'
   specification: ExecutionSpec | null
   methods: string[]
   reasons: string[]
@@ -67,12 +79,8 @@ export interface ExecutionPreparation {
   }[]
   warnings: string[]
   blockers: string[]
-  questions: {
-    id: string
-    prompt: string
-    explanation: string
-    choices: { value: string; label: string }[]
-  }[]
+  questions: PreparationQuestion[]
+  clarifications?: PreparationClarification[]
   files: {
     id: string
     name: string

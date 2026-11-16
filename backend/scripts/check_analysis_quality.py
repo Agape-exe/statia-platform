@@ -15,6 +15,7 @@ TARGETS = [
     "app/services/analysis_worker.py",
     "app/services/execution_preparation.py",
     "tests/test_automatic_preparation.py",
+    "tests/test_execution_uncertainty.py",
     "tests/test_statistics.py",
     "tests/test_statistics_additional.py",
     "tests/test_analysis_api.py",

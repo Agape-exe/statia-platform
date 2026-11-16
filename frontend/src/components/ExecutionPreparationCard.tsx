@@ -10,6 +10,8 @@ export function ExecutionPreparationCard({
   conversationId,
   busy,
   onAnswer,
+  onReview,
+  onDescriptive,
   onCancel,
   onAdvanced,
   onExecute,
@@ -20,6 +22,8 @@ export function ExecutionPreparationCard({
   conversationId: string
   busy: boolean
   onAnswer: (questionId: string, answer: string, label: string) => void
+  onReview: (questionId: string) => void
+  onDescriptive: () => void
   onCancel: () => void
   onAdvanced: () => void
   onExecute: (body: ExecuteRequest) => Promise<void>
@@ -30,6 +34,8 @@ export function ExecutionPreparationCard({
   const active = useRef(false)
   const pending = useRef<ExecuteRequest | null>(null)
   const question = preparation.questions[0]
+  const uncertainties =
+    preparation.clarifications?.filter((q) => q.status === 'unknown') || []
   const spec = preparation.specification
   async function execute() {
     if (
@@ -99,7 +105,9 @@ export function ExecutionPreparationCard({
             ? 'Análisis preparado'
             : preparation.status === 'UNSUPPORTED'
               ? 'Este plan necesita revisión'
-              : 'Una aclaración antes de continuar'}
+              : preparation.status === 'BLOCKED_UNCERTAINTY'
+                ? 'Preparación detenida por incertidumbre'
+                : 'Una aclaración antes de continuar'}
       </h3>
       <p>
         <strong>Objetivo:</strong> {proposal.objective}
@@ -147,6 +155,40 @@ export function ExecutionPreparationCard({
       {preparation.blockers.map((blocker, i) => (
         <Alert key={i}>{blocker}</Alert>
       ))}
+      {preparation.status === 'BLOCKED_UNCERTAINTY' && (
+        <div>
+          <p>
+            Tu respuesta «No lo sé» está guardada. Esta decisión no volverá a
+            preguntarse automáticamente.
+          </p>
+          {uncertainties.map((q) => (
+            <div key={q.id}>
+              <p>{q.limitation || q.explanation}</p>
+              <button
+                type="button"
+                className="btn secondary"
+                disabled={busy || submitting}
+                onClick={() => onReview(q.id)}
+              >
+                Revisar respuesta y cambiarla
+              </button>
+            </div>
+          ))}
+          <p>
+            Puedes solicitar una nueva propuesta descriptiva con estos archivos
+            y el mismo alcance. Tendrás que aceptarla antes de ejecutarla; tu
+            análisis original se conserva.
+          </p>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={busy || submitting}
+            onClick={onDescriptive}
+          >
+            Solicitar propuesta descriptiva alternativa
+          </button>
+        </div>
+      )}
       {preparation.status === 'NEEDS_CLARIFICATION' && question && (
         <fieldset disabled={busy || submitting}>
           <legend>{question.prompt}</legend>
@@ -195,6 +237,31 @@ export function ExecutionPreparationCard({
             </li>
           ))}
         </ul>
+        {!!preparation.clarifications?.length && (
+          <details>
+            <summary>Revisar respuestas anteriores</summary>
+            {preparation.clarifications
+              .filter((q) => q.status !== 'pending')
+              .map((q) => (
+                <div key={q.id}>
+                  <p>
+                    {q.prompt} —{' '}
+                    {q.status === 'unknown'
+                      ? 'Información desconocida'
+                      : q.choices.find((c) => c.value === q.answer)?.label}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={busy || submitting}
+                    onClick={() => onReview(q.id)}
+                  >
+                    Cambiar respuesta
+                  </button>
+                </div>
+              ))}
+          </details>
+        )}
         <ul>
           {preparation.warnings.map((warning, i) => (
             <li key={i}>{warning}</li>
@@ -233,7 +300,9 @@ export function ExecutionPreparationCard({
           disabled={busy || submitting}
           onClick={onCancel}
         >
-          Volver al chat
+          {preparation.status === 'BLOCKED_UNCERTAINTY'
+            ? 'Dejar pendiente y volver al chat'
+            : 'Volver al chat'}
         </button>
       </div>
     </article>

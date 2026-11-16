@@ -1,15 +1,75 @@
 """Aclaraciones del mismo chat: persistencia con begin/finish_chat_turn existentes."""
 
 import base64
+from copy import deepcopy
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.models.chat import Plan
 from app.services.analysis_worker import run_calculation
+from app.services.planning_errors import PlanningError
 from app.services.statistics.methods import normalized
+from app.services.statistics.preparation import key, plan_filters
 
 LIMIT_NAMES = ["max_file_bytes", "max_rows", "max_columns", "max_expanded_bytes", "missing_value_markers"]
+EXECUTION_ACTIONS = {
+    "prepare_execution": "Preparar el análisis aceptado",
+    "clarify_execution": "Responder aclaración de ejecución",
+    "review_execution": "Revisar una respuesta de ejecución",
+    "request_descriptive": "Solicitar una propuesta descriptiva alternativa",
+    "cancel_execution": "Dejar pendiente el análisis",
+}
+
+
+def normalized_preparation(state):
+    """Adaptación de estados ya persistidos por la versión anterior, sin reescrituras."""
+    state = deepcopy(state or {})
+    result = state.get("result", {})
+    questions = result.get("questions", [])
+    clarifications = result.setdefault("clarifications", [])
+    for q in questions:
+        if not any(c["id"] == q["id"] for c in clarifications):
+            answer = state.get("answers", {}).get(q["id"])
+            clarifications.append(
+                {
+                    **q,
+                    "status": "unknown" if answer == "unknown" else "pending",
+                    "answer": answer,
+                    "limitation": q.get("limitation")
+                    or "No tenemos información suficiente para resolver esta decisión. " + q["explanation"],
+                }
+            )
+    result["questions"] = [
+        q for q in questions if not any(c["id"] == q["id"] and c["status"] == "unknown" for c in clarifications)
+    ]
+    if (
+        result.get("status") != "UNSUPPORTED"
+        and any(c["status"] == "unknown" for c in clarifications)
+        and not state.get("review_question_id")
+    ):
+        result["status"] = "BLOCKED_UNCERTAINTY"
+    return state
+
+
+def preparation_message(preparation):
+    if preparation["status"] == "READY":
+        return "Análisis preparado. Revisa el resumen y confirma «Ejecutar análisis» cuando quieras calcular. Aún no se ha ejecutado ningún cálculo estadístico."
+    if preparation["status"] == "UNSUPPORTED":
+        return "No puedo ejecutar este plan con las condiciones actuales. " + " ".join(preparation["blockers"])
+    if preparation["status"] == "BLOCKED_UNCERTAINTY":
+        return (
+            " ".join(
+                dict.fromkeys(
+                    q.get("limitation") or q["explanation"]
+                    for q in preparation.get("clarifications", [])
+                    if q["status"] == "unknown"
+                )
+            )
+            + " Tu respuesta «No lo sé» está guardada; no volveré a preguntarlo automáticamente. Puedes solicitar una propuesta descriptiva alternativa, revisar tu respuesta o dejar pendiente el análisis."
+        )
+    q = preparation["questions"][0]
+    return q["prompt"] + " " + q["explanation"]
 
 
 def text_answer(question, text):
@@ -68,6 +128,9 @@ async def originals_for(store, project, conversation, plan, settings):
 def preparation_context(project, conversation, answers):
     return {
         "answers": answers,
+        "clarifications": (conversation.get("stage_data", {}).get("execution_preparation") or {})
+        .get("result", {})
+        .get("clarifications", []),
         "thesis": project.get("project_type") == "thesis",
         "independence_evidence": conversation.get("stage_data", {}).get("independence_evidence", []),
     }
@@ -75,7 +138,8 @@ def preparation_context(project, conversation, answers):
 
 async def preparation_turn(store, project, conversation, turn, settings):
     data = dict(conversation.get("stage_data", {}))
-    previous = data.get("execution_preparation") or {}
+    previous = normalized_preparation(data.get("execution_preparation"))
+    data["execution_preparation"] = previous or None
 
     def result(content, preparation=None):
         return {
@@ -88,9 +152,10 @@ async def preparation_turn(store, project, conversation, turn, settings):
         }
 
     if turn.action == "cancel_execution":
-        data["execution_preparation"] = None
+        previous["paused"] = True
+        previous["review_question_id"] = None
         return result(
-            "Dejamos pendiente la ejecución. El plan aceptado se conserva. Puedes solicitar una propuesta descriptiva o explicar cómo se recogieron los datos."
+            "Dejamos pendiente el análisis y conservamos el plan y tus respuestas. Puedes seguir conversando o volver a prepararlo cuando tengas más información."
         )
     proposal_id = str(turn.proposal_id) if turn.proposal_id else previous.get("proposal_id")
     if not proposal_id:
@@ -104,15 +169,33 @@ async def preparation_turn(store, project, conversation, turn, settings):
         raise HTTPException(
             422, "El plan antiguo no tiene un contrato válido. Solicita una propuesta revisada."
         ) from None
-    answers = dict(previous.get("answers", {})) if previous.get("proposal_id") == proposal_id else {}
-    questions = previous.get("result", {}).get("questions", []) if previous.get("proposal_id") == proposal_id else []
+    archives = dict(data.get("execution_preparations", {}))
+    if previous.get("proposal_id") and previous["proposal_id"] != proposal_id:
+        archives[previous["proposal_id"]] = previous
+        previous = normalized_preparation(archives.get(proposal_id)) or previous
+    data["execution_preparations"] = archives
+    answers = dict(previous.get("answers", {}))
+    questions = previous.get("result", {}).get("questions", [])
+    clarifications = previous.get("result", {}).get("clarifications", [])
+    reviewing = previous.get("review_question_id") if previous.get("proposal_id") == proposal_id else None
+    if turn.action == "message" and previous.get("result", {}).get("status") == "BLOCKED_UNCERTAINTY":
+        return result(preparation_message(previous["result"]), previous["result"])
+    if turn.action == "review_execution":
+        q = next((q for q in clarifications if q["id"] == turn.question_id), None)
+        if not q:
+            raise HTTPException(
+                409, "Esa aclaración ya no corresponde a esta preparación. Vuelve a preparar el análisis."
+            )
+        reviewing = q["id"]
     if turn.action == "clarify_execution" or turn.action == "message":
         q = (
-            next((q for q in questions if q["id"] == turn.question_id), None)
+            next((q for q in clarifications if q["id"] == turn.question_id), None)
             if turn.question_id
             else next(iter(questions), None)
         )
         if not q:
+            if turn.action == "message" and previous.get("result", {}).get("status") == "BLOCKED_UNCERTAINTY":
+                return result(preparation_message(previous["result"]), previous["result"])
             raise HTTPException(409, "Esta pregunta ya no está pendiente. Vuelve a preparar el análisis.")
         answer = turn.answer
         if turn.action == "message":
@@ -123,8 +206,11 @@ async def preparation_turn(store, project, conversation, turn, settings):
                 previous.get("result"),
             )
         answers[q["id"]] = answer
+        reviewing = None
     originals = await originals_for(store, project, conversation, plan, settings)
-    context = preparation_context(project, conversation, answers)
+    context = preparation_context(
+        project, {**conversation, "stage_data": {**data, "execution_preparation": previous}}, answers
+    )
     output = await run_calculation(
         {
             "operation": "prepare",
@@ -132,24 +218,83 @@ async def preparation_turn(store, project, conversation, turn, settings):
             "plan": proposal["analysis_plan"],
             "files": originals,
             "limits": {name: getattr(settings, name) for name in LIMIT_NAMES},
+            "review_question_id": reviewing,
             **context,
         }
     )
     preparation = output["preparation"]
     # Solo se aplican decisiones vigentes. Los ids incluyen hashes/plan, por
     # lo que una modificación del original invalida automáticamente las respuestas.
-    data["execution_preparation"] = {"proposal_id": proposal_id, "answers": answers, "result": preparation}
-    if preparation["status"] == "READY":
-        content = "Análisis preparado. Revisa el resumen y confirma «Ejecutar análisis» cuando quieras calcular. Aún no se ha ejecutado ningún cálculo estadístico."
-    elif preparation["status"] == "UNSUPPORTED":
-        content = (
-            "No puedo ejecutar este plan con las condiciones actuales. "
-            + " ".join(preparation["blockers"])
-            + " Puedes solicitar una propuesta descriptiva o revisar la propuesta."
+    data["execution_preparation"] = {
+        "proposal_id": proposal_id,
+        "answers": answers,
+        "result": preparation,
+        "paused": False,
+        "review_question_id": reviewing,
+    }
+    return result(preparation_message(preparation), preparation)
+
+
+async def descriptive_request(store, conversation, turn):
+    state = normalized_preparation(conversation.get("stage_data", {}).get("execution_preparation"))
+    pid = str(turn.proposal_id) if turn.proposal_id else state.get("proposal_id")
+    if not pid or state.get("proposal_id") != pid:
+        raise HTTPException(409, "Selecciona el análisis original antes de solicitar la alternativa descriptiva.")
+    proposal = await store.one("analysis_proposals", {"id": pid, "conversation_id": conversation["id"]})
+    if proposal["status"] != "accepted":
+        raise HTTPException(409, "El análisis original debe conservar su propuesta aceptada.")
+    try:
+        plan = Plan.model_validate(proposal["analysis_plan"])
+    except ValidationError:
+        raise HTTPException(422, "Revisa el contrato del plan original antes de solicitar una alternativa.") from None
+    filters = list(plan_filters(plan))
+    if plan.comparison and plan.comparison.strata:
+        filters.append(plan.comparison.strata)
+    return {
+        "source_proposal_id": pid,
+        "variables": [v.model_dump(mode="json") for v in plan.variables],
+        "filters": [s.model_dump(mode="json") for s in filters],
+        "clarifications": state.get("result", {}).get("clarifications", []),
+    }
+
+
+def bind_descriptive_scope(reply, request):
+    """La nueva propuesta mantiene el alcance aceptado; no reutiliza inferencias."""
+    if len(reply.proposals) != 1 or reply.clarification_required:
+        raise PlanningError(
+            "comparison_scope",
+            "Devuelve una única propuesta descriptiva alternativa, sin preguntas sobre independencia.",
         )
-    else:
-        q = preparation["questions"][0]
-        content = q["prompt"] + " " + q["explanation"]
-        if answers.get(q["id"]) == "unknown":
-            content += " Si no lo sabes, conservaremos esta incertidumbre y no ejecutaremos el contraste. Puedes continuar con una propuesta descriptiva."
-    return result(content, preparation)
+    plan = reply.proposals[0]
+    expected = {key(type(plan.variables[0]).model_validate(v)) for v in request["variables"]}
+    if (
+        plan.procedure not in {"descriptive", "exploratory"}
+        or plan.comparison
+        or plan.joins
+        or plan.components
+        or {key(v) for v in plan.variables} != expected
+        or sum(v.role == "group" for v in plan.variables) > 1
+        or not any(v.role != "group" for v in plan.variables)
+    ):
+        raise PlanningError(
+            "comparison_scope",
+            "La alternativa debe ser exclusivamente descriptiva, sin uniones, y conservar las mismas referencias de archivo, hoja y columna del análisis original.",
+        )
+    if plan.filters and [s.model_dump(mode="json") for s in plan.filters] != request["filters"]:
+        raise PlanningError("comparison_scope", "La alternativa no puede cambiar los filtros del alcance aceptado.")
+    # El servidor añade únicamente selecciones estructuradas ya aceptadas; se
+    # validarán junto al resto del plan antes de persistir y de nuevo al aceptar.
+    values = plan.model_dump(mode="json")
+    values["filters"] = request["filters"]
+    plan = Plan.model_validate(values)
+    return reply.model_copy(
+        update={
+            "proposals": [plan],
+            "questions": [],
+            "clarification_required": False,
+            "goal_change": False,
+            "goal_change_reason": None,
+            "detected_goal": None,
+            "suggested_title": None,
+        }
+    )

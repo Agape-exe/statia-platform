@@ -58,6 +58,9 @@ export function ExecutionReview({
   initialSpecification?: ExecutionSpec | null
 }) {
   const plan = proposal.analysis_plan
+  const filters = plan.filters?.length
+    ? plan.filters
+    : plan.comparison?.filters || []
   const sources = plan.procedure === 'integral' ? plan.components || [] : [plan]
   const storageKey = `statia:execution:${projectId}:${conversationId}:${proposal.id}`
   const [saved] = useState(
@@ -264,7 +267,7 @@ export function ExecutionReview({
           ]),
         ],
       })),
-      filters: plan.comparison?.filters || [],
+      filters,
       confidence_level: confidence,
       alternative: 'two-sided',
       missing_policy: 'available_cases_per_procedure',
@@ -562,7 +565,7 @@ export function ExecutionReview({
           </details>
           <fieldset disabled={busy}>
             <legend>Alcance y supuestos</legend>
-            {(plan.comparison?.filters || []).map((f, i) => (
+            {filters.map((f, i) => (
               <p key={i}>
                 Filtro conservado: {f.variable.column} ∈ {f.values.join(', ')}.
               </p>

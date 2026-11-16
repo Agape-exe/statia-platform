@@ -12,6 +12,7 @@ from app.models.chat import AssistantReply, ConversationCreate, Decision, Plan, 
 from app.services.gemini import validate_reply
 from app.services.conversation import ACTION_LABELS, linked_files, process_turn
 from app.services.profiling import MIMES, inspect_file, safe_name
+from app.services.execution_preparation import EXECUTION_ACTIONS, normalized_preparation
 
 router = APIRouter(prefix='/projects/{project_id}', tags=['Asistente'])
 
@@ -52,6 +53,8 @@ async def create_conversation(project_id: UUID, body: ConversationCreate, user: 
 @router.get('/conversations/{conversation_id}', summary='Recuperar conversación, mensajes, archivos y propuestas')
 async def get_conversation(project_id: UUID, conversation_id: UUID, user: CurrentUser):
     conversation = await conversation_for(user, project_id, conversation_id)
+    if conversation.get('stage_data', {}).get('execution_preparation'):
+        conversation = {**conversation, 'stage_data': {**conversation['stage_data'], 'execution_preparation': normalized_preparation(conversation['stage_data']['execution_preparation'])}}
     messages = await user.store.rows('messages', {'conversation_id': str(conversation_id)}, order='position.desc', limit=100)
     messages.reverse()
     proposals = await user.store.rows('analysis_proposals', {'conversation_id': str(conversation_id)}, order='created_at.asc')
@@ -93,7 +96,7 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
     if body.action == 'message' and not body.content:
         raise HTTPException(422, 'Escribe un mensaje.')
     payload = body.model_dump(mode='json', exclude={'request_id'}, exclude_none=True)
-    execution_labels = {'prepare_execution': 'Preparar el análisis aceptado', 'clarify_execution': 'Responder aclaración de ejecución', 'cancel_execution': 'Dejar pendiente la ejecución'}
+    execution_labels = EXECUTION_ACTIONS
     payload['display'] = body.content or execution_labels.get(body.action) or ACTION_LABELS[body.action]
     params = {'p_conversation': str(conversation_id), 'p_request': str(body.request_id)}
     started = await user.store.rpc('begin_chat_turn', {**params, 'p_payload': payload})
@@ -107,7 +110,8 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
         project = await project_for(user, project_id)
         # Tiempo total menor que la concesión durable de 180 segundos.
         async with asyncio.timeout(150):
-            preparing = body.action in execution_labels or (body.action == 'message' and (conversation.get('stage_data', {}).get('execution_preparation') or {}).get('result', {}).get('status') == 'NEEDS_CLARIFICATION')
+            preparation = normalized_preparation(conversation.get('stage_data', {}).get('execution_preparation'))
+            preparing = body.action in ('prepare_execution', 'clarify_execution', 'review_execution') or (body.action == 'message' and not preparation.get('paused') and preparation.get('result', {}).get('status') == 'NEEDS_CLARIFICATION')
             if preparing:
                 if request.app.state.analysis_lock.locked():
                     raise HTTPException(409, 'El motor está ocupado. Reintenta la misma solicitud en un momento.')

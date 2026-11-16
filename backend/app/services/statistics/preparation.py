@@ -36,6 +36,15 @@ def sources(plan):
     return plan.components if plan.procedure == "integral" else [plan]
 
 
+def plan_filters(plan):
+    legacy = plan.comparison.filters if plan.comparison else []
+    require(
+        not plan.filters or not legacy or plan.filters == legacy,
+        "El plan contiene filtros contradictorios. Solicita una propuesta revisada.",
+    )
+    return plan.filters or legacy
+
+
 def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True):
     if require_confirmation:
         require(spec.decisions_confirmed, "Confirma las decisiones de ejecución antes de calcular.")
@@ -58,7 +67,7 @@ def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True)
             "Un marcador no puede conservarse y excluirse a la vez.",
         )
     comparison = plan.comparison
-    required_filters = comparison.filters if comparison else []
+    required_filters = plan_filters(plan)
     require(
         [f.model_dump() for f in spec.filters] == [f.model_dump() for f in required_filters],
         "Los filtros deben coincidir exactamente con el alcance del plan aceptado.",

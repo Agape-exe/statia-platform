@@ -1,5 +1,26 @@
 # Corrección UX de ejecución — Sesión 03
 
+## Corrección del bucle «No lo sé»
+
+La versión inicial guardaba `unknown`, pero `ask()` volvía a incluir esa pregunta en `questions`. Al conservar NEEDS_CLARIFICATION, el chat repetía las opciones. Ese comportamiento también estaba fijado por una regresión anterior; se corrigieron tanto la transición como sus criterios de aceptación.
+
+Ahora `clarifications` registra cada pregunta con id, alcance, respuesta y estado `pending`, `answered` o `unknown`. `questions` contiene únicamente preguntas activas. Una respuesta desconocida indispensable lleva a **BLOCKED_UNCERTAINTY**, separada de NEEDS_CLARIFICATION y de UNSUPPORTED: falta información, sin afirmar que el procedimiento sea incompatible. No produce evidencia positiva ni permite ejecutar el contraste.
+
+| Acción | Transición y conservación |
+| --- | --- |
+| «No lo sé» por botón o texto | Pregunta `unknown`; sale de preguntas activas y se explica la limitación |
+| Recargar o repetir «No lo sé» | Conserva incertidumbre, id, respuesta y huella; no reactiva ni vuelve a formular la pregunta |
+| Revisar respuesta y cambiarla | Reabre explícitamente esa pregunta; conserva su respuesta anterior hasta recibir una nueva y revalida la preparación |
+| Respuesta suficiente | Pregunta `answered`; READY solo si no quedan decisiones indispensables ni incompatibilidades |
+| Dejar pendiente y volver al chat | Conserva la preparación y sus respuestas con `paused=true`; permite conversar sin responder otra vez |
+| Solicitar propuesta descriptiva alternativa | Usa Gemini y validación de propuestas existentes; genera una propuesta nueva en el mismo chat y espera aceptación explícita |
+
+La alternativa descriptiva mantiene archivos, hojas, columnas y selecciones del alcance aceptado. El servidor copia únicamente esos filtros ya autorizados al campo aditivo `Plan.filters`; se validan al generar, aceptar y ejecutar. No copia la comparación inferencial ni confirma su independencia. Las respuestas aplicables a las mismas columnas se reutilizan, mientras que la incertidumbre del contraste original permanece en su preparación. Si Gemini no está disponible, se explica el fallo y se permite reintentar la misma solicitud, sin simular una propuesta ni cambiar el original.
+
+Los estados persistidos por la versión anterior se adaptan al leerlos: una pregunta con respuesta `unknown` se presenta como incertidumbre reconocida, preservando ids y huellas. La siguiente mutación persiste el contrato ampliado mediante los RPC existentes. No se requiere migración. Al alternar entre propuestas se conservan preparaciones previas en `stage_data.execution_preparations`; al cambiar datos o alcance solo dejan de aplicarse las aclaraciones cuyos ámbitos han cambiado. Las decisiones de columnas pertenecen a su archivo/hoja/columna, y el diseño se comparte entre componentes de la misma tabla y alcance.
+
+Para validar el caso real informado: reiniciar backend/frontend, abrir el mismo chat de Penguins con NA ya confirmado, contestar «No lo sé» al diseño y recargar. Debe verse **Preparación detenida por incertidumbre**, sin la pregunta activa, con acciones para revisión, propuesta descriptiva o dejar pendiente. Repetir el texto no debe reabrir la pregunta. Revisar y responder con información suficiente debe conservar NA como ausencia y permitir preparar el contraste; solicitar la alternativa debe conservar Adelie y requerir aceptar la nueva propuesta.
+
 ## Causa y recorrido actual
 
 El recorrido anterior exponía ExecutionSpec v1 como un formulario obligatorio: el navegador comenzaba con métodos, tipos y decisiones vacíos, aunque parte del alcance ya estaba en el plan aceptado. No había un preparador del servidor que distinguiera decisiones derivables de información metodológica desconocida.
@@ -22,13 +43,13 @@ El resultado separa evidencia `verified`, inferencias `inferred` y respuestas `u
 
 Se conserva la multiplicidad fijada en el plan. Si no está definida y hay una familia múltiple, se propone Holm y se explica como decisión automática revisable; los intervalos permanecen individuales. No se activan comparaciones post-hoc por significación. No se inventan unidades, escalas ordinales, hipótesis, relaciones ni supuestos.
 
-El usuario puede contestar con opciones sencillas, **No lo sé**, o expresiones inequívocas en el compositor, como «son datos faltantes». Una respuesta desconocida conserva el bloqueo y explica por qué importa. **Volver al chat** conserva el plan y permite pedir una propuesta descriptiva en la misma conversación. Esta alternativa se propone y acepta por separado: no se cambia silenciosamente un plan inferencial. Preparar/ejecutar un plan suficientemente definido no requiere Gemini; generar otra propuesta o interpretar texto complejo sigue sujeto a su configuración/disponibilidad. El texto complejo no se convierte silenciosamente en una confirmación.
+El usuario puede contestar con opciones sencillas, **No lo sé**, o expresiones inequívocas en el compositor, como «son datos faltantes». Una respuesta desconocida retira la pregunta activa, conserva el bloqueo y explica por qué importa. **Solicitar propuesta descriptiva alternativa** y **Dejar pendiente y volver al chat** conservan el original y sus respuestas. La alternativa se propone y acepta por separado: no se cambia silenciosamente un plan inferencial. Preparar/ejecutar un plan suficientemente definido no requiere Gemini; generar otra propuesta o interpretar texto complejo sigue sujeto a su configuración/disponibilidad. El texto complejo no se convierte silenciosamente en una confirmación.
 
 ## Contratos, persistencia y seguridad
 
-- Plan v1, ExecutionSpec v1 y resultados existentes se conservan. La preparación es un contrato nuevo `ExecutionPreparation` v1 con READY / NEEDS_CLARIFICATION / UNSUPPORTED, borrador, evidencia, preguntas, impedimentos, archivos/hashes, huella y UUID estable.
+- Plan v1, ExecutionSpec v1 y resultados existentes se conservan. La preparación es un contrato `ExecutionPreparation` v1 con READY / NEEDS_CLARIFICATION / BLOCKED_UNCERTAINTY / UNSUPPORTED, borrador, evidencia, preguntas, aclaraciones respondidas, impedimentos, archivos/hashes, huella y UUID estable.
 - `decisions_confirmed` permanece falso al preparar. La acción final del usuario confirma la especificación. `validate_spec` permite revisar un borrador sin alterar ese valor y sigue exigiendo confirmación al ejecutar.
-- Turn añade tres acciones y los campos opcionales `proposal_id`, `question_id` y `answer`. ExecuteRequest añade `preparation_fingerprint` opcional; los clientes anteriores pueden seguir enviando su especificación confirmada.
+- Turn incorpora `prepare_execution`, `clarify_execution`, `review_execution`, `request_descriptive`, `cancel_execution` y los campos opcionales `proposal_id`, `question_id` y `answer`. ExecuteRequest añade `preparation_fingerprint` opcional; los clientes anteriores pueden seguir enviando su especificación confirmada.
 - Los RPC existentes guardan preguntas, respuestas y evaluaciones en `stage_data.execution_preparation`, `messages.metadata` y `chat_requests`. Se conservan etapa, finalidad y propuesta aceptada. No hay migración nueva ni reescritura de planes/resultados previos.
 - Cada pregunta está ligada por hash al plan y a los originales. Cambiar archivos/hojas/columnas o decisiones obliga a revalidar; las respuestas antiguas dejan de aplicarse al cambiar el alcance. El UUID automático deriva de propuesta/huella: repetir la misma preparación reutiliza el intento y el resultado, sin duplicar cálculos/eventos.
 - El servidor verifica estado aceptado, pertenencia, UUID, huella y especificación; el hijo vuelve a evaluar los originales antes de calcular. El modo avanzado conserva controles comunes y no puede reemplazar silenciosamente un método explícito por otro.

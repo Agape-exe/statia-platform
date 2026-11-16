@@ -21,6 +21,7 @@ export interface Conversation {
     execution_preparation?: {
       proposal_id: string
       result: ExecutionPreparation
+      paused?: boolean
     } | null
     awaiting_reuse_update?: boolean
     reuse_file_ids?: string[]
@@ -104,6 +105,7 @@ export interface Plan {
   expected_outputs: string[]
   joins: { left: Variable; right: Variable; justification: string }[]
   components?: { procedure: string; method: string; variables: Variable[] }[]
+  filters?: { variable: Variable; values: string[] }[]
   comparison?: {
     design: 'independent' | 'paired' | 'unknown'
     groups: string[]
@@ -145,6 +147,8 @@ export type TurnAction =
   | 'keep_goal'
   | 'prepare_execution'
   | 'clarify_execution'
+  | 'review_execution'
+  | 'request_descriptive'
   | 'cancel_execution'
 export interface Turn {
   request_id: string

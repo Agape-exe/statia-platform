@@ -15,6 +15,7 @@ from app.models.analysis import (
     ExecutionPreparation,
     ExecutionSpec,
     PreparationChoice,
+    PreparationClarification,
     PreparationEvidence,
     PreparationQuestion,
 )
@@ -29,6 +30,7 @@ from app.services.statistics.preparation import (
     AnalysisError,
     key,
     original_table,
+    plan_filters,
     prepare,
     require,
     sources,
@@ -61,32 +63,58 @@ def assess(job):
         )
     provenance.sort(key=lambda f: f["id"])
     scope = digest({"plan": job["plan"], "files": provenance})
-    questions, evidence, blockers, warnings, reasons = [], [], [], [], []
+    questions, clarifications, evidence, blockers, warnings, reasons = [], [], [], [], [], []
+    reviewing = job.get("review_question_id")
 
     def note(subject, origin, detail):
         evidence.append(PreparationEvidence(subject=subject, origin=origin, detail=detail))
 
-    def ask(subject, prompt, explanation, options, variable=None):
-        qid = digest([scope, subject])
+    def ask(subject, prompt, explanation, options, variable=None, *, scope_data=None, limitation=None):
+        # Identidad local: cambiar otra tabla o el título no borra una decisión
+        # sobre esta columna. Los ids previos se conservan al migrar un estado v1.
+        local_scope = digest(
+            scope_data
+            if scope_data is not None
+            else {"variable": key(variable), "file": next(f for f in provenance if f["id"] == variable.file_id)}
+            if variable
+            else {"plan": job["plan"], "files": provenance}
+        )
+        previous = next(
+            (
+                q
+                for q in job.get("clarifications", [])
+                if q.get("subject") == subject and q.get("scope_fingerprint") == local_scope
+            ),
+            None,
+        )
+        legacy_id = digest([scope, subject])
+        qid = previous["id"] if previous else legacy_id if legacy_id in answers else digest([local_scope, subject])
         choices = [PreparationChoice(value=value, label=label) for value, label in options]
         choices.append(PreparationChoice(value="unknown", label="No lo sé"))
         question = PreparationQuestion(
-            id=qid, prompt=prompt, explanation=explanation, choices=choices, variable=variable
+            id=qid,
+            prompt=prompt,
+            explanation=explanation,
+            choices=choices,
+            variable=variable,
+            subject=subject,
+            scope_fingerprint=local_scope,
+            limitation=limitation or "No tenemos información suficiente para resolver esta decisión. " + explanation,
         )
         answer = answers.get(qid)
         if answer not in {c.value for c in choices}:
             answer = None
-        if answer and answer != "unknown":
+        state = "pending" if reviewing == qid or answer is None else "unknown" if answer == "unknown" else "answered"
+        if not any(q.id == qid for q in clarifications):
+            clarifications.append(PreparationClarification(**question.model_dump(), status=state, answer=answer))
+        if state == "answered":
             note(subject, "user", next(c.label for c in choices if c.value == answer))
-        else:
+        elif state == "pending":
             if not any(q.id == qid for q in questions):
                 questions.append(question)
-            if answer == "unknown":
-                warnings.append(
-                    explanation
-                    + " Puedes solicitar una propuesta descriptiva; no se ejecutará este contraste sin resolverlo."
-                )
-        return answer if answer != "unknown" else None
+        else:
+            warnings.append(question.limitation + " Puedes solicitar una propuesta descriptiva o revisar tu respuesta.")
+        return answer if state == "answered" else None
 
     if plan.joins:
         blockers.append("Las uniones entre tablas no están implementadas. Solicita análisis separados.")
@@ -111,9 +139,7 @@ def assess(job):
             blockers.append(
                 f"«{v.column}»: este catálogo no admite identificadores ni fechas como medidas. Revisa la propuesta."
             )
-        elif v.role == "group" or any(
-            key(v) == key(f.variable) for f in (plan.comparison.filters if plan.comparison else [])
-        ):
+        elif v.role == "group" or any(key(v) == key(f.variable) for f in plan_filters(plan)):
             kind = "nominal"
             note(
                 v.column,
@@ -188,6 +214,20 @@ def assess(job):
     )
     components = []
     for index, source in enumerate(sources(plan)):
+        component_scope = {
+            "source": {
+                "procedure": source.procedure,
+                "method": source.method,
+                "variables": [v.model_dump(mode="json") for v in source.variables],
+            },
+            "comparison": plan.comparison.model_dump(mode="json") if plan.comparison else None,
+            "filters": [
+                s.model_dump(mode="json")
+                for s in plan_filters(plan)
+                if s.variable.file_id in {v.file_id for v in source.variables}
+            ],
+            "files": [f for f in provenance if f["id"] in {v.file_id for v in source.variables}],
+        }
         compatible = [code for code, entry in CATALOG.items() if source.procedure in entry.families]
         named = named_methods(source)
         if not compatible or any(
@@ -287,6 +327,7 @@ def assess(job):
                     )
                     for code in candidates
                 ],
+                scope_data=component_scope,
             )
         if not method:
             continue
@@ -310,6 +351,13 @@ def assess(job):
                     else "¿Cada observación corresponde a una unidad distinta, sin mediciones repetidas ni agrupaciones relacionadas?",
                     "Por ejemplo, varias mediciones de una misma persona o personas de un mismo grupo relacionado requieren otro diseño. Tener filas distintas no basta para confirmar independencia.",
                     [("yes", "Sí, conozco la recolección y lo confirmo"), ("no", "No, hay observaciones relacionadas")],
+                    scope_data={
+                        "files": component_scope["files"],
+                        "filters": component_scope["filters"],
+                        "paired": paired,
+                        "pair_ids": [v.model_dump(mode="json") for v in source.variables if v.role == "pair_id"],
+                    },
+                    limitation="No tenemos información suficiente para confirmar la independencia de las observaciones. Por ahora no puedo presentar este contraste inferencial como metodológicamente validado.",
                 )
                 if answer == "no":
                     blockers.append(
@@ -332,10 +380,13 @@ def assess(job):
                     "El método aceptado necesita varianzas comparables. ¿Hay justificación metodológica para asumirlo?",
                     "No se sustituirá el método aceptado ni se asumirá igualdad por el resultado de una prueba de normalidad.",
                     [("yes", "Sí, cuento con justificación"), ("no", "No; necesito revisar la propuesta")],
+                    scope_data=component_scope,
                 )
                 == "yes"
             )
-            if not equal and answers.get(digest([scope, f"variance:{index}"])) == "no":
+            if not equal and any(
+                q.subject == f"variance:{index}" and q.status == "answered" and q.answer == "no" for q in clarifications
+            ):
                 blockers.append("Revisa la propuesta antes de cambiar Student o ANOVA clásico por Welch.")
         groups = plan.comparison.groups if plan.comparison and method in INDEPENDENT_GROUPS else []
         if method in INDEPENDENT_GROUPS and not plan.comparison:
@@ -386,11 +437,14 @@ def assess(job):
         spec = ExecutionSpec(
             components=components,
             decisions=decisions,
-            filters=plan.comparison.filters if plan.comparison else [],
+            filters=plan_filters(plan),
             multiplicity=multiplicity or "none",
             decisions_confirmed=False,
         )
-    if not questions and not blockers and spec:
+    uncertain = any(q.status == "unknown" for q in clarifications)
+    if reviewing:
+        questions.sort(key=lambda q: q.id != reviewing)
+    if not questions and not uncertain and not blockers and spec:
         try:
             validate_spec(plan, spec, require_confirmation=False)
             prepared = {fid: prepare(file, data, spec, settings) for fid, (file, data, _, _) in tables.items()}
@@ -415,13 +469,22 @@ def assess(job):
     fingerprint = digest({"scope": scope, "answers": answers, "spec": spec.model_dump(mode="json") if spec else None})
     return ExecutionPreparation(
         request_id=uuid5(NAMESPACE_URL, f"statia:preparation:{job.get('proposal_id', '')}:{fingerprint}"),
-        status="UNSUPPORTED" if blockers else "NEEDS_CLARIFICATION" if questions else "READY",
+        status="UNSUPPORTED"
+        if blockers
+        else "NEEDS_CLARIFICATION"
+        if any(q.id == reviewing for q in questions)
+        else "BLOCKED_UNCERTAINTY"
+        if uncertain
+        else "NEEDS_CLARIFICATION"
+        if questions
+        else "READY",
         specification=spec,
         methods=[CATALOG[c.method].name for c in components],
         reasons=reasons,
         evidence=evidence,
         warnings=list(dict.fromkeys(warnings)),
         questions=questions,
+        clarifications=clarifications,
         blockers=blockers,
         files=provenance,
         fingerprint=fingerprint,
@@ -429,7 +492,7 @@ def assess(job):
 
 
 def scoped_rows(rows, plan, file_id):
-    for selection in plan.comparison.filters if plan.comparison else []:
+    for selection in plan_filters(plan):
         if selection.variable.file_id == file_id:
             rows = [r for r in rows if str(r.get(selection.variable.column)) in selection.values]
     return rows

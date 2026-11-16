@@ -77,6 +77,17 @@ export function ProposalCard({
           </ul>
         </details>
       )}
+      {!!plan.filters?.length && (
+        <details>
+          <summary>Alcance conservado</summary>
+          {plan.filters.map((filter, i) => (
+            <p key={i}>
+              <strong>Filtro:</strong> {filter.variable.column} ={' '}
+              {filter.values.join(', ')}
+            </p>
+          ))}
+        </details>
+      )}
       {comparison && (
         <details>
           <summary>Alcance y decisiones metodológicas</summary>

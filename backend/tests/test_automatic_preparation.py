@@ -188,10 +188,11 @@ def test_unknown_and_related_design_never_become_confirmation():
     for q in result["questions"]:
         job.setdefault("answers", {})[q["id"]] = "unknown"
     result = assess(job)
-    assert result["status"] == "NEEDS_CLARIFICATION"
+    assert result["status"] == "BLOCKED_UNCERTAINTY"
+    assert result["questions"] == []
     assert result["warnings"]
     assert not any(e["origin"] == "user" for e in result["evidence"])
-    for q in result["questions"]:
+    for q in result["clarifications"]:
         if any(c["value"] == "yes" for c in q["choices"]):
             job["answers"][q["id"]] = "no"
     assert assess(job)["status"] == "UNSUPPORTED"
@@ -340,7 +341,11 @@ def test_nonexpert_chat_never_invents_an_answer(preparation_client, text):
     response = client.post(path + "/turns", json={"request_id": str(uuid4()), "content": text})
     assert response.status_code == 200, response.text
     detail = client.get(path).json()
-    assert detail["conversation"]["stage_data"]["execution_preparation"]["result"]["status"] == "NEEDS_CLARIFICATION"
+    state = detail["conversation"]["stage_data"]["execution_preparation"]["result"]
+    assert state["status"] == "BLOCKED_UNCERTAINTY"
+    assert not any(
+        q["id"] in {c["id"] for c in state["clarifications"] if c["status"] == "unknown"} for q in state["questions"]
+    )
     assert "descriptiva" in detail["messages"][-1]["content"]
     assert not store.data["analysis_runs"]
 

@@ -73,6 +73,14 @@ class PreparationQuestion(StrictModel):
     explanation: str
     choices: list[PreparationChoice]
     variable: Variable | None = None
+    subject: str = ""
+    scope_fingerprint: str = ""
+    limitation: str = ""
+
+
+class PreparationClarification(PreparationQuestion):
+    status: Literal["pending", "answered", "unknown"]
+    answer: str | None = None
 
 
 class PreparationEvidence(StrictModel):
@@ -84,13 +92,14 @@ class PreparationEvidence(StrictModel):
 class ExecutionPreparation(StrictModel):
     schema_version: Literal[1] = 1
     request_id: UUID
-    status: Literal["READY", "NEEDS_CLARIFICATION", "UNSUPPORTED"]
+    status: Literal["READY", "NEEDS_CLARIFICATION", "BLOCKED_UNCERTAINTY", "UNSUPPORTED"]
     specification: ExecutionSpec | None = None
     methods: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
     evidence: list[PreparationEvidence] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     questions: list[PreparationQuestion] = Field(default_factory=list)
+    clarifications: list[PreparationClarification] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
     files: list[dict[str, JsonValue]] = Field(default_factory=list)
     fingerprint: str

@@ -110,6 +110,27 @@ test('resultados: migración, RLS, integridad, concesiones, transacción e idemp
     assert.equal((await begin(spec, answerRequest)).status, 'busy')
     await q('select public.finish_chat_turn($1,$2,$3)', [cid, answerRequest, JSON.stringify(preparedTurn)])
     assert.equal((await q('select public.begin_chat_turn($1,$2,$3) as status', [cid, answerRequest, JSON.stringify(answerPayload)]))[0].status, 'completed')
+    // Unknown es una respuesta persistida, no otra pregunta sin contestar.
+    const unknownRequest = '20000000-0000-0000-0000-000000000004'
+    const unknownPayload = { action: 'clarify_execution', proposal_id: proposal, question_id: 'diseno-estable', answer: 'unknown', display: 'No lo sé' }
+    const uncertain = { ...preparation, answers: { ...preparation.answers, 'diseno-estable': 'unknown' },
+      result: { schema_version: 1, status: 'BLOCKED_UNCERTAINTY', questions: [], fingerprint: 'b'.repeat(64),
+        clarifications: [{ id: 'pregunta-con-hash', status: 'answered', answer: 'missing' }, { id: 'diseno-estable', status: 'unknown', answer: 'unknown' }] } }
+    assert.equal((await q('select public.begin_chat_turn($1,$2,$3) as status', [cid, unknownRequest, JSON.stringify(unknownPayload)]))[0].status, 'started')
+    await q('select public.finish_chat_turn($1,$2,$3)', [cid, unknownRequest, JSON.stringify({ ...preparedTurn, content: 'La información sigue siendo desconocida.', stage_data: {execution_preparation: uncertain}, metadata: {execution_preparation: uncertain.result} })])
+    const afterUnknown = (await q('select id from public.messages where conversation_id=$1', [cid])).length
+    assert.equal((await q('select public.begin_chat_turn($1,$2,$3) as status', [cid, unknownRequest, JSON.stringify(unknownPayload)]))[0].status, 'completed')
+    assert.equal((await q('select id from public.messages where conversation_id=$1', [cid])).length, afterUnknown)
+    assert.deepEqual((await q('select stage_data from public.conversations where id=$1', [cid]))[0].stage_data.execution_preparation, uncertain)
+    const reviewRequest = '20000000-0000-0000-0000-000000000005'
+    await q('select public.begin_chat_turn($1,$2,$3)', [cid, reviewRequest, JSON.stringify({action:'review_execution', question_id:'diseno-estable', display:'Revisar respuesta'})])
+    const reviewing = { ...uncertain, review_question_id:'diseno-estable', result: {...uncertain.result, status:'NEEDS_CLARIFICATION', questions:[{id:'diseno-estable'}]} }
+    await q('select public.finish_chat_turn($1,$2,$3)', [cid, reviewRequest, JSON.stringify({...preparedTurn, content:'Revisión solicitada explícitamente.', stage_data:{execution_preparation:reviewing}})])
+    const persistedReview = (await q('select stage_data from public.conversations where id=$1', [cid]))[0].stage_data.execution_preparation
+    assert.equal(persistedReview.answers['pregunta-con-hash'], 'missing')
+    assert.equal(persistedReview.answers['diseno-estable'], 'unknown')
+    assert.equal(persistedReview.result.questions[0].id, 'diseno-estable')
+    assert.deepEqual((await q('select analysis_plan from public.analysis_proposals where id=$1', [proposal]))[0].analysis_plan, plan)
     await db.exec(`set request.jwt.claim.sub='${b}';`)
     assert.equal((await q('select stage_data from public.conversations where id=$1', [cid])).length, 0)
     assert.equal((await q('select * from public.messages where conversation_id=$1', [cid])).length, 0)
