@@ -47,7 +47,7 @@ async def main():
         "expected_outputs": ["Tablas y PNG"],
     }
     spec = {
-        "components": [{"source_index": 0, "method": "descriptive"}],
+        "components": [{"source_index": 0, "method": "descriptive", "descriptive_intervals": False}],
         "decisions_confirmed": True,
         "decisions": [
             {"variable": v, "statistical_type": "nominal" if v["role"] == "group" else "continuous"} for v in variables
@@ -120,6 +120,12 @@ async def main():
                 ensure_ascii=False,
             )
         )
+        if (
+            child.returncode
+            or result.get("error")
+            or result.get("result", {}).get("status") not in ("completed", "partial")
+        ):
+            raise SystemExit("La medición no completó un análisis; revisar el contrato o el entorno.")
     finally:
         if child.returncode is None:
             from app.services.analysis_worker import kill_process_tree

@@ -6,6 +6,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = [
+    "app/api/research_context.py",
+    "app/models/research_context.py",
+    "app/services/research_context.py",
+    "app/core/config.py",
+    "app/main.py",
+    "tests/test_app.py",
+    "tests/test_research_context.py",
     "app/api/analysis.py",
     "app/models/analysis.py",
     "app/services/statistics",

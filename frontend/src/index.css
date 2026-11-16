@@ -1,4 +1,44 @@
 @import 'tailwindcss';
+.thesis-context {
+  max-width: 900px;
+}
+.context-import {
+  padding: 20px;
+  border: 1px solid #d7e4de;
+  border-radius: 12px;
+  margin: 24px 0;
+  background: white;
+}
+.context-import summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.context-import label {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.context-form fieldset {
+  min-width: 0;
+}
+.context-form small {
+  display: block;
+}
+.context-review {
+  max-height: 45dvh;
+  overflow: auto;
+}
+.context-review div {
+  margin-bottom: 16px;
+}
+.context-review dt {
+  font-weight: 600;
+}
+.context-review dd {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 @theme {
   --font-sans: 'Segoe UI', system-ui, sans-serif;
 }

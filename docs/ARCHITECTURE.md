@@ -26,7 +26,7 @@ Los RPC son `security invoker` y respetan RLS. `create_conversation` guarda bien
 
 Etapas: `reuse → instrument → upload_instrument → upload_dataset → understanding → clarification → goal → proposal → ready`. Sin instrumento se pasa a datasets; reutilización con datasets pasa a comprensión. Rechazo vuelve a finalidad, o conserva `ready` si hay otro plan aceptado. Bienvenida e incorporación son lógica explícita. Gemini solo sugiere etapas; el servidor controla transiciones y nunca acepta planes por decisión del modelo.
 
-Tesis requiere aclaraciones metodológicas; general permite explorar sin conocimientos previos. Finalidad y resumen de entendimiento persisten además del historial. `research_context=null` en `build_context` es el punto de integración del futuro Contexto. Un cambio de finalidad queda pendiente en `stage_data.goal_change`; solo la acción del usuario crea otro chat, conservando el anterior y ofreciendo reutilización. Renombrar manualmente desactiva títulos automáticos.
+Tesis requiere aclaraciones metodológicas; general permite explorar sin conocimientos previos. Finalidad y resumen de entendimiento persisten además del historial. `current_context` relee el documento confirmado de tesis antes de contextualizar Gemini y `build_context` añade su revisión y fecha; general recibe null. La migración aditiva 006 protege `research_contexts` con RLS y un RPC invoker con revisión esperada. Editar/importar requiere revisar y confirmar; el chat no tiene una operación de escritura de Contexto. Los mensajes nuevos registran la revisión usada sin modificar snapshots históricos. Ver [THESIS_CONTEXT](THESIS_CONTEXT.md). Un cambio de finalidad queda pendiente en `stage_data.goal_change`; solo la acción del usuario crea otro chat, conservando el anterior y ofreciendo reutilización. Renombrar manualmente desactiva títulos automáticos.
 
 `profiling.py` lee CSV/JSON/XLSX/PDF sin modificar ni combinar originales. Limita bytes, filas, columnas, celdas, hojas, páginas y expansión; un perfilado por proceso. XLSX comprueba ZIP y usa lectura incremental. pypdf limita streams y decodificación; sin texto conserva el PDF y comunica que no hay OCR. Varias hojas requieren elección; después el perfil queda congelado para no alterar referencias de planes.
 
@@ -62,7 +62,7 @@ OpenAPI en `/docs`. Rutas privadas bajo `/projects/{project_id}` con Bearer:
 
 Acciones: `message`, `reuse` (`file_ids` opcionales), `new_files`, `instrument_yes`, `instrument_no`, `instruments_done`, `files_ready`, `keep_goal`. Una carga múltiple solicita una comprensión al terminar; se espera si faltan elegir hojas. HTTP: 401 sesión, 403 permisos del usuario, 404 recurso ajeno/inexistente, 409 conflicto/ocupado, 413 límites, 422 formato/acción, 429 cuota, 502 proveedor/persistencia, 503 configuración o servicio Gemini no disponible, 504 timeout local o del proveedor. Credenciales/permisos del proveedor usan 502 con diagnóstico propio para no confundirlos con la sesión Supabase.
 
-Sin Redis, colas ni arquitectura multiagente. Vercel/Render siguen siendo destinos previstos; no se despliegan en esta sesión. Producción requerirá fallback SPA, orígenes CORS y redirects Auth.
+Sin Redis, colas ni arquitectura multiagente. Sesión 04 prepara Render con Python 3.12/un worker, Vercel con fallback SPA y validación de configuración pública, y CORS exacto. Los despliegues y redirects Auth los configura manualmente el usuario: [DEPLOYMENT](DEPLOYMENT.md). No se modificaron cuentas remotas.
 
 ## Ajustes finales del asistente
 

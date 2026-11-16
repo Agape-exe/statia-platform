@@ -1,5 +1,7 @@
+from urllib.parse import urlsplit
+
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, SecretStr
 
 
 class Settings(BaseSettings):
@@ -15,10 +17,28 @@ class Settings(BaseSettings):
     max_columns: int = Field(default=120, ge=1, le=300)
     max_expanded_bytes: int = Field(default=30 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     max_conversation_files: int = Field(default=12, ge=1, le=30)
-    missing_value_markers: str = 'NA,N/A,null,NaN,None,<NA>'
+    missing_value_markers: str = "NA,N/A,null,NaN,None,<NA>"
     # Decisiones explícitas por columna; no se deducen categorías ausentes por su nombre.
     missing_value_overrides: dict[str, list[str]] = Field(default_factory=dict)
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("allowed_origins")
+    @classmethod
+    def exact_origins(cls, value: str) -> str:
+        for origin in (part.strip() for part in value.split(",") if part.strip()):
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme not in ("http", "https")
+                or not parsed.hostname
+                or "*" in origin
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+                or parsed.username
+                or parsed.password
+            ):
+                raise ValueError("ALLOWED_ORIGINS requiere orígenes HTTP(S) exactos, sin rutas ni comodines.")
+        return value
 
     @property
     def origins(self) -> list[str]:

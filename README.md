@@ -4,7 +4,9 @@ La consulta de resultados parciales conserva las aclaraciones pendientes. Revisa
 
 Los análisis integrales admiten preparación y ejecución parcial confirmada por componentes, con continuidad y resultados cronológicos. Requiere la migración aditiva 005; consulta [la documentación](docs/INTEGRAL_EXECUTION.md).
 
-Plataforma de análisis estadístico conversacional para investigaciones y datasets. Conserva Auth, proyectos y conversaciones con Gemini; incorpora ejecución estadística Python, resultados persistentes y recursos privados descargables. Contexto solo aparece en tesis y su persistencia sigue pendiente.
+Plataforma de análisis estadístico conversacional para investigaciones y datasets. Conserva Auth, proyectos y conversaciones con Gemini; incorpora ejecución estadística Python, resultados persistentes y recursos privados descargables. [Contexto de tesis](docs/THESIS_CONTEXT.md) permite edición/importación revisada y persistencia con RLS (migración 006).
+
+**Sesión 04:** configuración preparada para despliegue manual en Render/Vercel, sin servicios creados ni cambios remotos. Consultar [guía paso a paso](docs/DEPLOYMENT.md), [plan](docs/SESSION04_PLAN.md) y [validaciones y pendientes](docs/SESSION04_VALIDATION.md). El usuario configura Supabase y realiza los despliegues; todavía no se acredita una URL pública funcional.
 
 **Sesión 03:** motor y recorrido de ejecución implementados. P0 y ampliación P1 con validación numérica; revisión explícita antes de calcular, resultados en chat y módulo Resultados, CSV/PNG/JSON/Markdown/ZIP. La migración nueva y el recorrido autenticado en Supabase remoto siguen pendientes. Gemini real interpretó correctamente una síntesis sintética calculada localmente. Ver [motor y límites](docs/STATISTICAL_ENGINE.md) y [validación](docs/VALIDATION.md).
 
@@ -57,7 +59,7 @@ cd backend
 ./.venv/Scripts/python -m pip check
 ```
 
-Desde `supabase`, `npm ci` y `npm test` validan las cuatro migraciones y RLS en PostgreSQL local con PGlite sin Docker.
+Desde `supabase`, `npm ci` y `npm test` validan las seis migraciones y RLS en PostgreSQL local con PGlite sin Docker.
 
 No versionar `.env.local`, `.env` ni archivos de usuarios. `VITE_API_URL` apunta a FastAPI; nunca usar una variable `VITE_` para claves privadas. CSV UTF-8/coma/punto y coma, XLSX con elección de hoja, JSON array de objetos y PDF con texto: 10 MB por archivo por defecto. No hay OCR, uniones ni correcciones automáticas.
 

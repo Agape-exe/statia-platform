@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "build:production": "node scripts/check-production-env.mjs && npm run build",
+    "lint": "oxlint src vite.config.ts scripts",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:deployment": "node --test scripts/production-env.check.mjs",
     "typecheck": "tsc -b --pretty false",
     "format": "prettier --write src vite.config.ts index.html",
     "format:check": "prettier --check src vite.config.ts index.html"

@@ -33,6 +33,11 @@ const AnalysisResults = lazy(() =>
     default: module.AnalysisResults,
   })),
 )
+const ThesisContext = lazy(() =>
+  import('../components/ThesisContext').then((module) => ({
+    default: module.ThesisContext,
+  })),
+)
 const modules = [
   // Los módulos de chat y resultados se cargan bajo demanda.
   {
@@ -49,7 +54,7 @@ const modules = [
     icon: BookOpen,
     text: 'La metodología que da sentido a tus datos.',
     detail:
-      'Aquí podrás administrar objetivos, hipótesis, variables y el diseño metodológico de tu tesis. La edición y persistencia se habilitarán en una próxima sesión.',
+      'Registra, importa y confirma la información metodológica que orientará al asistente.',
   },
   {
     path: 'datos',
@@ -210,6 +215,10 @@ export function Workspace() {
           {module === 'asistente' ? (
             <Suspense fallback={<Loading />}>
               <StatisticalChat key={project.id} project={project} />
+            </Suspense>
+          ) : module === 'contexto' ? (
+            <Suspense fallback={<Loading />}>
+              <ThesisContext key={project.id} projectId={project.id} />
             </Suspense>
           ) : module === 'resultados' ? (
             <Suspense fallback={<Loading />}>
