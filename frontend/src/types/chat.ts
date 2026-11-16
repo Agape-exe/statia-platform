@@ -31,7 +31,12 @@ export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
   message_type: string
-  metadata: { questions?: string[]; warnings?: string[]; request_id?: string }
+  metadata: {
+    questions?: string[]
+    warnings?: string[]
+    request_id?: string
+    analysis_run_id?: string
+  }
 }
 export interface Column {
   name: string
@@ -44,6 +49,9 @@ export interface Column {
   missing_confirmed?: number
   missing_inferred?: number
   ambiguous_missing?: Record<string, number>
+  missing_markers?: Record<string, number>
+  levels?: { value: string; count: number }[]
+  possible_identifier?: boolean
   unique: number
   min?: number | string
   max?: number | string

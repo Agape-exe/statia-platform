@@ -6,11 +6,13 @@ export function ProposalCard({
   files,
   busy,
   onDecide,
+  onExecute,
 }: {
   proposal: Proposal
   files: ProjectFile[]
   busy: boolean
   onDecide: (status: 'accepted' | 'rejected') => void
+  onExecute?: () => void
 }) {
   const plan = proposal.analysis_plan
   const visible = (text: string) => visibleChatText(text, files)
@@ -171,10 +173,19 @@ export function ProposalCard({
         </div>
       ) : (
         proposal.status === 'accepted' && (
-          <p className="notice">
-            Plan preparado para la Sesión 03. Todavía no se ejecutaron pruebas
-            estadísticas.
-          </p>
+          <div className="chat-actions">
+            <p>
+              Plan aceptado. Revisa el procedimiento, los tipos y las ausencias
+              antes de calcular.
+            </p>
+            <button
+              className="btn primary"
+              disabled={busy || !onExecute}
+              onClick={onExecute}
+            >
+              Ejecutar análisis
+            </button>
+          </div>
         )
       )}
     </article>

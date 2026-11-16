@@ -19,7 +19,7 @@ class MemoryStore:
     def __init__(self):
         self.user_id = str(uuid4())
         self.project_id = str(uuid4())
-        self.data = {name: [] for name in ('projects', 'conversations', 'messages', 'project_files', 'conversation_files', 'analysis_proposals', 'chat_requests')}
+        self.data = {name: [] for name in ('projects', 'conversations', 'messages', 'project_files', 'conversation_files', 'analysis_proposals', 'chat_requests', 'analysis_runs', 'analysis_artifacts')}
         self.data['projects'] = [{'id': self.project_id, 'user_id': self.user_id, 'project_type': 'general'}]
         self.objects = {}
         self.fail_link = False

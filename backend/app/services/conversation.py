@@ -10,6 +10,7 @@ from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
 from app.services.planning_errors import PlanningIssue, log_issues
 from app.services.planning_validation import Assessment, assess_reply, retain_valid_plans
+from app.services.analysis_context import saved_results_context
 
 
 async def linked_files(store, conversation):
@@ -147,7 +148,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     data = dict(conversation.get('stage_data', {}))
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
     conversation = {**conversation, 'stage_data': data}
-    context = build_context(project, conversation, messages, files, turn, settings)
+    analysis_results = await saved_results_context(store, conversation)
+    context = build_context(project, conversation, messages, files, turn, settings, analysis_results)
     # Dos generaciones como máximo; cada alternativa se evalúa por separado.
     reply = await provider.generate(context)
     validation_history = []
@@ -190,6 +192,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     if turn.action != 'message' or not statistical_request(turn.content):
         reply.goal_change = False
     result = reply_result(reply, conversation)
+    if analysis_results and not reply.proposals and not reply.goal_change:
+        result['stage'] = conversation['current_stage']
+        result['goal'] = None
+        result['title'] = None
     if validation_history:
         result['metadata']['planning_validation'] = {'partial': partial, 'attempts': validation_history}
     return result

@@ -17,6 +17,11 @@ import { Alert, Loading } from './ui'
 import { Modal } from './Modal'
 import { DatasetCard } from './DatasetCard'
 import { ProposalCard } from './ProposalCard'
+import { ExecutionReview } from './ExecutionReview'
+import { AnalysisResultCard } from './AnalysisResultCard'
+import { analysisService } from '../services/analysis'
+import type { ExecuteRequest } from '../types/analysis'
+import type { Proposal } from '../types/chat'
 import { ChatComposer } from './ChatComposer'
 import { ConversationHistory } from './ConversationHistory'
 import { useChatScroll } from '../hooks/use-chat-scroll'
@@ -29,6 +34,7 @@ export function StatisticalChat({ project }: { project: Project }) {
   const [loading, setLoading] = useState(true)
   const [opening, setOpening] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [reviewProposal, setReviewProposal] = useState<Proposal | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [text, setText] = useState('')
   const [pending, setPending] = useState<Turn | null>(null)
@@ -263,6 +269,34 @@ export function StatisticalChat({ project }: { project: Project }) {
       }),
     )
   const disabled = busy || opening
+  async function executeAnalysis(body: ExecuteRequest) {
+    if (mutation.current || !reviewProposal)
+      throw new Error('Espera a que termine la operación actual.')
+    mutation.current = true
+    setBusy(true)
+    setBusyLabel('Python está calculando y guardando los resultados…')
+    setError(null)
+    requestFollow()
+    try {
+      await analysisService.execute(
+        project.id,
+        selectedRef.current,
+        reviewProposal.id,
+        body,
+      )
+      await refresh()
+    } catch (caught) {
+      try {
+        await refresh()
+      } catch {
+        /* Conserva las decisiones y el UUID para reintentar. */
+      }
+      throw caught
+    } finally {
+      mutation.current = false
+      setBusy(false)
+    }
+  }
   const candidates = projectFiles.filter((file) =>
     conversation?.stage_data.reuse_file_ids?.includes(file.id),
   )
@@ -424,35 +458,43 @@ export function StatisticalChat({ project }: { project: Project }) {
                     {visible(conversation.primary_goal)}
                   </p>
                 )}
-                {detail.messages.map((message) => (
-                  <article
-                    key={message.id}
-                    className={`chat-message ${message.role}`}
-                  >
-                    <strong>
-                      {message.role === 'user'
-                        ? 'Tú'
-                        : message.role === 'assistant'
-                          ? 'Statia'
-                          : 'Estado del plan'}
-                    </strong>
-                    <p>{visible(message.content)}</p>
-                    {!!message.metadata.questions?.length && (
-                      <ul>
-                        {message.metadata.questions.map((question, i) => (
-                          <li key={i}>{visible(question)}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {!!message.metadata.warnings?.length && (
-                      <ul className="muted">
-                        {message.metadata.warnings.map((warning, i) => (
-                          <li key={i}>{visible(warning)}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </article>
-                ))}
+                {detail.messages.map((message) =>
+                  message.metadata.analysis_run_id ? (
+                    <AnalysisResultCard
+                      key={message.id}
+                      projectId={project.id}
+                      runId={message.metadata.analysis_run_id}
+                    />
+                  ) : (
+                    <article
+                      key={message.id}
+                      className={`chat-message ${message.role}`}
+                    >
+                      <strong>
+                        {message.role === 'user'
+                          ? 'Tú'
+                          : message.role === 'assistant'
+                            ? 'Statia'
+                            : 'Estado del plan'}
+                      </strong>
+                      <p>{visible(message.content)}</p>
+                      {!!message.metadata.questions?.length && (
+                        <ul>
+                          {message.metadata.questions.map((question, i) => (
+                            <li key={i}>{visible(question)}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {!!message.metadata.warnings?.length && (
+                        <ul className="muted">
+                          {message.metadata.warnings.map((warning, i) => (
+                            <li key={i}>{visible(warning)}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </article>
+                  ),
+                )}
                 {conversation.current_stage === 'reuse' && (
                   <div className="flow-card">
                     <h3>Archivos de tu conversación anterior</h3>
@@ -610,6 +652,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                     proposal={proposal}
                     files={detail.files}
                     busy={disabled || !!pending}
+                    onExecute={() => setReviewProposal(proposal)}
                     onDecide={(status) =>
                       perform(async () => {
                         await chatService.decide(
@@ -714,6 +757,18 @@ export function StatisticalChat({ project }: { project: Project }) {
             </button>
           </form>
         </Modal>
+      )}
+      {reviewProposal && detail && (
+        <ExecutionReview
+          key={reviewProposal.id}
+          projectId={project.id}
+          conversationId={selected}
+          proposal={reviewProposal}
+          files={detail.files}
+          busy={busy}
+          onClose={() => setReviewProposal(null)}
+          onExecute={executeAnalysis}
+        />
       )}
       {removing && (
         <Modal

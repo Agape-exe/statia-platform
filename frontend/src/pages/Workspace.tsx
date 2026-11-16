@@ -28,7 +28,13 @@ const StatisticalChat = lazy(() =>
   })),
 )
 
+const AnalysisResults = lazy(() =>
+  import('../components/AnalysisResults').then((module) => ({
+    default: module.AnalysisResults,
+  })),
+)
 const modules = [
+  // Los módulos de chat y resultados se cargan bajo demanda.
   {
     path: 'asistente',
     title: 'Asistente Estadístico',
@@ -197,6 +203,10 @@ export function Workspace() {
           {module === 'asistente' ? (
             <Suspense fallback={<Loading />}>
               <StatisticalChat key={project.id} project={project} />
+            </Suspense>
+          ) : module === 'resultados' ? (
+            <Suspense fallback={<Loading />}>
+              <AnalysisResults key={project.id} projectId={project.id} />
             </Suspense>
           ) : (
             <section className="module-placeholder">
