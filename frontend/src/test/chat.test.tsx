@@ -13,6 +13,20 @@ import { chatService } from '../services/chat'
 import { ApiError } from '../lib/api'
 import type { ConversationDetail, ProjectFile, Proposal } from '../types/chat'
 import type { Project } from '../types/project'
+import { analysisService } from '../services/analysis'
+import type { AnalysisRun } from '../types/analysis'
+
+vi.mock('../services/analysis', () => ({
+  analysisService: {
+    get: vi.fn(),
+    list: vi.fn(),
+    catalog: vi.fn(),
+    execute: vi.fn(),
+    artifact: vi.fn(),
+    downloadZip: vi.fn(),
+    downloadArtifact: vi.fn(),
+  },
+}))
 
 vi.mock('../services/chat', () => ({
   chatService: {
@@ -127,6 +141,116 @@ function chat() {
 }
 
 describe('chat persistente y acciones', () => {
+  it('consulta pendientes desde el resultado sin enviar un turno y mantiene el estado parcial al recargar', async () => {
+    detail.conversation.current_stage = 'ready'
+    detail.latest_analysis_run = {
+      id: 'run',
+      proposal_id: 'pr1',
+      status: 'partial',
+    }
+    detail.messages.push({
+      id: 'result-event',
+      position: 2,
+      role: 'assistant',
+      content: 'Resultado parcial',
+      message_type: 'event',
+      metadata: { analysis_run_id: 'run', proposal_id: 'pr1' },
+    })
+    vi.mocked(analysisService.get).mockResolvedValue({
+      id: 'run',
+      project_id: 'p1',
+      proposal_id: 'pr1',
+      status: 'partial',
+      title: 'Análisis parcial',
+      created_at: '2026-11-16',
+      artifact_count: 0,
+      result: {
+        summary: 'Descriptivos calculados.',
+        components: [],
+        component_states: [],
+        specification: { components: [] },
+      },
+      artifacts: [],
+    } as unknown as AnalysisRun)
+    const view = chat()
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'Revisar componentes pendientes',
+      }),
+    )
+    expect(
+      screen.getByRole('region', {
+        name: 'Revisión de componentes pendientes',
+      }),
+    ).toBeInTheDocument()
+    expect(chatService.turn).not.toHaveBeenCalled()
+    expect(analysisService.execute).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('Análisis parcialmente completado'),
+    ).toBeInTheDocument()
+    view.unmount()
+    chat()
+    await screen.findByText('Análisis parcialmente completado')
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'Revisar componentes pendientes',
+      }),
+    )
+    expect(chatService.turn).not.toHaveBeenCalled()
+  })
+  it('sitúa la propuesta junto al mensaje persistido y conserva propuestas antiguas sin inventar su posición', async () => {
+    detail.conversation.current_stage = 'proposal'
+    detail.proposals = [
+      { ...structuredClone(proposal), source_message_id: 'm1' },
+      {
+        ...structuredClone(proposal),
+        id: 'legacy',
+        title: 'Propuesta anterior',
+      },
+    ]
+    detail.messages.push({
+      id: 'm2',
+      position: 2,
+      role: 'user',
+      content: 'Respuesta posterior',
+      message_type: 'text',
+      metadata: {},
+    })
+    chat()
+    const card = await screen.findByRole('article', {
+      name: 'Propuesta: Describir notas',
+    })
+    const before = screen.getByText(
+      'Hola, puedo ayudarte a entender tus datos.',
+    )
+    const after = screen.getByText('Respuesta posterior')
+    expect(
+      before.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      card.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      screen.getByText('Propuestas anteriores sin posición registrada'),
+    ).toBeInTheDocument()
+    expect(document.querySelectorAll('.proposal-card li:empty')).toHaveLength(0)
+  })
+  it('prepara la propuesta aceptada en el mismo chat sin abrir el formulario técnico', async () => {
+    detail.conversation.current_stage = 'ready'
+    detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]
+    detail.files = [dataset]
+    chat()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Ejecutar análisis' }),
+    )
+    await waitFor(() => expect(chatService.turn).toHaveBeenCalledOnce())
+    expect(vi.mocked(chatService.turn).mock.calls[0][2]).toMatchObject({
+      action: 'prepare_execution',
+      proposal_id: 'pr1',
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /Mensaje/ })).toBeInTheDocument()
+  })
   it('distingue texto CSV de números inferidos y avisa sobre NA ambiguos', async () => {
     detail.files = [structuredClone(dataset)]
     const profile = detail.files[0].metadata.profile!

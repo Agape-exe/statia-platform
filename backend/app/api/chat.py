@@ -12,6 +12,7 @@ from app.models.chat import AssistantReply, ConversationCreate, Decision, Plan, 
 from app.services.gemini import validate_reply
 from app.services.conversation import ACTION_LABELS, linked_files, process_turn
 from app.services.profiling import MIMES, inspect_file, safe_name
+from app.services.execution_preparation import EXECUTION_ACTIONS, normalized_preparation
 
 router = APIRouter(prefix='/projects/{project_id}', tags=['Asistente'])
 
@@ -52,16 +53,28 @@ async def create_conversation(project_id: UUID, body: ConversationCreate, user: 
 @router.get('/conversations/{conversation_id}', summary='Recuperar conversación, mensajes, archivos y propuestas')
 async def get_conversation(project_id: UUID, conversation_id: UUID, user: CurrentUser):
     conversation = await conversation_for(user, project_id, conversation_id)
+    if conversation.get('stage_data', {}).get('execution_preparation'):
+        conversation = {**conversation, 'stage_data': {**conversation['stage_data'], 'execution_preparation': normalized_preparation(conversation['stage_data']['execution_preparation'])}}
     messages = await user.store.rows('messages', {'conversation_id': str(conversation_id)}, order='position.desc', limit=100)
     messages.reverse()
+    await attach_run_events(user.store, conversation_id, messages)
+    preparation_run = None
+    request_id = (conversation.get('stage_data', {}).get('execution_preparation') or {}).get('result', {}).get('request_id')
+    if request_id:
+        runs = await user.store.rows('analysis_runs', {'conversation_id': str(conversation_id), 'request_id': request_id}, select='id,request_id,status')
+        preparation_run = next((r for r in runs if r['status'] in ('completed', 'partial') or r.get('result') is not None), None)
+        if preparation_run:
+            preparation_run = {k: preparation_run[k] for k in ('id', 'request_id', 'status')}
     proposals = await user.store.rows('analysis_proposals', {'conversation_id': str(conversation_id)}, order='created_at.asc')
+    latest = await user.store.rows('analysis_runs', {'conversation_id': str(conversation_id), 'project_id': str(project_id)}, order='created_at.desc', limit=1, select='id,proposal_id,status')
+    latest_run = {k: latest[0][k] for k in ('id', 'proposal_id', 'status')} if latest else None
     turns = await user.store.rows('chat_requests', {'conversation_id': str(conversation_id)}, order='created_at.desc', limit=1)
     retry = None
     if turns and turns[0]['status'] == 'failed':
         retry = {key: value for key, value in turns[0]['payload'].items() if key != 'display'}
         retry['request_id'] = turns[0]['request_id']
     return {'conversation': conversation, 'messages': messages, 'files': await linked_files(user.store, conversation), 'proposals': proposals,
-            'retry_turn': retry, 'has_more_messages': len(messages) == 100}
+            'retry_turn': retry, 'has_more_messages': len(messages) == 100, 'preparation_run': preparation_run, 'latest_analysis_run': latest_run}
 
 
 @router.get('/conversations/{conversation_id}/messages', summary='Recuperar historial anterior por posición, sin perder mensajes antiguos')
@@ -70,7 +83,20 @@ async def earlier_messages(project_id: UUID, conversation_id: UUID, user: Curren
     await conversation_for(user, project_id, conversation_id)
     messages = await user.store.rows('messages', {'conversation_id': str(conversation_id), 'position': ('lt', before)}, order='position.desc', limit=100)
     messages.reverse()
+    await attach_run_events(user.store, conversation_id, messages)
     return {'messages': messages, 'has_more_messages': len(messages) == 100}
+
+
+async def attach_run_events(store, conversation_id, messages):
+    ids = [m.get('metadata', {}).get('analysis_run_id') for m in messages if m.get('metadata', {}).get('analysis_run_id')]
+    if not ids:
+        return
+    runs = await store.rows('analysis_runs', {'conversation_id': str(conversation_id), 'id': ids}, select='id,proposal_id,request_id,status')
+    by_id = {r['id']: r for r in runs}
+    for message in messages:
+        run = by_id.get(message.get('metadata', {}).get('analysis_run_id'))
+        if run:
+            message['metadata'] = {**message['metadata'], 'proposal_id': run['proposal_id'], 'execution_request_id': run['request_id'], 'execution_status': run['status']}
 
 
 @router.patch('/conversations/{conversation_id}', summary='Renombrar sin sobrescritura automática posterior')
@@ -92,8 +118,9 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
     conversation = await conversation_for(user, project_id, conversation_id)
     if body.action == 'message' and not body.content:
         raise HTTPException(422, 'Escribe un mensaje.')
-    payload = body.model_dump(mode='json', exclude={'request_id'})
-    payload['display'] = body.content or ACTION_LABELS[body.action]
+    payload = body.model_dump(mode='json', exclude={'request_id'}, exclude_none=True)
+    execution_labels = EXECUTION_ACTIONS
+    payload['display'] = body.content or execution_labels.get(body.action) or ACTION_LABELS[body.action]
     params = {'p_conversation': str(conversation_id), 'p_request': str(body.request_id)}
     started = await user.store.rpc('begin_chat_turn', {**params, 'p_payload': payload})
     if started == 'completed':
@@ -106,7 +133,16 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
         project = await project_for(user, project_id)
         # Tiempo total menor que la concesión durable de 180 segundos.
         async with asyncio.timeout(150):
-            result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
+            preparation = normalized_preparation(conversation.get('stage_data', {}).get('execution_preparation'))
+            from app.services.execution_preparation import preparation_message_route
+            preparing = preparation_message_route(body, preparation) == 'execution' and (body.action in ('prepare_execution', 'clarify_execution', 'review_execution') or bool(preparation.get('result', {}).get('questions')))
+            if preparing:
+                if request.app.state.analysis_lock.locked():
+                    raise HTTPException(409, 'El motor está ocupado. Reintenta la misma solicitud en un momento.')
+                async with request.app.state.analysis_lock:
+                    result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
+            else:
+                result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
         await user.store.rpc('finish_chat_turn', {**params, 'p_result': result})
     except BaseException as exc:
         try:

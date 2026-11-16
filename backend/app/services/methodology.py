@@ -33,7 +33,7 @@ def validate_objective_columns(plan, files, context=None):
     validate_independence('\n'.join([plan.objective, plan.method, plan.justification, *plan.requirements, *plan.limitations]), context, require_pending=False)
     if plan.procedure == 'integral':
         used = {_key(v) for step in plan.components for v in step.variables}
-        selectors = ([s.variable for s in plan.comparison.filters] + ([plan.comparison.strata.variable] if plan.comparison.strata else [])) if plan.comparison else []
+        selectors = [s.variable for s in plan.filters] + (([s.variable for s in plan.comparison.filters] + ([plan.comparison.strata.variable] if plan.comparison.strata else [])) if plan.comparison else [])
         used.update(_key(v) for v in selectors)
         if any(_key(v) not in used for v in plan.variables):
             raise PlanningError('component_variables', 'Cada variable del plan integral debe participar en un componente, filtro o estrato declarado.')
@@ -69,7 +69,16 @@ def levels(column):
 def validate_methodology(plan, column_for, context=None):
     context = context or {}
     selections = {_key(v) for v in plan.variables}
+    from app.services.statistics.preparation import AnalysisError, component_order, plan_filters
+    for selection in plan_filters(plan):
+        column = column_for(selection.variable)
+        if _key(selection.variable) not in selections or not set(selection.values) <= levels(column):
+            raise PlanningError('comparison_scope', 'Los filtros deben declarar columnas del plan y categorías reales del archivo.')
     if plan.procedure == 'integral':
+        try:
+            component_order(plan)
+        except AnalysisError as exc:
+            raise PlanningError('component_variables', str(exc)) from None
         if len(plan.components) < 2 or len({s.procedure for s in plan.components}) < 2:
             raise PlanningError('component_variables', 'El plan integral debe declarar al menos dos procedimientos distintos, pertinentes y verificables en components.')
     elif plan.components:

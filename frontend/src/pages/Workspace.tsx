@@ -28,7 +28,13 @@ const StatisticalChat = lazy(() =>
   })),
 )
 
+const AnalysisResults = lazy(() =>
+  import('../components/AnalysisResults').then((module) => ({
+    default: module.AnalysisResults,
+  })),
+)
 const modules = [
+  // Los módulos de chat y resultados se cargan bajo demanda.
   {
     path: 'asistente',
     title: 'Asistente Estadístico',
@@ -181,22 +187,33 @@ export function Workspace() {
           </div>
         </aside>
         <main className="workspace-main">
-          <div className="breadcrumb">
-            {project.name} <span>/</span> {current.title}
-          </div>
+          {module === 'asistente' && (
+            <h1 className="sr-only">Asistente Estadístico</h1>
+          )}
+          {module !== 'asistente' && (
+            <div className="breadcrumb">
+              {project.name} <span>/</span> {current.title}
+            </div>
+          )}
           {location.state?.created && (
             <div className="notice" role="status">
               Proyecto creado correctamente.
             </div>
           )}
-          <header className="module-heading">
-            <span className="eyebrow">ESPACIO DE TRABAJO</span>
-            <h1>{current.title}</h1>
-            <p className="muted">{current.text}</p>
-          </header>
+          {module !== 'asistente' && (
+            <header className="module-heading">
+              <span className="eyebrow">ESPACIO DE TRABAJO</span>
+              <h1>{current.title}</h1>
+              <p className="muted">{current.text}</p>
+            </header>
+          )}
           {module === 'asistente' ? (
             <Suspense fallback={<Loading />}>
               <StatisticalChat key={project.id} project={project} />
+            </Suspense>
+          ) : module === 'resultados' ? (
+            <Suspense fallback={<Loading />}>
+              <AnalysisResults key={project.id} projectId={project.id} />
             </Suspense>
           ) : (
             <section className="module-placeholder">

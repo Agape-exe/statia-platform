@@ -21,10 +21,13 @@ class Rename(StrictModel):
 class Turn(StrictModel):
     request_id: UUID
     content: str = Field(default="", max_length=6000)
-    action: Literal['message', 'reuse', 'new_files', 'instrument_yes', 'instrument_no', 'instruments_done', 'files_ready', 'keep_goal'] = 'message'
+    action: Literal['message', 'reuse', 'new_files', 'instrument_yes', 'instrument_no', 'instruments_done', 'files_ready', 'keep_goal', 'prepare_execution', 'clarify_execution', 'review_execution', 'request_descriptive', 'cancel_execution'] = 'message'
     file_ids: list[UUID] = Field(default_factory=list, max_length=30)
     share_samples: bool = False
     share_instrument_text: bool = False
+    proposal_id: UUID | None = None
+    question_id: str | None = Field(default=None, max_length=64)
+    answer: str | None = Field(default=None, max_length=240)
 
 
 class Decision(StrictModel):
@@ -82,6 +85,7 @@ class AnalysisComponent(StrictModel):
     procedure: Procedure
     method: str = Field(min_length=1, max_length=1500)
     variables: list[Variable] = Field(min_length=1, max_length=40)
+    depends_on: list[int] = Field(default_factory=list, max_length=4)
 
 
 class Plan(StrictModel):
@@ -101,6 +105,7 @@ class Plan(StrictModel):
     # Campos aditivos en JSONB: los planes previos mantienen su representación.
     comparison: Comparison | None = None
     components: list[AnalysisComponent] = Field(default_factory=list, max_length=4)
+    filters: list[Selection] = Field(default_factory=list, max_length=6)
 
 
 class AssistantReply(StrictModel):

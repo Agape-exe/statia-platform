@@ -1,3 +1,5 @@
+import type { ExecutionPreparation } from './analysis'
+
 export type Stage =
   | 'reuse'
   | 'instrument'
@@ -16,6 +18,15 @@ export interface Conversation {
   current_stage: Stage
   updated_at: string
   stage_data: {
+    execution_preparation?: {
+      proposal_id: string
+      result: ExecutionPreparation
+      paused?: boolean
+    } | null
+    execution_preparations?: Record<
+      string,
+      { proposal_id: string; result: ExecutionPreparation; paused?: boolean }
+    >
     awaiting_reuse_update?: boolean
     reuse_file_ids?: string[]
     goal_change?: {
@@ -31,7 +42,17 @@ export interface Message {
   role: 'user' | 'assistant' | 'system'
   content: string
   message_type: string
-  metadata: { questions?: string[]; warnings?: string[]; request_id?: string }
+  metadata: {
+    questions?: string[]
+    warnings?: string[]
+    request_id?: string
+    analysis_run_id?: string
+    execution_preparation?: import('./analysis').ExecutionPreparation | null
+    file_ids?: string[]
+    proposal_id?: string
+    execution_request_id?: string
+    execution_status?: string
+  }
 }
 export interface Column {
   name: string
@@ -44,6 +65,9 @@ export interface Column {
   missing_confirmed?: number
   missing_inferred?: number
   ambiguous_missing?: Record<string, number>
+  missing_markers?: Record<string, number>
+  levels?: { value: string; count: number }[]
+  possible_identifier?: boolean
   unique: number
   min?: number | string
   max?: number | string
@@ -90,6 +114,7 @@ export interface Plan {
   expected_outputs: string[]
   joins: { left: Variable; right: Variable; justification: string }[]
   components?: { procedure: string; method: string; variables: Variable[] }[]
+  filters?: { variable: Variable; values: string[] }[]
   comparison?: {
     design: 'independent' | 'paired' | 'unknown'
     groups: string[]
@@ -119,6 +144,7 @@ export interface Proposal {
   objective: string
   status: 'proposed' | 'accepted' | 'rejected'
   analysis_plan: Plan
+  source_message_id?: string | null
 }
 export type TurnAction =
   | 'message'
@@ -129,6 +155,11 @@ export type TurnAction =
   | 'instruments_done'
   | 'files_ready'
   | 'keep_goal'
+  | 'prepare_execution'
+  | 'clarify_execution'
+  | 'review_execution'
+  | 'request_descriptive'
+  | 'cancel_execution'
 export interface Turn {
   request_id: string
   action: TurnAction
@@ -136,8 +167,17 @@ export interface Turn {
   file_ids: string[]
   share_samples: boolean
   share_instrument_text: boolean
+  proposal_id?: string
+  question_id?: string
+  answer?: string
 }
 export interface ConversationDetail {
+  latest_analysis_run?: {
+    id: string
+    proposal_id: string
+    status: 'running' | 'partial' | 'completed' | 'failed'
+  } | null
+  preparation_run?: { id: string; request_id: string; status: string } | null
   conversation: Conversation
   messages: Message[]
   files: ProjectFile[]
@@ -154,5 +194,5 @@ export const stageLabel: Record<Stage, string> = {
   clarification: 'Aclaraciones',
   goal: 'Finalidad',
   proposal: 'Confirmación de propuestas',
-  ready: 'Plan preparado',
+  ready: 'Plan aceptado',
 }

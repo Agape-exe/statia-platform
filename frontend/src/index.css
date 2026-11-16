@@ -809,6 +809,9 @@ fieldset {
   flex: 1;
   font-size: 12px;
   color: #6c7c76;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chat-toolbar .btn {
   min-height: 36px;
@@ -824,7 +827,7 @@ fieldset {
 .chat-heading h2 {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   overflow: hidden;
 }
 .conversation-drawer {
@@ -1438,4 +1441,274 @@ summary {
   .proposal-card {
     padding: 12px;
   }
+}
+.analysis-modal {
+  width: min(940px, 95vw);
+  max-width: 95vw;
+}
+
+.execution-preparation {
+  overflow-wrap: anywhere;
+}
+.execution-preparation fieldset {
+  min-width: 0;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--line, #dce5e0);
+  border-radius: 12px;
+}
+.execution-preparation legend {
+  font-weight: 600;
+}
+.execution-preparation details {
+  margin: 1rem 0;
+}
+.execution-preparation summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.execution-review {
+  display: grid;
+  gap: 16px;
+}
+.execution-review fieldset {
+  border: 1px solid #dce5df;
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+.execution-review legend {
+  font-weight: 650;
+  padding: 0 6px;
+  overflow-wrap: anywhere;
+}
+.execution-review label {
+  display: grid;
+  gap: 6px;
+}
+.execution-review .checkbox-label {
+  display: flex;
+  align-items: flex-start;
+}
+.execution-review .checkbox-label input {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+.execution-review select,
+.execution-review input:not([type='checkbox']),
+.execution-review textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #b7c8c0;
+  border-radius: 8px;
+  padding: 9px;
+  background: white;
+}
+.execution-review summary,
+.analysis-detail summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 10px 0;
+}
+.analysis-card {
+  background: white;
+  border: 1px solid #c7d9ce;
+  border-radius: 14px;
+  padding: 20px;
+  margin: 16px 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.analysis-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.analysis-completed {
+  background: #e5f3eb;
+  color: #206240;
+}
+.analysis-partial {
+  background: #fff2d7;
+  color: #825409;
+}
+.analysis-failed {
+  background: #ffe9e5;
+  color: #963f32;
+}
+.analysis-running {
+  background: #e8f0fa;
+  color: #305785;
+}
+.analysis-component {
+  border-top: 1px solid #dce5df;
+  margin-top: 20px;
+  padding-top: 12px;
+}
+.statistical-table {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 16px 0;
+  border: 1px solid #dce5df;
+  border-radius: 8px;
+}
+.statistical-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.statistical-table caption {
+  text-align: left;
+  font-weight: 650;
+  padding: 12px;
+  color: #21493b;
+  background: #f4f8f5;
+}
+.statistical-table th,
+.statistical-table td {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid #e4ebe6;
+  white-space: nowrap;
+  max-width: 360px;
+}
+.statistical-table th {
+  background: #f4f8f5;
+}
+.statistical-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 12px;
+}
+.statistical-chart {
+  min-width: 0;
+  margin: 12px 0;
+}
+.statistical-chart img {
+  width: 100%;
+  height: auto;
+  border: 1px solid #e4ebe6;
+  border-radius: 8px;
+}
+.statistical-chart figcaption {
+  font-size: 12px;
+  color: #687d72;
+}
+.analysis-detail dl > div {
+  margin: 8px 0;
+}
+.analysis-detail dt {
+  font-weight: 600;
+}
+.analysis-detail dd {
+  margin: 0;
+}
+.analysis-downloads {
+  display: grid;
+  gap: 8px;
+  padding-left: 20px;
+}
+.analysis-downloads button {
+  text-decoration: underline;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.file-hash {
+  display: block;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.analysis-spec {
+  max-height: 260px;
+  overflow: auto;
+  background: #f4f8f5;
+  padding: 12px;
+  font-size: 12px;
+}
+.results-module {
+  display: grid;
+  gap: 20px;
+}
+.results-module > button {
+  justify-self: start;
+}
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #dce5df;
+  padding: 14px 0;
+}
+.result-row h3 {
+  margin: 0;
+}
+.result-row p {
+  margin: 5px 0;
+}
+@media (max-width: 640px) {
+  .analysis-card {
+    padding: 12px;
+  }
+  .result-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.result-anchor {
+  scroll-margin-block: 12px;
+  min-width: 0;
+  outline-offset: 3px;
+}
+.historical-card {
+  border: 1px solid #dde7df;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-block: 8px;
+  min-width: 0;
+}
+.historical-card > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #315547;
+}
+.historical-preparation .chat-actions,
+.historical-preparation button {
+  display: none;
+}
+.component-states ul {
+  padding-left: 20px;
+}
+.component-states li {
+  margin-block: 10px;
+  overflow-wrap: anywhere;
+}
+.component-states p {
+  margin-block: 4px;
+}
+.clarification-review {
+  margin-block: 16px;
+}
+.clarification-review select {
+  display: block;
+  max-width: 100%;
+  margin-block: 8px;
+}
+.assistant-shell .chat-heading {
+  padding-block: 7px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

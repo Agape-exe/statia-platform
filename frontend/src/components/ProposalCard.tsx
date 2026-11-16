@@ -6,11 +6,15 @@ export function ProposalCard({
   files,
   busy,
   onDecide,
+  onExecute,
+  prepared = false,
 }: {
   proposal: Proposal
   files: ProjectFile[]
   busy: boolean
   onDecide: (status: 'accepted' | 'rejected') => void
+  onExecute?: () => void
+  prepared?: boolean
 }) {
   const plan = proposal.analysis_plan
   const visible = (text: string) => visibleChatText(text, files)
@@ -50,16 +54,20 @@ export function ProposalCard({
           ['Limitaciones', plan.limitations],
           ['Productos esperados', plan.expected_outputs],
         ] as const
-      ).map(([title, values]) => (
-        <details key={title}>
-          <summary>{title}</summary>
-          <ul>
-            {values.map((value, index) => (
-              <li key={index}>{visible(value)}</li>
-            ))}
-          </ul>
-        </details>
-      ))}
+      )
+        .filter(([, values]) => values.some((value) => value.trim()))
+        .map(([title, values]) => (
+          <details key={title}>
+            <summary>{title}</summary>
+            <ul>
+              {values
+                .filter((value) => value.trim())
+                .map((value, index) => (
+                  <li key={index}>{visible(value)}</li>
+                ))}
+            </ul>
+          </details>
+        ))}
       {!!plan.components?.length && (
         <details>
           <summary>Procedimientos del plan integral</summary>
@@ -71,6 +79,17 @@ export function ProposalCard({
               </li>
             ))}
           </ul>
+        </details>
+      )}
+      {!!plan.filters?.length && (
+        <details>
+          <summary>Alcance conservado</summary>
+          {plan.filters.map((filter, i) => (
+            <p key={i}>
+              <strong>Filtro:</strong> {filter.variable.column} ={' '}
+              {filter.values.join(', ')}
+            </p>
+          ))}
         </details>
       )}
       {comparison && (
@@ -99,7 +118,9 @@ export function ProposalCard({
             </p>
           )}
           <p>
-            <strong>Independencia:</strong> {visible(comparison.independence)}
+            <strong>Independencia requerida:</strong> debe justificarse con el
+            diseño de recolección antes de ejecutar inferencia. El texto de la
+            propuesta no confirma este supuesto; se revisará en la preparación.
           </p>
           <p>
             <strong>Observaciones válidas:</strong>{' '}
@@ -125,8 +146,9 @@ export function ProposalCard({
             {visible(comparison.effect_size.definition)}
           </p>
           <p>
-            {visible(comparison.effect_size.correction)}{' '}
-            {visible(comparison.effect_size.confidence_interval)}
+            {visible(comparison.effect_size.correction)} Los intervalos
+            disponibles se limitarán a los implementados y metodológicamente
+            validados en la preparación.
           </p>
           <p>
             <strong>Comparaciones múltiples:</strong>{' '}
@@ -171,10 +193,19 @@ export function ProposalCard({
         </div>
       ) : (
         proposal.status === 'accepted' && (
-          <p className="notice">
-            Plan preparado para la Sesión 03. Todavía no se ejecutaron pruebas
-            estadísticas.
-          </p>
+          <div className="chat-actions">
+            <p>
+              Plan aceptado. Statia preparará el análisis y te preguntará solo
+              por las decisiones pendientes. Podrás revisarlo antes de calcular.
+            </p>
+            <button
+              className="btn primary"
+              disabled={busy || !onExecute}
+              onClick={onExecute}
+            >
+              {prepared ? 'Volver a preparar análisis' : 'Ejecutar análisis'}
+            </button>
+          </div>
         )
       )}
     </article>

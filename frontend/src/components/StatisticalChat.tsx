@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MessageSquarePlus, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { chatService } from '../services/chat'
@@ -16,7 +16,14 @@ import {
 import { Alert, Loading } from './ui'
 import { Modal } from './Modal'
 import { DatasetCard } from './DatasetCard'
+import { ComponentStates } from './ComponentStates'
 import { ProposalCard } from './ProposalCard'
+import { ExecutionReview } from './ExecutionReview'
+import { ExecutionPreparationCard } from './ExecutionPreparationCard'
+import { AnalysisResultCard } from './AnalysisResultCard'
+import { analysisService } from '../services/analysis'
+import type { AnalysisRun, ExecuteRequest } from '../types/analysis'
+import type { Proposal } from '../types/chat'
 import { ChatComposer } from './ChatComposer'
 import { ConversationHistory } from './ConversationHistory'
 import { useChatScroll } from '../hooks/use-chat-scroll'
@@ -25,10 +32,12 @@ export function StatisticalChat({ project }: { project: Project }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([])
   const [detail, setDetail] = useState<ConversationDetail | null>(null)
+  const [latestRun, setLatestRun] = useState<AnalysisRun | null>(null)
   const [selected, setSelected] = useState('')
   const [loading, setLoading] = useState(true)
   const [opening, setOpening] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [reviewProposal, setReviewProposal] = useState<Proposal | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [text, setText] = useState('')
   const [pending, setPending] = useState<Turn | null>(null)
@@ -51,15 +60,25 @@ export function StatisticalChat({ project }: { project: Project }) {
       historyButton.current?.focus({ preventScroll: true })
     temporaryHistory.current = historyOpen && compact
   }, [historyOpen, compact])
-  const { transcript, onScroll, capturePrepend, end, unread, requestFollow } =
-    useChatScroll(
-      opening ? undefined : detail?.conversation.id,
-      detail?.messages[0]?.id,
-      detail?.messages.at(-1)?.id,
-    )
+  const {
+    transcript,
+    onScroll,
+    capturePrepend,
+    end,
+    unread,
+    requestFollow,
+    unreadResult,
+    revealResult,
+    resultAvailable,
+  } = useChatScroll(
+    opening ? undefined : detail?.conversation.id,
+    detail?.messages[0]?.id,
+    detail?.messages.at(-1)?.id,
+  )
   const generation = useRef(0)
   const selectedRef = useRef('')
   const mutation = useRef(false)
+  const announcedResults = useRef(new Set<string>())
 
   const showError = (caught: unknown) =>
     setError(
@@ -142,6 +161,8 @@ export function StatisticalChat({ project }: { project: Project }) {
   async function open(id: string) {
     if (busy || opening) return
     setOpening(true)
+    setLatestRun(null)
+    announcedResults.current.clear()
     setError(null)
     setPending(null)
     setText('')
@@ -263,12 +284,176 @@ export function StatisticalChat({ project }: { project: Project }) {
       }),
     )
   const disabled = busy || opening
+  async function executeAnalysis(body: ExecuteRequest, proposalId: string) {
+    if (mutation.current)
+      throw new Error('Espera a que termine la operación actual.')
+    mutation.current = true
+    setBusy(true)
+    setBusyLabel('Python está calculando y guardando los resultados…')
+    setError(null)
+    requestFollow()
+    try {
+      const run = await analysisService.execute(
+        project.id,
+        selectedRef.current,
+        proposalId,
+        body,
+      )
+      setLatestRun(run)
+      await refresh()
+      resultAvailable(run.id)
+    } catch (caught) {
+      try {
+        await refresh()
+      } catch {
+        /* Conserva las decisiones y el UUID para reintentar. */
+      }
+      throw caught
+    } finally {
+      mutation.current = false
+      setBusy(false)
+    }
+  }
   const candidates = projectFiles.filter((file) =>
     conversation?.stage_data.reuse_file_ids?.includes(file.id),
   )
   const unlinked = projectFiles.filter(
     (file) => !detail?.files.some((linked) => linked.id === file.id),
   )
+  function renderProposal(proposal: Proposal) {
+    if (!detail || !conversation) return null
+    const card = (
+      <ProposalCard
+        key={proposal.id}
+        proposal={proposal}
+        files={detail.files}
+        busy={disabled || !!pending}
+        prepared={
+          conversation.stage_data.execution_preparation?.proposal_id ===
+          proposal.id
+        }
+        onExecute={() =>
+          perform(() =>
+            submitTurn(selected, {
+              request_id: crypto.randomUUID(),
+              action: 'prepare_execution',
+              content: '',
+              file_ids: [],
+              share_samples: false,
+              share_instrument_text: false,
+              proposal_id: proposal.id,
+            }),
+          )
+        }
+        onDecide={(status) =>
+          perform(async () => {
+            await chatService.decide(project.id, selected, proposal.id, status)
+            await refresh()
+          })
+        }
+      />
+    )
+    return proposal.status === 'proposed' ? (
+      card
+    ) : (
+      <details className="historical-card">
+        <summary>
+          {proposal.status === 'accepted'
+            ? 'Plan aceptado'
+            : 'Propuesta rechazada'}
+          : {visible(proposal.title)}
+        </summary>
+        {card}
+      </details>
+    )
+  }
+  const prepState = conversation?.stage_data.execution_preparation
+  const preparationMessageId = detail?.messages.findLast(
+    (m) =>
+      m.metadata.execution_preparation?.fingerprint ===
+      prepState?.result.fingerprint,
+  )?.id
+  const alreadyExecuted =
+    (!!detail?.preparation_run &&
+      detail.preparation_run.request_id === prepState?.result.request_id) ||
+    detail?.messages.some(
+      (m) => m.metadata.execution_request_id === prepState?.result.request_id,
+    )
+  const preparationCard = (() => {
+    if (!detail || !conversation || !prepState || prepState.paused) return null
+    const state = prepState
+    const proposal = detail.proposals.find(
+      (p) => p.id === state.proposal_id && p.status === 'accepted',
+    )
+    if (!proposal) return null
+    const card = (
+      <ExecutionPreparationCard
+        key={`${conversation.id}:${state.proposal_id}:${state.result.fingerprint}`}
+        preparation={state.result}
+        proposal={proposal}
+        projectId={project.id}
+        conversationId={selected}
+        busy={disabled || !!pending || !!alreadyExecuted}
+        onAnswer={(questionId, answer, label) =>
+          perform(() =>
+            submitTurn(selected, {
+              request_id: crypto.randomUUID(),
+              action: 'clarify_execution',
+              content: label,
+              file_ids: [],
+              share_samples: false,
+              share_instrument_text: false,
+              proposal_id: proposal.id,
+              question_id: questionId,
+              answer,
+            }),
+          )
+        }
+        onCancel={() => send('cancel_execution')}
+        onReview={(questionId) =>
+          perform(() =>
+            submitTurn(selected, {
+              request_id: crypto.randomUUID(),
+              action: 'review_execution',
+              content: '',
+              file_ids: [],
+              share_samples: false,
+              share_instrument_text: false,
+              proposal_id: proposal.id,
+              question_id: questionId,
+            }),
+          )
+        }
+        onDescriptive={() =>
+          perform(() =>
+            submitTurn(selected, {
+              request_id: crypto.randomUUID(),
+              action: 'request_descriptive',
+              content: '',
+              file_ids: [],
+              share_samples: false,
+              share_instrument_text: false,
+              proposal_id: proposal.id,
+            }),
+          )
+        }
+        onAdvanced={() => setReviewProposal(proposal)}
+        onExecute={(body) => executeAnalysis(body, proposal.id)}
+      />
+    )
+    return alreadyExecuted ? (
+      <details className="historical-card">
+        <summary>Preparación utilizada · ver decisiones</summary>
+        <p>
+          Esta preparación ya fue ejecutada. Vuelve a preparar el plan para
+          revisar los componentes pendientes.
+        </p>
+        <div className="historical-preparation">{card}</div>
+      </details>
+    ) : (
+      card
+    )
+  })()
   if (loading) return <Loading />
   return (
     <div
@@ -309,7 +494,7 @@ export function StatisticalChat({ project }: { project: Project }) {
               <PanelLeftOpen size={21} />
             )}
           </button>
-          <span>Conversación estadística</span>
+          <span>{project.name}</span>
           <button
             className="btn secondary"
             disabled={disabled}
@@ -361,7 +546,26 @@ export function StatisticalChat({ project }: { project: Project }) {
             <header className="chat-heading">
               <div>
                 <h2>{visible(conversation.title)}</h2>
-                <small>{stageLabel[conversation.current_stage]}</small>
+                <small>
+                  {latestRun || detail.latest_analysis_run
+                    ? {
+                        running: 'Calculando',
+                        partial: 'Análisis parcialmente completado',
+                        completed: 'Análisis completado',
+                        failed: 'Ejecución fallida',
+                      }[(latestRun || detail.latest_analysis_run)!.status]
+                    : conversation.stage_data.execution_preparation &&
+                        [
+                          'NEEDS_CLARIFICATION',
+                          'BLOCKED_UNCERTAINTY',
+                          'PARTIALLY_READY',
+                        ].includes(
+                          conversation.stage_data.execution_preparation.result
+                            .status,
+                        )
+                      ? 'Preparación pendiente'
+                      : stageLabel[conversation.current_stage]}
+                </small>
               </div>
               <div className="chat-actions">
                 <button
@@ -425,33 +629,146 @@ export function StatisticalChat({ project }: { project: Project }) {
                   </p>
                 )}
                 {detail.messages.map((message) => (
-                  <article
-                    key={message.id}
-                    className={`chat-message ${message.role}`}
-                  >
-                    <strong>
-                      {message.role === 'user'
-                        ? 'Tú'
-                        : message.role === 'assistant'
-                          ? 'Statia'
-                          : 'Estado del plan'}
-                    </strong>
-                    <p>{visible(message.content)}</p>
-                    {!!message.metadata.questions?.length && (
-                      <ul>
-                        {message.metadata.questions.map((question, i) => (
-                          <li key={i}>{visible(question)}</li>
-                        ))}
-                      </ul>
+                  <Fragment key={message.id}>
+                    {message.metadata.analysis_run_id ? (
+                      <div
+                        id={`analysis-result-${message.metadata.analysis_run_id}`}
+                        tabIndex={-1}
+                        className="result-anchor"
+                      >
+                        <AnalysisResultCard
+                          key={message.id}
+                          projectId={project.id}
+                          runId={message.metadata.analysis_run_id}
+                          initialRun={
+                            latestRun?.id === message.metadata.analysis_run_id
+                              ? latestRun
+                              : undefined
+                          }
+                          onLoaded={(run) => {
+                            const key = `${selected}:${run.id}`
+                            if (
+                              detail.messages.at(-1)?.metadata
+                                .analysis_run_id === run.id &&
+                              !announcedResults.current.has(key)
+                            ) {
+                              announcedResults.current.add(key)
+                              if (latestRun?.id !== run.id)
+                                resultAvailable(run.id)
+                            }
+                          }}
+                          preparation={
+                            conversation.stage_data.execution_preparation &&
+                            conversation.stage_data.execution_preparation
+                              .proposal_id === message.metadata.proposal_id
+                              ? conversation.stage_data.execution_preparation
+                                  .result
+                              : conversation.stage_data
+                                  .execution_preparations?.[
+                                  message.metadata.proposal_id || ''
+                                ]?.result
+                          }
+                          busy={disabled || !!pending}
+                          onAnswer={(proposalId, questionId, answer, label) =>
+                            perform(() =>
+                              submitTurn(selected, {
+                                request_id: crypto.randomUUID(),
+                                action: 'clarify_execution',
+                                content: label,
+                                file_ids: [],
+                                share_samples: false,
+                                share_instrument_text: false,
+                                proposal_id: proposalId,
+                                question_id: questionId,
+                                answer,
+                              }),
+                            )
+                          }
+                          onPrepare={(proposalId) =>
+                            perform(() =>
+                              submitTurn(selected, {
+                                request_id: crypto.randomUUID(),
+                                action: 'prepare_execution',
+                                content: '',
+                                file_ids: [],
+                                share_samples: false,
+                                share_instrument_text: false,
+                                proposal_id: proposalId,
+                              }),
+                            )
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <article
+                        key={message.id}
+                        className={`chat-message ${message.role}`}
+                      >
+                        <strong>
+                          {message.role === 'user'
+                            ? 'Tú'
+                            : message.role === 'assistant'
+                              ? 'Statia'
+                              : 'Estado del plan'}
+                        </strong>
+                        <p>{visible(message.content)}</p>
+                        {!!message.metadata.questions?.length && (
+                          <ul>
+                            {message.metadata.questions.map((question, i) => (
+                              <li key={i}>{visible(question)}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {!!message.metadata.warnings?.length && (
+                          <ul className="muted">
+                            {message.metadata.warnings.map((warning, i) => (
+                              <li key={i}>{visible(warning)}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </article>
                     )}
-                    {!!message.metadata.warnings?.length && (
-                      <ul className="muted">
-                        {message.metadata.warnings.map((warning, i) => (
-                          <li key={i}>{visible(warning)}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </article>
+                    {detail.proposals
+                      .filter((p) => p.source_message_id === message.id)
+                      .map((p) => (
+                        <Fragment key={p.id}>{renderProposal(p)}</Fragment>
+                      ))}
+                    {message.id === preparationMessageId
+                      ? preparationCard
+                      : message.metadata.execution_preparation && (
+                          <details className="historical-card">
+                            <summary>Preparación anterior · ver estado</summary>
+                            <p>
+                              {
+                                {
+                                  READY: 'Listo para ejecutar',
+                                  PARTIALLY_READY: 'Componentes disponibles',
+                                  COMPLETED: 'Completado',
+                                  NEEDS_CLARIFICATION: 'Aclaración pendiente',
+                                  BLOCKED_UNCERTAINTY:
+                                    'Detenido por incertidumbre',
+                                  UNSUPPORTED: 'Necesita revisión',
+                                }[message.metadata.execution_preparation.status]
+                              }
+                            </p>
+                            <ComponentStates
+                              components={
+                                message.metadata.execution_preparation
+                                  .components || []
+                              }
+                              projectId={project.id}
+                            />
+                          </details>
+                        )}
+                    {message.metadata.file_ids?.map((id) => {
+                      const file = detail.files.find((f) => f.id === id)
+                      return file ? (
+                        <p key={id} className="notice">
+                          Archivo: {file.original_name}
+                        </p>
+                      ) : null
+                    })}
+                  </Fragment>
                 ))}
                 {conversation.current_stage === 'reuse' && (
                   <div className="flow-card">
@@ -498,7 +815,13 @@ export function StatisticalChat({ project }: { project: Project }) {
                   </div>
                 )}
                 {detail.files.length > 0 && (
-                  <section aria-label="Archivos relacionados">
+                  <details
+                    className="historical-card"
+                    aria-label="Archivos relacionados"
+                  >
+                    <summary>
+                      Archivos relacionados ({detail.files.length})
+                    </summary>
                     <h3>Archivos relacionados</h3>
                     {detail.files.map((file) => (
                       <DatasetCard
@@ -518,7 +841,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                         }
                       />
                     ))}
-                  </section>
+                  </details>
                 )}
                 {conversation.current_stage !== 'instrument' &&
                   conversation.current_stage !== 'reuse' &&
@@ -604,25 +927,22 @@ export function StatisticalChat({ project }: { project: Project }) {
                     estado de las demás; todavía no se ejecutan análisis.
                   </p>
                 )}
-                {detail.proposals.map((proposal) => (
-                  <ProposalCard
-                    key={proposal.id}
-                    proposal={proposal}
-                    files={detail.files}
-                    busy={disabled || !!pending}
-                    onDecide={(status) =>
-                      perform(async () => {
-                        await chatService.decide(
-                          project.id,
-                          selected,
-                          proposal.id,
-                          status,
-                        )
-                        await refresh()
-                      })
-                    }
-                  />
-                ))}
+                {detail.proposals.some((p) => !p.source_message_id) && (
+                  <details className="historical-card">
+                    <summary>
+                      Propuestas anteriores sin posición registrada
+                    </summary>
+                    <p className="muted">
+                      Este historial antiguo no registra el mensaje de origen.
+                    </p>
+                    {detail.proposals
+                      .filter((p) => !p.source_message_id)
+                      .map((p) => (
+                        <Fragment key={p.id}>{renderProposal(p)}</Fragment>
+                      ))}
+                  </details>
+                )}
+                {!preparationMessageId && preparationCard}
                 {conversation.stage_data.goal_change && (
                   <div className="flow-card">
                     <h3>¿Abrir otra conversación?</h3>
@@ -651,10 +971,19 @@ export function StatisticalChat({ project }: { project: Project }) {
                 )}
               </div>
             </div>
-            {unread && (
-              <button className="new-messages" onClick={end}>
-                Ver mensajes nuevos ↓
+            {unreadResult ? (
+              <button
+                className="new-messages"
+                onClick={() => revealResult(unreadResult)}
+              >
+                Ver resultado disponible ↓
               </button>
+            ) : (
+              unread && (
+                <button className="new-messages" onClick={end}>
+                  Ver mensajes nuevos ↓
+                </button>
+              )
             )}
             <ChatComposer
               key={conversation.id}
@@ -714,6 +1043,27 @@ export function StatisticalChat({ project }: { project: Project }) {
             </button>
           </form>
         </Modal>
+      )}
+      {reviewProposal && detail && (
+        <ExecutionReview
+          key={reviewProposal.id}
+          projectId={project.id}
+          conversationId={selected}
+          proposal={reviewProposal}
+          files={detail.files}
+          busy={busy}
+          onClose={() => setReviewProposal(null)}
+          initialSpecification={
+            conversation?.stage_data.execution_preparation?.proposal_id ===
+              reviewProposal.id &&
+            conversation.stage_data.execution_preparation.result.status ===
+              'READY'
+              ? conversation.stage_data.execution_preparation.result
+                  .specification
+              : null
+          }
+          onExecute={(body) => executeAnalysis(body, reviewProposal.id)}
+        />
       )}
       {removing && (
         <Modal
