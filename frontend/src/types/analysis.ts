@@ -52,6 +52,35 @@ export interface ExecutionSpec {
 export interface ExecuteRequest {
   request_id: string
   specification: ExecutionSpec
+  preparation_fingerprint?: string
+}
+export interface ExecutionPreparation {
+  request_id: string
+  status: 'READY' | 'NEEDS_CLARIFICATION' | 'UNSUPPORTED'
+  specification: ExecutionSpec | null
+  methods: string[]
+  reasons: string[]
+  evidence: {
+    subject: string
+    origin: 'verified' | 'inferred' | 'user'
+    detail: string
+  }[]
+  warnings: string[]
+  blockers: string[]
+  questions: {
+    id: string
+    prompt: string
+    explanation: string
+    choices: { value: string; label: string }[]
+  }[]
+  files: {
+    id: string
+    name: string
+    sheet: string
+    sha256: string
+    rows: number
+  }[]
+  fingerprint: string
 }
 export interface ProcedureInfo {
   code: Method

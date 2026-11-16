@@ -7,12 +7,14 @@ export function ProposalCard({
   busy,
   onDecide,
   onExecute,
+  prepared = false,
 }: {
   proposal: Proposal
   files: ProjectFile[]
   busy: boolean
   onDecide: (status: 'accepted' | 'rejected') => void
   onExecute?: () => void
+  prepared?: boolean
 }) {
   const plan = proposal.analysis_plan
   const visible = (text: string) => visibleChatText(text, files)
@@ -175,15 +177,15 @@ export function ProposalCard({
         proposal.status === 'accepted' && (
           <div className="chat-actions">
             <p>
-              Plan aceptado. Revisa el procedimiento, los tipos y las ausencias
-              antes de calcular.
+              Plan aceptado. Statia preparará el análisis y te preguntará solo
+              por las decisiones pendientes. Podrás revisarlo antes de calcular.
             </p>
             <button
               className="btn primary"
               disabled={busy || !onExecute}
               onClick={onExecute}
             >
-              Ejecutar análisis
+              {prepared ? 'Volver a preparar análisis' : 'Ejecutar análisis'}
             </button>
           </div>
         )

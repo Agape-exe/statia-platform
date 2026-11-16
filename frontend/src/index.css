@@ -1443,6 +1443,27 @@ summary {
   width: min(940px, 95vw);
   max-width: 95vw;
 }
+
+.execution-preparation {
+  overflow-wrap: anywhere;
+}
+.execution-preparation fieldset {
+  min-width: 0;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--line, #dce5e0);
+  border-radius: 12px;
+}
+.execution-preparation legend {
+  font-weight: 600;
+}
+.execution-preparation details {
+  margin: 1rem 0;
+}
+.execution-preparation summary {
+  cursor: pointer;
+  font-weight: 600;
+}
 .execution-review {
   display: grid;
   gap: 16px;

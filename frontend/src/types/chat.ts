@@ -1,3 +1,5 @@
+import type { ExecutionPreparation } from './analysis'
+
 export type Stage =
   | 'reuse'
   | 'instrument'
@@ -16,6 +18,10 @@ export interface Conversation {
   current_stage: Stage
   updated_at: string
   stage_data: {
+    execution_preparation?: {
+      proposal_id: string
+      result: ExecutionPreparation
+    } | null
     awaiting_reuse_update?: boolean
     reuse_file_ids?: string[]
     goal_change?: {
@@ -137,6 +143,9 @@ export type TurnAction =
   | 'instruments_done'
   | 'files_ready'
   | 'keep_goal'
+  | 'prepare_execution'
+  | 'clarify_execution'
+  | 'cancel_execution'
 export interface Turn {
   request_id: string
   action: TurnAction
@@ -144,6 +153,9 @@ export interface Turn {
   file_ids: string[]
   share_samples: boolean
   share_instrument_text: boolean
+  proposal_id?: string
+  question_id?: string
+  answer?: string
 }
 export interface ConversationDetail {
   conversation: Conversation

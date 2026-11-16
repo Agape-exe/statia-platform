@@ -46,6 +46,7 @@ export function ExecutionReview({
   busy,
   onClose,
   onExecute,
+  initialSpecification,
 }: {
   projectId: string
   conversationId: string
@@ -54,11 +55,21 @@ export function ExecutionReview({
   busy: boolean
   onClose: () => void
   onExecute: (body: ExecuteRequest) => Promise<void>
+  initialSpecification?: ExecutionSpec | null
 }) {
   const plan = proposal.analysis_plan
   const sources = plan.procedure === 'integral' ? plan.components || [] : [plan]
   const storageKey = `statia:execution:${projectId}:${conversationId}:${proposal.id}`
-  const [saved] = useState(() => pendingExecution(storageKey))
+  const [saved] = useState(
+    () =>
+      pendingExecution(storageKey) ||
+      (initialSpecification
+        ? {
+            request_id: crypto.randomUUID(),
+            specification: initialSpecification,
+          }
+        : null),
+  )
   const [catalog, setCatalog] = useState<ProcedureInfo[] | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -301,7 +312,7 @@ export function ExecutionReview({
 
   return (
     <Modal
-      title="Revisar ejecución estadística"
+      title="Opciones avanzadas de ejecución"
       onClose={onClose}
       busy={busy}
       className="analysis-modal"
@@ -620,6 +631,8 @@ export function ExecutionReview({
                 'kruskal',
                 'chi_square',
                 'fisher_exact',
+                'pearson',
+                'spearman',
               ].includes(m),
             ) && (
               <label className="checkbox-label">
@@ -632,9 +645,9 @@ export function ExecutionReview({
                     setConfirmed(false)
                   }}
                 />
-                Declaro un diseño de grupos independientes. Revisaré muestreo,
-                repeticiones y conglomerados; los datos solos no prueban
-                independencia.
+                Declaro un diseño de grupos independientes. Confirmo que he
+                revisado muestreo, repeticiones y conglomerados y que las
+                observaciones son independientes según la recolección informada.
               </label>
             )}
             {methods.some((m) => ['student_t', 'anova'].includes(m)) && (
@@ -664,8 +677,8 @@ export function ExecutionReview({
                   }}
                 />
                 Confirmo que cada fila contiene dos mediciones del mismo par,
-                con identificador único declarado en el plan. Revisaré la
-                independencia entre pares.
+                con identificador único declarado en el plan y pares
+                independientes entre sí.
               </label>
             )}
             <label className="checkbox-label">

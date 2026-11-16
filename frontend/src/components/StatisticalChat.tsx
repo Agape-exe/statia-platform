@@ -18,6 +18,7 @@ import { Modal } from './Modal'
 import { DatasetCard } from './DatasetCard'
 import { ProposalCard } from './ProposalCard'
 import { ExecutionReview } from './ExecutionReview'
+import { ExecutionPreparationCard } from './ExecutionPreparationCard'
 import { AnalysisResultCard } from './AnalysisResultCard'
 import { analysisService } from '../services/analysis'
 import type { ExecuteRequest } from '../types/analysis'
@@ -269,8 +270,8 @@ export function StatisticalChat({ project }: { project: Project }) {
       }),
     )
   const disabled = busy || opening
-  async function executeAnalysis(body: ExecuteRequest) {
-    if (mutation.current || !reviewProposal)
+  async function executeAnalysis(body: ExecuteRequest, proposalId: string) {
+    if (mutation.current)
       throw new Error('Espera a que termine la operación actual.')
     mutation.current = true
     setBusy(true)
@@ -281,7 +282,7 @@ export function StatisticalChat({ project }: { project: Project }) {
       await analysisService.execute(
         project.id,
         selectedRef.current,
-        reviewProposal.id,
+        proposalId,
         body,
       )
       await refresh()
@@ -652,7 +653,23 @@ export function StatisticalChat({ project }: { project: Project }) {
                     proposal={proposal}
                     files={detail.files}
                     busy={disabled || !!pending}
-                    onExecute={() => setReviewProposal(proposal)}
+                    prepared={
+                      conversation.stage_data.execution_preparation
+                        ?.proposal_id === proposal.id
+                    }
+                    onExecute={() =>
+                      perform(() =>
+                        submitTurn(selected, {
+                          request_id: crypto.randomUUID(),
+                          action: 'prepare_execution',
+                          content: '',
+                          file_ids: [],
+                          share_samples: false,
+                          share_instrument_text: false,
+                          proposal_id: proposal.id,
+                        }),
+                      )
+                    }
                     onDecide={(status) =>
                       perform(async () => {
                         await chatService.decide(
@@ -666,6 +683,42 @@ export function StatisticalChat({ project }: { project: Project }) {
                     }
                   />
                 ))}
+                {conversation.stage_data.execution_preparation &&
+                  (() => {
+                    const state = conversation.stage_data.execution_preparation
+                    const proposal = detail.proposals.find(
+                      (p) =>
+                        p.id === state.proposal_id && p.status === 'accepted',
+                    )
+                    return proposal ? (
+                      <ExecutionPreparationCard
+                        key={`${conversation.id}:${state.proposal_id}:${state.result.fingerprint}`}
+                        preparation={state.result}
+                        proposal={proposal}
+                        projectId={project.id}
+                        conversationId={selected}
+                        busy={disabled || !!pending}
+                        onAnswer={(questionId, answer, label) =>
+                          perform(() =>
+                            submitTurn(selected, {
+                              request_id: crypto.randomUUID(),
+                              action: 'clarify_execution',
+                              content: label,
+                              file_ids: [],
+                              share_samples: false,
+                              share_instrument_text: false,
+                              proposal_id: proposal.id,
+                              question_id: questionId,
+                              answer,
+                            }),
+                          )
+                        }
+                        onCancel={() => send('cancel_execution')}
+                        onAdvanced={() => setReviewProposal(proposal)}
+                        onExecute={(body) => executeAnalysis(body, proposal.id)}
+                      />
+                    ) : null
+                  })()}
                 {conversation.stage_data.goal_change && (
                   <div className="flow-card">
                     <h3>¿Abrir otra conversación?</h3>
@@ -767,7 +820,16 @@ export function StatisticalChat({ project }: { project: Project }) {
           files={detail.files}
           busy={busy}
           onClose={() => setReviewProposal(null)}
-          onExecute={executeAnalysis}
+          initialSpecification={
+            conversation?.stage_data.execution_preparation?.proposal_id ===
+              reviewProposal.id &&
+            conversation.stage_data.execution_preparation.result.status ===
+              'READY'
+              ? conversation.stage_data.execution_preparation.result
+                  .specification
+              : null
+          }
+          onExecute={(body) => executeAnalysis(body, reviewProposal.id)}
         />
       )}
       {removing && (
