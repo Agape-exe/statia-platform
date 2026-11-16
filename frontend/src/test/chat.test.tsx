@@ -127,6 +127,43 @@ function chat() {
 }
 
 describe('chat persistente y acciones', () => {
+  it('sitúa la propuesta junto al mensaje persistido y conserva propuestas antiguas sin inventar su posición', async () => {
+    detail.conversation.current_stage = 'proposal'
+    detail.proposals = [
+      { ...structuredClone(proposal), source_message_id: 'm1' },
+      {
+        ...structuredClone(proposal),
+        id: 'legacy',
+        title: 'Propuesta anterior',
+      },
+    ]
+    detail.messages.push({
+      id: 'm2',
+      position: 2,
+      role: 'user',
+      content: 'Respuesta posterior',
+      message_type: 'text',
+      metadata: {},
+    })
+    chat()
+    const card = await screen.findByRole('article', {
+      name: 'Propuesta: Describir notas',
+    })
+    const before = screen.getByText(
+      'Hola, puedo ayudarte a entender tus datos.',
+    )
+    const after = screen.getByText('Respuesta posterior')
+    expect(
+      before.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      card.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      screen.getByText('Propuestas anteriores sin posición registrada'),
+    ).toBeInTheDocument()
+    expect(document.querySelectorAll('.proposal-card li:empty')).toHaveLength(0)
+  })
   it('prepara la propuesta aceptada en el mismo chat sin abrir el formulario técnico', async () => {
     detail.conversation.current_stage = 'ready'
     detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]

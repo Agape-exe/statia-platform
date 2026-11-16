@@ -9,6 +9,7 @@ import {
 } from '../types/analysis'
 import { Alert, Loading } from './ui'
 import { formatResult } from '../lib/analysis-format'
+import { ComponentStates } from './ComponentStates'
 
 function StatisticalTable({ table }: { table: ResultTable }) {
   return (
@@ -107,11 +108,15 @@ export function AnalysisResultCard({
   runId,
   initialRun,
   expanded = false,
+  onContinue,
+  onLoaded,
 }: {
   projectId: string
   runId: string
   initialRun?: AnalysisRun
   expanded?: boolean
+  onContinue?: (proposalId: string) => void
+  onLoaded?: (run: AnalysisRun) => void
 }) {
   const [run, setRun] = useState<AnalysisRun | null>(initialRun || null)
   const [loading, setLoading] = useState(!initialRun)
@@ -146,6 +151,9 @@ export function AnalysisResultCard({
       active = false
     }
   }, [projectId, runId, initialRun, attempt])
+  useEffect(() => {
+    if (!loading && run) onLoaded?.(run)
+  }, [loading, run, onLoaded])
 
   async function download(artifact?: AnalysisArtifact) {
     if (downloading) return
@@ -189,6 +197,17 @@ export function AnalysisResultCard({
             </span>
           </div>
           <h3>{run.title}</h3>
+          <p role="status">
+            {run.status === 'partial'
+              ? 'Análisis ejecutado parcialmente'
+              : run.status === 'completed'
+                ? 'Análisis completado'
+                : runStatus[run.status]}
+          </p>
+          <ComponentStates
+            components={run.result?.component_states || []}
+            projectId={projectId}
+          />
           <p className="muted">
             {new Date(run.created_at).toLocaleString('es-PE')} ·{' '}
             {run.artifact_count} recursos
@@ -205,6 +224,14 @@ export function AnalysisResultCard({
             </p>
           )}
           <div className="chat-actions">
+            {run.status === 'partial' && onContinue && (
+              <button
+                className="btn secondary"
+                onClick={() => onContinue(run.proposal_id)}
+              >
+                Revisar componentes pendientes
+              </button>
+            )}
             <button
               className="btn secondary"
               onClick={() => setOpen((value) => !value)}

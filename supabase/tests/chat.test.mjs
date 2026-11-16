@@ -32,7 +32,7 @@ test('chat: migraciones, RLS, integridad, idempotencia, planes y reutilización 
       grant select,insert,delete on storage.objects to authenticated;
       insert into auth.users values ('${a}'),('${b}');
     `)
-    for (const name of ['202611150001_projects.sql', '202611150002_chat.sql', '202611150003_chat_titles.sql'])
+    for (const name of ['202611150001_projects.sql', '202611150002_chat.sql', '202611150003_chat_titles.sql', '202611160005_chat_timeline.sql'])
       await db.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8'))
     assert.equal((await q('select public from storage.buckets'))[0].public, false)
     assert.equal((await q("select has_function_privilege('anon','public.decide_proposal(uuid,uuid,text)','execute') as allowed"))[0].allowed, false)
@@ -83,10 +83,13 @@ test('chat: migraciones, RLS, integridad, idempotencia, planes y reutilización 
     const plan = { title: 'Exploración', objective: 'Describir', schema_version: 1, variables: [] }
     await q('select public.finish_chat_turn($1,$2,$3)', [cid, request2, JSON.stringify({ stage: 'proposal', content: 'Confirma el plan', message_type: 'proposal', proposals: [plan] })])
     const proposal = (await q('select id from public.analysis_proposals where conversation_id=$1', [cid]))[0].id
+    const linkedMessage = (await q('select m.content from public.analysis_proposals p join public.messages m on m.id=p.source_message_id and m.conversation_id=p.conversation_id where p.id=$1', [proposal]))[0]
+    assert.equal(linkedMessage.content, 'Confirma el plan')
     await q("select public.decide_proposal($1,$2,'accepted')", [cid, proposal])
     await q("select public.decide_proposal($1,$2,'accepted')", [cid, proposal])
     assert.equal((await q('select status from public.analysis_proposals where id=$1', [proposal]))[0].status, 'accepted')
     assert.equal((await q('select current_stage from public.conversations where id=$1', [cid]))[0].current_stage, 'ready')
+    assert.equal((await q("select count(*)::int as n from public.messages where conversation_id=$1 and content like '%Sesión 03%'", [cid]))[0].n, 0)
     await assert.rejects(q("select public.decide_proposal($1,$2,'rejected')", [cid, proposal]))
 
     // Aceptación y título forman una sola operación; el plan JSON nunca se reescribe.

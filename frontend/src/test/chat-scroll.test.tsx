@@ -14,18 +14,33 @@ function Transcript({
   last?: string
   mounted?: boolean
 }) {
-  const { transcript, onScroll, capturePrepend, end, unread } = useChatScroll(
-    id,
-    first,
-    last,
-  )
+  const {
+    transcript,
+    onScroll,
+    capturePrepend,
+    end,
+    unread,
+    resultAvailable,
+    unreadResult,
+    revealResult,
+  } = useChatScroll(id, first, last)
   return (
     <>
       <button onClick={capturePrepend}>Antes de paginar</button>
       <button onClick={end}>Ir al final</button>
+      <button onClick={() => resultAvailable('run')}>Llegó resultado</button>
+      {unreadResult && (
+        <button onClick={() => revealResult(unreadResult)}>
+          Ver resultado disponible
+        </button>
+      )}
       {unread && <span>Hay mensajes nuevos</span>}
       {mounted && (
-        <div aria-label="Transcripción" ref={transcript} onScroll={onScroll} />
+        <div aria-label="Transcripción" ref={transcript} onScroll={onScroll}>
+          <div id="analysis-result-run" tabIndex={-1}>
+            Resultado
+          </div>
+        </div>
       )}
     </>
   )
@@ -40,6 +55,30 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('desplazamiento local de mensajes', () => {
+  it('navega al resultado por identidad y respeta el desplazamiento manual', () => {
+    const view = render(<Transcript id="a" />)
+    const card = screen.getByText('Resultado')
+    fireEvent.click(screen.getByText('Llegó resultado'))
+    expect(card).toHaveFocus()
+    const node = screen.getByLabelText('Transcripción')
+    node.scrollTop = 100
+    fireEvent.scroll(node)
+    fireEvent.click(screen.getByText('Llegó resultado'))
+    expect(node.scrollTop).toBe(100)
+    expect(screen.getByText('Ver resultado disponible')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Ver resultado disponible'))
+    expect(card).toHaveFocus()
+    expect(
+      screen.queryByText('Ver resultado disponible'),
+    ).not.toBeInTheDocument()
+    node.scrollTop = 100
+    fireEvent.scroll(node)
+    fireEvent.click(screen.getByText('Llegó resultado'))
+    view.rerender(<Transcript id="b" />)
+    expect(
+      screen.queryByText('Ver resultado disponible'),
+    ).not.toBeInTheDocument()
+  })
   it('abre abajo incluso si el panel se monta después de terminar la carga', () => {
     height = 1000
     const view = render(<Transcript id="a" />)

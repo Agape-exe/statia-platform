@@ -359,6 +359,102 @@ const preparation: ExecutionPreparation = {
 }
 
 describe('preparación conversacional', () => {
+  it('presenta referencias históricas como archivo, columna y marcador', async () => {
+    prepared({
+      preparation: {
+        ...preparation,
+        evidence: [
+          {
+            subject: '["archivo", "tabla", "medida"]:marker:NA',
+            origin: 'user',
+            detail: 'Tratar como información faltante.',
+          },
+        ],
+      },
+    })
+    await userEvent.click(screen.getByText('Ver detalles'))
+    expect(
+      screen.getByText('mediciones.csv / tabla / medida · Marcador: NA'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/\["archivo"/)).not.toBeInTheDocument()
+  })
+  it('oculta apartados y viñetas sin contenido en propuestas', () => {
+    const blank = structuredClone(proposal)
+    blank.analysis_plan.requirements = [' ', '']
+    blank.analysis_plan.limitations = ['']
+    const view = render(
+      <ProposalCard
+        proposal={blank}
+        files={files}
+        busy={false}
+        onDecide={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText('Requisitos y supuestos')).not.toBeInTheDocument()
+    expect(screen.queryByText('Limitaciones')).not.toBeInTheDocument()
+    expect(view.container.querySelectorAll('li:empty')).toHaveLength(0)
+  })
+  it('ofrece ejecución parcial explícita, preserva los bloqueos y evita listas vacías', async () => {
+    const execute = vi.fn().mockResolvedValue(undefined)
+    const partial: ExecutionPreparation = {
+      ...preparation,
+      status: 'PARTIALLY_READY',
+      specification: { ...preparation.specification!, partial_execution: true },
+      components: [
+        {
+          id: 'component:0',
+          source_index: 0,
+          method: 'descriptive',
+          variables,
+          status: 'READY',
+          fingerprint: '',
+          question_ids: [],
+          blockers: [],
+          warnings: [],
+          completed_run_id: null,
+          depends_on: [],
+        },
+        {
+          id: 'component:1',
+          source_index: 1,
+          method: 'welch_t',
+          variables,
+          status: 'BLOCKED_UNCERTAINTY',
+          fingerprint: '',
+          question_ids: ['design'],
+          blockers: ['Independencia desconocida; inferencia pendiente.'],
+          warnings: [],
+          completed_run_id: null,
+          depends_on: [],
+        },
+      ],
+    }
+    const view = render(
+      <MemoryRouter>
+        <ExecutionPreparationCard
+          preparation={partial}
+          proposal={proposal}
+          projectId="p"
+          conversationId="c"
+          busy={false}
+          onAnswer={vi.fn()}
+          onReview={vi.fn()}
+          onDescriptive={vi.fn()}
+          onCancel={vi.fn()}
+          onAdvanced={vi.fn()}
+          onExecute={execute}
+        />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/Independencia desconocida/)).toBeInTheDocument()
+    expect(execute).not.toHaveBeenCalled()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Ejecutar componentes disponibles' }),
+    )
+    expect(execute.mock.calls[0][0].specification.partial_execution).toBe(true)
+    expect(execute).toHaveBeenCalledOnce()
+    expect(view.container.querySelectorAll('li:empty')).toHaveLength(0)
+  })
   function prepared(
     props: Partial<React.ComponentProps<typeof ExecutionPreparationCard>> = {},
   ) {

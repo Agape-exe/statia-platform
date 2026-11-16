@@ -215,6 +215,7 @@ export function ExecutionReview({
     }
     const components: ExecutionComponent[] = sources.map((_, index) => ({
       source_index: index,
+      descriptive_intervals: false,
       method: methods[index] as ExecutionComponent['method'],
       design: ['paired_t', 'wilcoxon'].includes(methods[index])
         ? paired

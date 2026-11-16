@@ -54,16 +54,20 @@ export function ProposalCard({
           ['Limitaciones', plan.limitations],
           ['Productos esperados', plan.expected_outputs],
         ] as const
-      ).map(([title, values]) => (
-        <details key={title}>
-          <summary>{title}</summary>
-          <ul>
-            {values.map((value, index) => (
-              <li key={index}>{visible(value)}</li>
-            ))}
-          </ul>
-        </details>
-      ))}
+      )
+        .filter(([, values]) => values.some((value) => value.trim()))
+        .map(([title, values]) => (
+          <details key={title}>
+            <summary>{title}</summary>
+            <ul>
+              {values
+                .filter((value) => value.trim())
+                .map((value, index) => (
+                  <li key={index}>{visible(value)}</li>
+                ))}
+            </ul>
+          </details>
+        ))}
       {!!plan.components?.length && (
         <details>
           <summary>Procedimientos del plan integral</summary>
@@ -114,7 +118,9 @@ export function ProposalCard({
             </p>
           )}
           <p>
-            <strong>Independencia:</strong> {visible(comparison.independence)}
+            <strong>Independencia requerida:</strong> debe justificarse con el
+            diseño de recolección antes de ejecutar inferencia. El texto de la
+            propuesta no confirma este supuesto; se revisará en la preparación.
           </p>
           <p>
             <strong>Observaciones válidas:</strong>{' '}
@@ -140,8 +146,9 @@ export function ProposalCard({
             {visible(comparison.effect_size.definition)}
           </p>
           <p>
-            {visible(comparison.effect_size.correction)}{' '}
-            {visible(comparison.effect_size.confidence_interval)}
+            {visible(comparison.effect_size.correction)} Los intervalos
+            disponibles se limitarán a los implementados y metodológicamente
+            validados en la preparación.
           </p>
           <p>
             <strong>Comparaciones múltiples:</strong>{' '}

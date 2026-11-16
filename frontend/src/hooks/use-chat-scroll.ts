@@ -25,6 +25,27 @@ export function useChatScroll(
   const follow = useRef(true)
   const prepend = useRef<{ height: number; top: number } | null>(null)
   const [unread, setUnread] = useState(false)
+  const [resultTarget, setResultTarget] = useState<{
+    id: string
+    conversationId: string | undefined
+  } | null>(null)
+  const [unreadResult, setUnreadResult] = useState<{
+    id: string
+    conversationId: string | undefined
+  } | null>(null)
+  const processedResult = useRef<typeof resultTarget>(null)
+  const revealResult = useCallback((id: string) => {
+    const node = viewport.current
+    const card = document.getElementById(`analysis-result-${id}`)
+    if (!node || !card || !node.contains(card)) return false
+    node.scrollTop +=
+      card.getBoundingClientRect().top - node.getBoundingClientRect().top - 12
+    card.focus({ preventScroll: true })
+    follow.current = false
+    setUnreadResult(null)
+    setUnread(false)
+    return true
+  }, [])
   const end = useCallback(() => {
     const node = viewport.current
     if (node) node.scrollTop = node.scrollHeight
@@ -70,12 +91,29 @@ export function useChatScroll(
     observer.observe(node)
     return () => observer.disconnect()
   }, [mountVersion, end])
+  useLayoutEffect(() => {
+    if (
+      !resultTarget ||
+      resultTarget.conversationId !== conversationId ||
+      processedResult.current === resultTarget
+    )
+      return
+    processedResult.current = resultTarget
+    if (follow.current) revealResult(resultTarget.id)
+    else setUnreadResult(resultTarget)
+  }, [resultTarget, conversationId, latestId, revealResult])
   return {
     transcript,
     onScroll,
     capturePrepend,
     end,
     unread,
+    unreadResult:
+      unreadResult && unreadResult.conversationId === conversationId
+        ? unreadResult.id
+        : null,
+    revealResult,
+    resultAvailable: (id: string) => setResultTarget({ id, conversationId }),
     requestFollow: () => {
       follow.current = true
     },

@@ -30,7 +30,7 @@ test('resultados: migración, RLS, integridad, concesiones, transacción e idemp
       grant select,insert,delete on storage.objects to authenticated;
       insert into auth.users values ('${a}'),('${b}');
     `)
-    for (const name of ['202611150001_projects.sql', '202611150002_chat.sql', '202611150003_chat_titles.sql', '202611150004_analysis_results.sql'])
+    for (const name of ['202611150001_projects.sql', '202611150002_chat.sql', '202611150003_chat_titles.sql', '202611150004_analysis_results.sql', '202611160005_chat_timeline.sql'])
       await db.exec(await readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8'))
     assert.equal((await q("select public from storage.buckets where id='analysis-results'"))[0].public, false)
     assert.equal((await q("select has_function_privilege('anon','public.finish_analysis_run(uuid,uuid,jsonb,jsonb)','execute') as allowed"))[0].allowed, false)

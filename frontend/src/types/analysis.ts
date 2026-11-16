@@ -37,6 +37,7 @@ export interface ExecutionComponent {
   equal_variances_confirmed: boolean
   group_values: string[]
   posthoc: 'none' | 'welch_holm'
+  descriptive_intervals?: boolean
 }
 export interface ExecutionSpec {
   schema_version: 1
@@ -48,6 +49,7 @@ export interface ExecutionSpec {
   missing_policy: 'available_cases_per_procedure'
   multiplicity: 'none' | 'holm'
   decisions_confirmed: boolean
+  partial_execution?: boolean
 }
 export interface ExecuteRequest {
   request_id: string
@@ -68,7 +70,13 @@ export interface PreparationClarification extends PreparationQuestion {
 export interface ExecutionPreparation {
   request_id: string
   status:
-    'READY' | 'NEEDS_CLARIFICATION' | 'BLOCKED_UNCERTAINTY' | 'UNSUPPORTED'
+    | 'READY'
+    | 'PARTIALLY_READY'
+    | 'COMPLETED'
+    | 'NEEDS_CLARIFICATION'
+    | 'BLOCKED_UNCERTAINTY'
+    | 'UNSUPPORTED'
+  components?: ComponentPreparation[]
   specification: ExecutionSpec | null
   methods: string[]
   reasons: string[]
@@ -89,6 +97,35 @@ export interface ExecutionPreparation {
     rows: number
   }[]
   fingerprint: string
+}
+export interface ComponentPreparation {
+  id: string
+  source_index: number
+  method: string
+  variables: Variable[]
+  status:
+    | 'READY'
+    | 'NEEDS_CLARIFICATION'
+    | 'BLOCKED_UNCERTAINTY'
+    | 'UNSUPPORTED'
+    | 'RUNNING'
+    | 'COMPLETED'
+    | 'FAILED'
+  fingerprint: string
+  question_ids: string[]
+  blockers: string[]
+  warnings: string[]
+  completed_run_id: string | null
+  depends_on: number[]
+}
+export const componentStatus = {
+  READY: 'Listo',
+  NEEDS_CLARIFICATION: 'Aclaración pendiente',
+  BLOCKED_UNCERTAINTY: 'Detenido por incertidumbre',
+  UNSUPPORTED: 'Necesita revisión',
+  RUNNING: 'Calculando',
+  COMPLETED: 'Completado',
+  FAILED: 'Error',
 }
 export interface ProcedureInfo {
   code: Method
@@ -152,6 +189,7 @@ export interface AnalysisResult {
   components: ComponentResult[]
   status: 'completed' | 'partial' | 'failed'
   summary: string
+  component_states?: ComponentPreparation[]
 }
 export interface AnalysisArtifact {
   id: string

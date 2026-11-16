@@ -43,6 +43,11 @@ export interface Message {
     warnings?: string[]
     request_id?: string
     analysis_run_id?: string
+    execution_preparation?: import('./analysis').ExecutionPreparation | null
+    file_ids?: string[]
+    proposal_id?: string
+    execution_request_id?: string
+    execution_status?: string
   }
 }
 export interface Column {
@@ -135,6 +140,7 @@ export interface Proposal {
   objective: string
   status: 'proposed' | 'accepted' | 'rejected'
   analysis_plan: Plan
+  source_message_id?: string | null
 }
 export type TurnAction =
   | 'message'
@@ -162,6 +168,7 @@ export interface Turn {
   answer?: string
 }
 export interface ConversationDetail {
+  preparation_run?: { id: string; request_id: string; status: string } | null
   conversation: Conversation
   messages: Message[]
   files: ProjectFile[]
@@ -178,5 +185,5 @@ export const stageLabel: Record<Stage, string> = {
   clarification: 'Aclaraciones',
   goal: 'Finalidad',
   proposal: 'Confirmación de propuestas',
-  ready: 'Plan preparado',
+  ready: 'Plan aceptado',
 }

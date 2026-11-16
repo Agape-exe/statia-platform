@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { ExecuteRequest, ExecutionPreparation } from '../types/analysis'
 import type { Proposal } from '../types/chat'
 import { Alert } from './ui'
+import { ComponentStates } from './ComponentStates'
 
 export function ExecutionPreparationCard({
   preparation,
@@ -37,13 +38,31 @@ export function ExecutionPreparationCard({
   const uncertainties =
     preparation.clarifications?.filter((q) => q.status === 'unknown') || []
   const spec = preparation.specification
+  function evidenceSubject(subject: string) {
+    const match = subject.match(/^(\[[\s\S]*\])(?::marker:(.*)|:type)?$/)
+    if (match) {
+      try {
+        const reference: unknown = JSON.parse(match[1])
+        if (
+          Array.isArray(reference) &&
+          reference.length === 3 &&
+          reference.every((v) => typeof v === 'string')
+        ) {
+          return `${preparation.files.find((f) => f.id === reference[0])?.name || 'Archivo del proyecto'} / ${reference[1]} / ${reference[2]}${match[2] ? ` · Marcador: ${match[2]}` : ''}`
+        }
+      } catch {
+        /* Un asunto histórico no estructurado conserva su descripción. */
+      }
+    }
+    return subject
+  }
   async function execute() {
     if (
       !spec ||
       busy ||
       active.current ||
       completed ||
-      preparation.status !== 'READY'
+      !['READY', 'PARTIALLY_READY'].includes(preparation.status)
     )
       return
     active.current = true
@@ -101,14 +120,31 @@ export function ExecutionPreparationCard({
       <h3>
         {completed
           ? 'Análisis ejecutado'
-          : preparation.status === 'READY'
-            ? 'Análisis preparado'
-            : preparation.status === 'UNSUPPORTED'
-              ? 'Este plan necesita revisión'
-              : preparation.status === 'BLOCKED_UNCERTAINTY'
-                ? 'Preparación detenida por incertidumbre'
-                : 'Una aclaración antes de continuar'}
+          : preparation.status === 'COMPLETED'
+            ? 'Análisis completado'
+            : preparation.status === 'PARTIALLY_READY'
+              ? 'Componentes disponibles para ejecución parcial'
+              : preparation.status === 'READY'
+                ? preparation.components?.some((c) => c.status === 'COMPLETED')
+                  ? 'Componentes pendientes preparados'
+                  : 'Análisis preparado'
+                : preparation.status === 'UNSUPPORTED'
+                  ? 'Este plan necesita revisión'
+                  : preparation.status === 'BLOCKED_UNCERTAINTY'
+                    ? 'Preparación detenida por incertidumbre'
+                    : 'Una aclaración antes de continuar'}
       </h3>
+      {preparation.status === 'PARTIALLY_READY' && (
+        <p>
+          Algunos procedimientos pueden ejecutarse; otros necesitan información
+          adicional. La ejecución requiere tu confirmación y conservará los
+          componentes pendientes.
+        </p>
+      )}
+      <ComponentStates
+        components={preparation.components || []}
+        projectId={projectId}
+      />
       <p>
         <strong>Objetivo:</strong> {proposal.objective}
       </p>
@@ -124,19 +160,31 @@ export function ExecutionPreparationCard({
           {preparation.files.map((f) => `${f.name} / ${f.sheet}`).join(', ')}
         </p>
       )}
-      {spec && preparation.status === 'READY' && (
+      {spec && ['READY', 'PARTIALLY_READY'].includes(preparation.status) && (
         <>
-          <p>
-            <strong>Confianza:</strong>{' '}
-            {Math.round(spec.confidence_level * 100)} %. Se usarán los registros
-            compatibles con las decisiones de datos confirmadas.
-          </p>
-          {spec.multiplicity === 'holm' && (
+          {spec.components.every(
+            (c) =>
+              c.method === 'descriptive' && c.descriptive_intervals === false,
+          ) ? (
             <p>
-              Se controlarán conjuntamente los falsos positivos de los
-              contrastes con Holm. Los intervalos serán individuales.
+              Se describirán los registros observados, sin valores p ni
+              intervalos de confianza. Los procedimientos pendientes no se
+              calcularán.
+            </p>
+          ) : (
+            <p>
+              <strong>Confianza:</strong>{' '}
+              {Math.round(spec.confidence_level * 100)} %. Se usarán los
+              registros compatibles con las decisiones de datos confirmadas.
             </p>
           )}
+          {spec.multiplicity === 'holm' &&
+            spec.components.some((c) => c.method !== 'descriptive') && (
+              <p>
+                Se controlarán conjuntamente los falsos positivos de los
+                contrastes con Holm. Los intervalos serán individuales.
+              </p>
+            )}
           {spec.filters.map((filter, i) => (
             <p key={i}>
               <strong>Filtro:</strong> {filter.variable.column} ={' '}
@@ -189,30 +237,33 @@ export function ExecutionPreparationCard({
           </button>
         </div>
       )}
-      {preparation.status === 'NEEDS_CLARIFICATION' && question && (
-        <fieldset disabled={busy || submitting}>
-          <legend>{question.prompt}</legend>
-          <p>{question.explanation}</p>
-          <div className="chat-actions">
-            {question.choices.map((choice) => (
-              <button
-                type="button"
-                className="btn secondary"
-                key={choice.value}
-                onClick={() =>
-                  onAnswer(question.id, choice.value, choice.label)
-                }
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
-          <p className="muted">
-            Puedes responder aquí o escribir la opción en el chat. Si no lo
-            sabes, te explicaremos cómo continuar sin inventar supuestos.
-          </p>
-        </fieldset>
-      )}
+      {['NEEDS_CLARIFICATION', 'PARTIALLY_READY'].includes(
+        preparation.status,
+      ) &&
+        question && (
+          <fieldset disabled={busy || submitting}>
+            <legend>{question.prompt}</legend>
+            <p>{question.explanation}</p>
+            <div className="chat-actions">
+              {question.choices.map((choice) => (
+                <button
+                  type="button"
+                  className="btn secondary"
+                  key={choice.value}
+                  onClick={() =>
+                    onAnswer(question.id, choice.value, choice.label)
+                  }
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+            <p className="muted">
+              Puedes responder aquí o escribir la opción en el chat. Si no lo
+              sabes, te explicaremos cómo continuar sin inventar supuestos.
+            </p>
+          </fieldset>
+        )}
       {preparation.status !== 'NEEDS_CLARIFICATION' &&
         !!preparation.warnings.length && (
           <p className="notice">{preparation.warnings.at(-1)}</p>
@@ -225,7 +276,7 @@ export function ExecutionPreparationCard({
         <ul>
           {preparation.evidence.map((item, i) => (
             <li key={i}>
-              <strong>{item.subject}</strong> (
+              <strong>{evidenceSubject(item.subject)}</strong> (
               {
                 {
                   verified: 'verificado',
@@ -274,18 +325,33 @@ export function ExecutionPreparationCard({
       </details>
       {error && <Alert>{error}</Alert>}
       <div className="chat-actions">
-        {preparation.status === 'READY' && !completed && (
-          <button
-            type="button"
-            className="btn primary"
-            disabled={busy || submitting}
-            onClick={() => void execute()}
-          >
-            {busy || submitting
-              ? 'Calculando y guardando…'
-              : 'Ejecutar análisis'}
-          </button>
-        )}
+        {['READY', 'PARTIALLY_READY'].includes(preparation.status) &&
+          !completed && (
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy || submitting}
+              onClick={() => void execute()}
+            >
+              {submitting
+                ? 'Calculando y guardando…'
+                : preparation.status === 'PARTIALLY_READY'
+                  ? 'Ejecutar componentes disponibles'
+                  : spec?.partial_execution
+                    ? 'Ejecutar componentes pendientes'
+                    : 'Ejecutar análisis'}
+            </button>
+          )}
+        {preparation.status === 'PARTIALLY_READY' &&
+          uncertainties.length > 0 && (
+            <button
+              className="btn secondary"
+              disabled={busy || submitting}
+              onClick={() => onReview(uncertainties[0].id)}
+            >
+              Revisar componentes pendientes
+            </button>
+          )}
         <button
           type="button"
           className="btn secondary"
@@ -300,9 +366,11 @@ export function ExecutionPreparationCard({
           disabled={busy || submitting}
           onClick={onCancel}
         >
-          {preparation.status === 'BLOCKED_UNCERTAINTY'
-            ? 'Dejar pendiente y volver al chat'
-            : 'Volver al chat'}
+          {preparation.status === 'PARTIALLY_READY'
+            ? 'Dejar pendiente todo el análisis'
+            : preparation.status === 'BLOCKED_UNCERTAINTY'
+              ? 'Dejar pendiente y volver al chat'
+              : 'Volver al chat'}
         </button>
       </div>
     </article>
