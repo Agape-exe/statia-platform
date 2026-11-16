@@ -1,4 +1,6 @@
-# Validación — Sesión 02
+# Validación — historial de sesiones
+
+La validación de Sesión 03 está al final. Las secciones de Sesión 02 se conservan como antecedentes, sin atribuirles cobertura de funcionalidades posteriores.
 
 Base: `develop` actualizado en `f7d4ea7`, con Sesión 01 fusionada por PR #1. El encargo informa que Auth y proyectos ya fueron comprobados manualmente con Supabase real; esta sesión conserva ese código y no atribuye esas comprobaciones al agente.
 
@@ -70,3 +72,30 @@ Con el flujo corregido se ejecutaron ensayos HTTP locales con **Gemini real y re
 Las pruebas automatizadas usan dobles y capturas públicas congeladas, sin red: descripción sin cuota, ambos rechazos, agregación por plan/columnas, recuperación parcial sin prosa inconsistente, rechazo total, contrato acotado con referencias completas por plan, aclaraciones esenciales, códigos binarios/ordinales frente a medidas, invariancia ante renombrado, aceptación/persistencia y replay. Fallos 429/503/504 durante la corrección no se ocultan con planes parciales. Se comprueba que los logs no incluyan datos ni nombres del caso.
 
 Pendiente: repetir desde UI/Supabase reales descripción → recomendaciones → aceptación → recarga/reintento con un usuario autorizado y verificar aislamiento entre cuentas. En esta corrección no se escribieron conversaciones ni planes en Supabase remoto. No se probaron otros modelos reales; GEMINI_MODEL sigue configurable. No hay nuevas migraciones ni cambios de frontend, RLS o Auth.
+
+## Sesión 03 — motor, resultados y exportaciones
+
+Base `origin/develop` d03023f, PR #2 integrado. Rama `feat/motor-estadistico`; no se desarrolló en main/develop ni se modificaron los bytes de fixtures públicos. La ejecución inferencial está autorizada expresamente por esta sesión y su documentación reemplaza la restricción temporal de Sesión 02.
+
+### Evidencia local
+
+- **202 pytest aprobadas**, 37,94 s en la ejecución completa registrada. Incluyen las regresiones anteriores y 42 pruebas nuevas del motor/HTTP: fórmulas analíticas, referencias independientes, constantes/ausencias/ordinales, grupos desbalanceados, pareamiento validado, JSON/XLSX/hoja, varios archivos independientes, estados parciales, descargas, reintentos, pérdida de respuesta de commit y continuidad del chat. NumPy/SciPy/Matplotlib ejecutan cálculos y generan PNG reales; Auth/REST/Storage se sustituyen por un repositorio controlado en los tests HTTP. No son pruebas de Supabase remoto.
+- Precisión float64: tolerancias relativas usuales 1e-10 a 1e-12 y absolutas 1e-12; intervalos tomados de referencias impresas tienen tolerancia explícita. Welch ANOVA contrasta F=4736880/795539 y gl2=473344/85523 en caso racional. Hedges J se contrasta con gamma evaluable analíticamente para ν_H=5; no se confunde con gl Welch=216/53. Fisher se verifica por enumeración hipergeométrica con combinatorias enteras.
+- Penguins original: Pearson bill_length_mm/flipper_length_mm N=342, r≈0.656181340746427. Welch body_mass_g female−male dentro de Adelie: 344 iniciales, 152 tras filtro, 146 casos completos, 73/73; diferencia≈−674.6575342465753 y ν_H=144. Contraste e IC comparados con lectura CSV independiente y SciPy.
+- Titanic original: Pearson age/fare N=714, r≈0.0960666917690389; descriptivo de edad con 177 ausencias. Welch ANOVA fare/pclass usa grupos 216/184/491 y se contrasta con SciPy. Nombres de estos datasets solo aparecen en pruebas/documentación, sin reglas del motor.
+- **48 pruebas Vitest aprobadas** en 6 archivos, 9,28 s en la ejecución completa registrada. Servicios controlados: revisión sin ejecución automática, decisiones obligatorias, conservación/restauración de UUID tras fallo y reapertura, catálogo fallido, detalle/tabla/ZIP, agrupación por conversación y errores/estados vacíos. Las cifras de fixtures UI son datos de prueba, no acreditan un cálculo remoto.
+- **3 suites PostgreSQL/PGlite aprobadas**: cuatro migraciones reales, RLS entre dos identidades/anon, FK de proyecto/conversación/propuesta, inmutabilidad, Storage privado emulado, doble solicitud, payload diferente, bloqueo de turnos, concesión vencida, tokens antiguos y rollback al faltar artefactos. PGlite es PostgreSQL real en WASM; Auth y catálogo Storage están emulados, no es el servicio Supabase remoto.
+- TypeScript, oxlint, Prettier y build Vite aprobados. Ruff 0.17.5 comprueba y formatea los 20 archivos nuevos de análisis/scripts/pruebas mediante check_analysis_quality.py; no aplica la configuración global del equipo al código anterior. compileall y pip check aprobados. npm audit --omit=dev: **0 vulnerabilidades** informadas por el registro en esta ejecución.
+- Advertencias conocidas: deprecación Starlette/httpx en TestClient; Vite advierte que el paquete principal minificado es de 500,71 kB (gzip 146,19 kB). No impiden las comprobaciones; resultados/chat están divididos en paquetes de carga bajo demanda.
+- ZIP real abierto con zipfile.testzip(): JSON igual al resultado, CSV decodificables, PNG válidos y hashes del manifiesto coincidentes. La descarga HTTP rechaza un recurso manipulado. Se inspeccionó visualmente un PNG sintético de comparación por grupos; no se guardaron imágenes temporales en Git.
+- Memoria local con Python 3.12.10/Windows: API base **90,2 MiB**, pico del árbol hijo **214,7 MiB**, pico conjunto **318,1 MiB**, **7,69 s**. Archivo sintético 20 000×20, 400 000 celdas, 2 629 782 bytes. El script incluye descendientes del lanzador venv; omitirlos subestimaría la memoria. No se midió una instancia Render Linux. Límites de producción monitorizados: 320 MiB hijo/450 MiB conjunto y un worker; no sustituyen un límite de cgroup.
+
+### Servicios reales y límites de la evidencia
+
+Se realizó una llamada **real** al SDK oficial de Gemini con `gemini-3.5-flash-lite`, clave local existente y exclusivamente estadísticas sintéticas calculadas por el motor. Respuesta estructurada válida, sin propuestas nuevas, 852 caracteres, 4,25 s; pasó validación de referencias/cifras inferenciales. No se guardó una conversación de prueba en Supabase ni se enviaron originales o información personal. Esto acredita interpretación del proveedor, no persistencia remota ni todo el recorrido autenticado.
+
+El sondeo REST del Supabase configurado devolvió **404 / PGRST205 para analysis_runs**: la migración 004 no está instalada en su esquema expuesto. La ventana de Opera/SQL Editor encontrada estaba minimizada; el control de interfaz no pudo activarla tras el reintento, y no se realizaron escrituras remotas. La clave publicable no autoriza instalar SQL ni reemplaza una sesión autenticada. No se modificó configuración privada ni se creó una cuenta de prueba.
+
+Pendiente externo: aplicar `202611150004_analysis_results.sql`, reiniciar API, ejecutar el recorrido completo con dos cuentas (aceptar → resolver decisiones → calcular → guardar → recargar → Resultados → ZIP → pregunta posterior), verificar Storage/RLS remotos y medir en Render real. Los pasos concretos están en [SETUP](SETUP.md). La implementación no debe presentarse como validada end-to-end en Supabase hasta completar ese recorrido. No se desplegó a Render/Vercel.
+
+Los métodos, fórmulas, IC disponibles y limitaciones de P1/P2 están en [STATISTICAL_ENGINE](STATISTICAL_ENGINE.md). La explicación numérica determinista, el contrato y las descargas no dependen de Gemini. No hay regresiones P2, joins, limpieza/imputación automática, código generado por el modelo ni interfaces de demostración para métodos no implementados.

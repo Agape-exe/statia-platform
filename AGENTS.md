@@ -8,5 +8,5 @@
 - Mantener arquitectura modular sin carpetas o capas vacías. No adelantar IA, datasets, análisis ni otras funcionalidades fuera de la sesión autorizada.
 - Nunca versionar secretos, `.env`, credenciales de prueba reales o archivos de usuarios. Solo `.env.example` con valores vacíos o públicos de ejemplo.
 - Ejecutar las comprobaciones relevantes; no inventar resultados ni presentar mocks como integración real. Documentar las validaciones externas pendientes.
-- El asistente prepara planes versionados, no ejecuta estadísticas inferenciales todavía. Validar archivos/hojas/columnas al generar y aceptar planes. Sin Gemini configurado, informar el problema sin respuestas simuladas. Mantener originales privados e intactos; no unir ni limpiar datos automáticamente.
+- El asistente prepara planes versionados; la ejecución inferencial autorizada en Sesión 03 pertenece al motor Python determinista, nunca a Gemini. Revalidar archivos/hojas/columnas y decisiones al generar, aceptar y ejecutar planes. Sin Gemini configurado, informar el problema sin respuestas simuladas. Mantener originales privados e intactos; no unir ni limpiar datos automáticamente.
 - Antes de entregar: revisar diff, secretos, pruebas, TypeScript, lint y compilación. Consultar `docs/SETUP.md` y `docs/ARCHITECTURE.md`.

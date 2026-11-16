@@ -32,7 +32,7 @@ La clave publicable está diseñada para el navegador; el acceso a los datos dep
 
 Copiar `backend/.env.example` a **`backend/.env`**. `ALLOWED_ORIGINS` acepta orígenes separados por comas, sin barras finales. Completar `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY` con el mismo proyecto del frontend (clave publicable, nunca `service_role`).
 
-Un administrador elegible conforme a las condiciones de Google debe configurar `GEMINI_API_KEY` solo en backend. `GEMINI_MODEL=gemini-3.8-flash` es el valor predeterminado, configurable sin modificar código. No se eluden requisitos de edad, cuotas ni permisos. No colocar claves privadas en variables `VITE_`, capturas ni commits.
+Un administrador elegible conforme a las condiciones de Google debe configurar `GEMINI_API_KEY` solo en backend. `GEMINI_MODEL=gemini-3.5-flash-lite` es el valor predeterminado, configurable sin modificar código. No se eluden requisitos de edad, cuotas ni permisos. No colocar claves privadas en variables `VITE_`, capturas ni commits.
 
 La API inicia y `/health` responde aunque falten claves. Sin Supabase, las rutas privadas devuelven 503; sin Gemini, la interpretación informa que falta habilitar el proveedor y conserva el mensaje para reintentar sin duplicarlo. No hay fallback simulado. El cliente intenta renovar una vez la sesión; si falla, permite volver a ingresar.
 
@@ -77,7 +77,7 @@ Recorrido: comprobar las cuatro medidas cuantitativas y `year` temporal; pedir r
 
 Aplicar `202611150003_chat_titles.sql` después de las dos migraciones existentes y reiniciar frontend/backend. Reemplaza únicamente `decide_proposal`, con la misma firma, permisos invoker y RLS: al aceptar actualiza un título provisional en la misma transacción. No crea tablas, no modifica planes aceptados ni retitula conversaciones en lote; los títulos manuales prevalecen.
 
-El historial se puede plegar; en móvil/tablet abre un diálogo temporal. Enter envía, Shift + Enter inserta una línea y la composición IME no envía. Probar conversaciones nuevas: solicitar exploración sin `suggested_title`, elegir un plan integral y comprobar título/estado tras recargar. Revisar que independencia figure pendiente sin evidencia de diseño y que g con SD combinada use ν_H=n1+n2−2, separado de los gl de Welch. No se calculan resultados.
+El historial se puede plegar; en móvil/tablet abre un diálogo temporal. Enter envía, Shift + Enter inserta una línea y la composición IME no envía. Probar conversaciones nuevas: solicitar exploración sin `suggested_title`, elegir un plan integral y comprobar título/estado tras recargar. Revisar que independencia figure pendiente sin evidencia de diseño y que g con SD combinada use ν_H=n1+n2−2, separado de los gl de Welch. La aceptación no calcula; para ello usar «Ejecutar análisis» y confirmar las decisiones finales.
 
 ### Diagnóstico general
 
@@ -94,3 +94,23 @@ El historial se puede plegar; en móvil/tablet abre un diálogo temporal. Enter 
 ### Validar alternativas con datos heterogéneos
 
 Esta corrección no necesita otra migración ni volver a perfilar archivos. Reiniciar la API. Primero pedir solo descripción; después pedir varias alternativas e integral. Revisar variables/objetivos y el aviso si solo algunas alternativas pudieron validarse. Aceptar una válida, recargar y comprobar su plan/estado; un fallo conserva la solicitud para reintentar sin duplicar mensajes. Los logs `Planning validation` distinguen categorías por intento/propuesta sin incluir sus contenidos. Para un 502, revisar `X-Statia-Validation` desde una llamada HTTP o los logs del backend. No implica que haya fallado la lectura descriptiva del dataset.
+
+
+## Sesión 03: instalación y comprobación de resultados
+
+1. Aplicar en el mismo proyecto, después de 001/002/003, **solo** `supabase/migrations/202611150004_analysis_results.sql`. No repetir las migraciones anteriores ni una 004 ya aplicada. Mantener `analysis-results` privado. La migración aditiva crea tablas, índices, RLS, RPC y actualiza bienvenida/serialización de turnos; no borra planes ni originales.
+2. En backend, reinstalar `./.venv/Scripts/python -m pip install -r requirements-dev.txt` (Python 3.12). Reiniciar API y frontend. Configurar Supabase con clave publicable y conservar GEMINI_MODEL configurable. No se necesita Gemini para calcular/consultar/descargar.
+3. Producción prevista en Render de 512 MB: **un worker**, por ejemplo `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1` en su shell Linux. No usar varios workers para sortear el bloqueo. Hay un cálculo síncrono por proceso, 45 s para el hijo, 150 s para la operación y concesión de 180 s; no continúa como trabajo durable al cerrar/reiniciar el servidor. RSS: 320 MiB hijo y 450 MiB combinado API+hijo, monitorizado cada 100 ms; son barreras observadas, no una garantía del sistema operativo contra picos instantáneos. No se probó una instancia Render real.
+4. Desde backend: `./.venv/Scripts/python scripts/check_analysis_quality.py`, `./.venv/Scripts/python -m pytest -q` y `./.venv/Scripts/python -m pip check`. Lint/formato Python se aplica a los módulos nuevos de análisis y sus pruebas; no adopta configuraciones globales del equipo. Opcional: `./.venv/Scripts/python scripts/measure_analysis_memory.py` mide RSS con datos sintéticos. Frontend: `npm test`, `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`. En supabase: `npm ci` y `npm test`. GitHub Actions ejecuta estos bloques en PR hacia develop/main, sin secretos ni servicios remotos.
+
+### Recorrido manual con servicios reales (pendiente)
+
+- Cuenta A autenticada → proyecto → conversación con dataset original → propuesta aceptada. Pulsar «Ejecutar análisis»; elegir cada método, tipo por columna, orden ordinal si aplica y decisión de cada marcador. Revisar filtros/estratos del plan. Confirmar diseño/igualdad cuando corresponda y ejecutar. La aceptación sola no debe calcular.
+- Penguins: descriptivo de medidas y frecuencias; correlación morfológica; Welch de masa por sexo dentro de Adelie. Declarar explícitamente `NA` como ausencia de `sex` y medidas solo en esta ejecución. Comprobar 152 filas tras filtro y 146 casos completos (73/73); diferencia female−male ≈ −674.657534 g. No transformar el archivo original.
+- Titanic: descriptivo de edad/sexo (714 edades válidas, 177 ausentes), Pearson age/fare (714 parejas) y ANOVA de Welch de fare por pclass declarada categórica (216/184/491). Confirmar pertinencia metodológica antes de inferir; estos números son casos de validación, no reglas del motor.
+- Verificar tablas, exclusiones, IC, efectos y supuestos pendientes. Recargar; abrir Resultados y comprobar conversación, fecha, método, estado y cantidad de recursos. Descargar CSV, PNG, JSON, Markdown y ZIP. Abrir el ZIP, verificar manifiesto/hashes, ausencia de originales y coincidencia con pantalla. Un resultado parcial debe señalar cada componente o pareja no calculable.
+- Probar doble clic/reintento con mismo UUID; no debe duplicar ejecución ni evento. Interrumpir una solicitud, consultar estado después de 180 s y reintentar; cambiar decisiones crea otra ejecución. Probar fallo de Storage, originales inaccesibles, columnas/hoja alteradas, constantes, grupo vacío y plan no aceptado.
+- Preguntar por p y g de Hedges; revisar que use el resultado real, conserve la conversación y no invente medidas. Con Gemini deshabilitado, la interpretación determinista y las descargas deben seguir disponibles. Pedir otra estadística requiere nueva propuesta/confirmación; otra finalidad conserva el mecanismo de nuevo chat.
+- Cuenta B: pegar URLs de ejecución, artefacto y Storage de A, y probar REST SELECT/INSERT/UPDATE/DELETE; ningún recurso de A debe ser accesible. Repetir con otra conversación/proyecto de A para verificar FK compuestas. Estas comprobaciones remotas no se sustituyen por mocks ni por PGlite.
+
+Los objetos de `analysis-results` deben mantenerse privados. Al borrar proyectos/conversaciones o después de un fallo incierto puede haber objetos huérfanos; eliminarlos mediante mantenimiento autorizado, comprobando primero que no estén referenciados por analysis_artifacts. No reutilizar rutas de originales ni hacerlos públicos. Los límites del motor y métodos no disponibles se detallan en [STATISTICAL_ENGINE.md](STATISTICAL_ENGINE.md).
