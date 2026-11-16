@@ -21,13 +21,14 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
       - run: python scripts/check_analysis_quality.py
-      # El motor mide RSS del proceso pytest + hijo. Los escenarios SDK se
-      # ejecutan en otro intérprete para no cargar sus cachés en esa medición.
-      # Ambos bloques son obligatorios: no se omite ninguna prueba.
-      - name: Probar aplicación y motor estadístico
-        run: python -m pytest -q --ignore=tests/test_gemini_diagnostic.py --ignore=tests/test_gemini_resilience.py
-      - name: Probar SDK y diagnóstico Gemini sin red
-        run: python -m pytest -q tests/test_gemini_diagnostic.py tests/test_gemini_resilience.py
+      # La barrera RSS incluye el proceso pytest. Aislar cada módulo evita
+      # acumular objetos/importaciones de otros escenarios en esa medición.
+      # Todos los módulos son obligatorios; no se omiten ni repiten fallos.
+      - name: Probar todos los módulos backend en procesos aislados
+        run: |
+          for test_module in tests/test_*.py; do
+            python -m pytest -q "$test_module"
+          done
       - run: python -m pip check
       - name: Medir memoria del análisis en Linux
         run: python scripts/measure_analysis_memory.py
