@@ -6,10 +6,12 @@ import {
   type AnalysisArtifact,
   type AnalysisRun,
   type ResultTable,
+  type ExecutionPreparation,
 } from '../types/analysis'
 import { Alert, Loading } from './ui'
 import { formatResult } from '../lib/analysis-format'
 import { ComponentStates } from './ComponentStates'
+import { PendingComponentsReview } from './PendingComponentsReview'
 
 function StatisticalTable({ table }: { table: ResultTable }) {
   return (
@@ -108,19 +110,31 @@ export function AnalysisResultCard({
   runId,
   initialRun,
   expanded = false,
-  onContinue,
+  onPrepare,
+  onAnswer,
+  preparation,
+  busy = false,
   onLoaded,
 }: {
   projectId: string
   runId: string
   initialRun?: AnalysisRun
   expanded?: boolean
-  onContinue?: (proposalId: string) => void
+  onPrepare?: (proposalId: string) => void
+  onAnswer?: (
+    proposalId: string,
+    questionId: string,
+    answer: string,
+    label: string,
+  ) => void
+  preparation?: ExecutionPreparation | null
+  busy?: boolean
   onLoaded?: (run: AnalysisRun) => void
 }) {
   const [run, setRun] = useState<AnalysisRun | null>(initialRun || null)
   const [loading, setLoading] = useState(!initialRun)
   const [open, setOpen] = useState(expanded)
+  const [pendingOpen, setPendingOpen] = useState(false)
   const [error, setError] = useState('')
   const [downloading, setDownloading] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -204,10 +218,12 @@ export function AnalysisResultCard({
                 ? 'Análisis completado'
                 : runStatus[run.status]}
           </p>
-          <ComponentStates
-            components={run.result?.component_states || []}
-            projectId={projectId}
-          />
+          {!pendingOpen && (
+            <ComponentStates
+              components={run.result?.component_states || []}
+              projectId={projectId}
+            />
+          )}
           <p className="muted">
             {new Date(run.created_at).toLocaleString('es-PE')} ·{' '}
             {run.artifact_count} recursos
@@ -224,10 +240,11 @@ export function AnalysisResultCard({
             </p>
           )}
           <div className="chat-actions">
-            {run.status === 'partial' && onContinue && (
+            {run.status === 'partial' && (
               <button
                 className="btn secondary"
-                onClick={() => onContinue(run.proposal_id)}
+                aria-expanded={pendingOpen}
+                onClick={() => setPendingOpen((value) => !value)}
               >
                 Revisar componentes pendientes
               </button>
@@ -263,6 +280,15 @@ export function AnalysisResultCard({
               </button>
             )}
           </div>
+          {pendingOpen && (
+            <PendingComponentsReview
+              run={run}
+              preparation={preparation}
+              busy={busy}
+              onPrepare={onPrepare}
+              onAnswer={onAnswer}
+            />
+          )}
           {open && run.result && (
             <div className="analysis-detail">
               {run.result.components.map((component, index) => (

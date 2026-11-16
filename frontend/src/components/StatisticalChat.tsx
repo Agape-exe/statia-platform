@@ -546,7 +546,26 @@ export function StatisticalChat({ project }: { project: Project }) {
             <header className="chat-heading">
               <div>
                 <h2>{visible(conversation.title)}</h2>
-                <small>{stageLabel[conversation.current_stage]}</small>
+                <small>
+                  {latestRun || detail.latest_analysis_run
+                    ? {
+                        running: 'Calculando',
+                        partial: 'Análisis parcialmente completado',
+                        completed: 'Análisis completado',
+                        failed: 'Ejecución fallida',
+                      }[(latestRun || detail.latest_analysis_run)!.status]
+                    : conversation.stage_data.execution_preparation &&
+                        [
+                          'NEEDS_CLARIFICATION',
+                          'BLOCKED_UNCERTAINTY',
+                          'PARTIALLY_READY',
+                        ].includes(
+                          conversation.stage_data.execution_preparation.result
+                            .status,
+                        )
+                      ? 'Preparación pendiente'
+                      : stageLabel[conversation.current_stage]}
+                </small>
               </div>
               <div className="chat-actions">
                 <button
@@ -638,7 +657,34 @@ export function StatisticalChat({ project }: { project: Project }) {
                                 resultAvailable(run.id)
                             }
                           }}
-                          onContinue={(proposalId) =>
+                          preparation={
+                            conversation.stage_data.execution_preparation &&
+                            conversation.stage_data.execution_preparation
+                              .proposal_id === message.metadata.proposal_id
+                              ? conversation.stage_data.execution_preparation
+                                  .result
+                              : conversation.stage_data
+                                  .execution_preparations?.[
+                                  message.metadata.proposal_id || ''
+                                ]?.result
+                          }
+                          busy={disabled || !!pending}
+                          onAnswer={(proposalId, questionId, answer, label) =>
+                            perform(() =>
+                              submitTurn(selected, {
+                                request_id: crypto.randomUUID(),
+                                action: 'clarify_execution',
+                                content: label,
+                                file_ids: [],
+                                share_samples: false,
+                                share_instrument_text: false,
+                                proposal_id: proposalId,
+                                question_id: questionId,
+                                answer,
+                              }),
+                            )
+                          }
+                          onPrepare={(proposalId) =>
                             perform(() =>
                               submitTurn(selected, {
                                 request_id: crypto.randomUUID(),

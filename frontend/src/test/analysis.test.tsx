@@ -173,6 +173,100 @@ beforeEach(() => {
 })
 
 describe('revisión y ejecución', () => {
+  it('revisa pendientes y respuestas sin preparar, calcular ni escribir mensajes', async () => {
+    const partial = structuredClone(run)
+    partial.status = 'partial'
+    const question = {
+      id: 'independencia',
+      prompt: '¿Son independientes las observaciones?',
+      explanation: 'El diseño debe justificarse.',
+      limitation: 'Independencia desconocida.',
+      choices: [
+        { value: 'yes', label: 'Sí, lo confirmo' },
+        { value: 'unknown', label: 'No lo sé' },
+      ],
+      status: 'unknown' as const,
+      answer: 'unknown',
+    }
+    partial.result!.component_states = [
+      {
+        id: 'component:0',
+        source_index: 0,
+        method: 'descriptive',
+        variables,
+        status: 'COMPLETED',
+        fingerprint: '',
+        question_ids: [],
+        blockers: [],
+        warnings: [],
+        completed_run_id: 'anterior',
+        depends_on: [],
+      },
+      {
+        id: 'component:1',
+        source_index: 1,
+        method: 'pearson',
+        variables,
+        status: 'BLOCKED_UNCERTAINTY',
+        fingerprint: '',
+        question_ids: [question.id],
+        blockers: ['Independencia desconocida.'],
+        warnings: [],
+        completed_run_id: null,
+        depends_on: [],
+        assumptions: [question],
+      },
+    ]
+    const prepare = vi.fn(),
+      answer = vi.fn()
+    render(
+      <MemoryRouter>
+        <AnalysisResultCard
+          projectId="proyecto"
+          runId={partial.id}
+          initialRun={partial}
+          preparation={{ ...preparation, clarifications: [question] }}
+          onPrepare={prepare}
+          onAnswer={answer}
+        />
+      </MemoryRouter>,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Revisar componentes pendientes' }),
+    )
+    const panel = screen.getByRole('region', {
+      name: 'Revisión de componentes pendientes',
+    })
+    expect(
+      within(panel).getByText('Componentes pendientes — 1'),
+    ).toBeInTheDocument()
+    expect(
+      within(panel).getByText(/Correlación de Pearson/),
+    ).toBeInTheDocument()
+    expect(within(panel).getByText('Respuesta: No lo sé')).toBeInTheDocument()
+    expect(prepare).not.toHaveBeenCalled()
+    expect(answer).not.toHaveBeenCalled()
+    expect(analysisService.execute).not.toHaveBeenCalled()
+    await userEvent.selectOptions(within(panel).getByRole('combobox'), 'yes')
+    expect(answer).not.toHaveBeenCalled()
+    await userEvent.click(
+      within(panel).getByRole('button', {
+        name: 'Guardar respuesta y preparar pendientes',
+      }),
+    )
+    expect(answer).toHaveBeenCalledWith(
+      'propuesta',
+      'independencia',
+      'yes',
+      'Sí, lo confirmo',
+    )
+    await userEvent.click(
+      within(panel).getByRole('button', {
+        name: 'Volver a preparar componentes pendientes',
+      }),
+    )
+    expect(prepare).toHaveBeenCalledWith('propuesta')
+  })
   it('aceptar no ejecuta y la acción abre la revisión', async () => {
     const execute = vi.fn()
     render(

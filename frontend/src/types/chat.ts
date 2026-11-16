@@ -23,6 +23,10 @@ export interface Conversation {
       result: ExecutionPreparation
       paused?: boolean
     } | null
+    execution_preparations?: Record<
+      string,
+      { proposal_id: string; result: ExecutionPreparation; paused?: boolean }
+    >
     awaiting_reuse_update?: boolean
     reuse_file_ids?: string[]
     goal_change?: {
@@ -168,6 +172,11 @@ export interface Turn {
   answer?: string
 }
 export interface ConversationDetail {
+  latest_analysis_run?: {
+    id: string
+    proposal_id: string
+    status: 'running' | 'partial' | 'completed' | 'failed'
+  } | null
   preparation_run?: { id: string; request_id: string; status: string } | null
   conversation: Conversation
   messages: Message[]

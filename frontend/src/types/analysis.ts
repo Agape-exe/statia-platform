@@ -99,6 +99,7 @@ export interface ExecutionPreparation {
   fingerprint: string
 }
 export interface ComponentPreparation {
+  assumptions?: PreparationClarification[]
   id: string
   source_index: number
   method: string

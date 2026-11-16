@@ -1690,6 +1690,14 @@ summary {
 .component-states p {
   margin-block: 4px;
 }
+.clarification-review {
+  margin-block: 16px;
+}
+.clarification-review select {
+  display: block;
+  max-width: 100%;
+  margin-block: 8px;
+}
 .assistant-shell .chat-heading {
   padding-block: 7px;
 }
