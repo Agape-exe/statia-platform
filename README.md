@@ -1,5 +1,7 @@
 # Statia Platform
 
+Los análisis integrales admiten preparación y ejecución parcial confirmada por componentes, con continuidad y resultados cronológicos. Requiere la migración aditiva 005; consulta [la documentación](docs/INTEGRAL_EXECUTION.md).
+
 Plataforma de análisis estadístico conversacional para investigaciones y datasets. Conserva Auth, proyectos y conversaciones con Gemini; incorpora ejecución estadística Python, resultados persistentes y recursos privados descargables. Contexto solo aparece en tesis y su persistencia sigue pendiente.
 
 **Sesión 03:** motor y recorrido de ejecución implementados. P0 y ampliación P1 con validación numérica; revisión explícita antes de calcular, resultados en chat y módulo Resultados, CSV/PNG/JSON/Markdown/ZIP. La migración nueva y el recorrido autenticado en Supabase remoto siguen pendientes. Gemini real interpretó correctamente una síntesis sintética calculada localmente. Ver [motor y límites](docs/STATISTICAL_ENGINE.md) y [validación](docs/VALIDATION.md).

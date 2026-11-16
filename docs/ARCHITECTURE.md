@@ -1,5 +1,7 @@
 # Arquitectura
 
+La [ejecución integral por componentes](INTEGRAL_EXECUTION.md) amplía JSONB/contratos existentes y añade la migración 005 para asociar propuestas nuevas a mensajes de la misma conversación. Las ejecuciones parciales y sus continuaciones conservan runs y artefactos inmutables.
+
 La corrección de UX de Sesión 03 incorpora preparación determinista y aclaraciones en el mismo chat. `execution_preparation.py` orquesta la relectura privada compartida con ejecución; `statistics/automatic.py` comprueba originales y catálogo en el proceso acotado existente. `methods.py` reconoce conservadoramente nombres/códigos de planes v1 y preserva alternativas ambiguas. No hay otro motor ni ejecución de código generado.
 
 Las acciones aditivas `prepare_execution`, `clarify_execution` y `cancel_execution` pasan por `begin_chat_turn`/`finish_chat_turn`. `stage_data.execution_preparation` conserva propuesta, respuestas por pregunta con hash y evaluación; cada respuesta del asistente conserva la evaluación en metadata. No se cambia la finalidad, la etapa ni el plan aceptado. El UUID/payload del turno protege mensajes y concurrencia con ejecuciones. No se requiere una migración adicional.

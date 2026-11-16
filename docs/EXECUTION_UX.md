@@ -1,5 +1,7 @@
 # Corrección UX de ejecución — Sesión 03
 
+La corrección integral más reciente se documenta en [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md): preparación por componentes, ejecución parcial confirmada, continuidad, historial cronológico y resultados visibles. Esta ampliación sustituye el bloqueo global descrito en la versión inicial. Requiere la migración aditiva 005 para los vínculos cronológicos nuevos.
+
 ## Corrección del bucle «No lo sé»
 
 La versión inicial guardaba `unknown`, pero `ask()` volvía a incluir esa pregunta en `questions`. Al conservar NEEDS_CLARIFICATION, el chat repetía las opciones. Ese comportamiento también estaba fijado por una regresión anterior; se corrigieron tanto la transición como sus criterios de aceptación.

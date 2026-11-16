@@ -1,5 +1,7 @@
 # Configuración local
 
+Actualización integral: aplicar `202611160005_chat_timeline.sql` después de 001–004 y reiniciar API/Vite. No modificar ni repetir migraciones ya aplicadas. El recorrido parcial, continuación y validaciones pendientes se explica en [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md).
+
 ## 1. Supabase
 
 En el proyecto existente abre **SQL Editor**, crea una consulta, pega el contenido completo de `supabase/migrations/202611150001_projects.sql` y ejecútalo una vez. Se usa una transacción para evitar una instalación parcial. No ejecutar de nuevo una migración ya aplicada: creará conflicto porque los objetos ya existen.

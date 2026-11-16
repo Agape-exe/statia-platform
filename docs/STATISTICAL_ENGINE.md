@@ -1,5 +1,7 @@
 # Motor estadístico — Sesión 03
 
+Los planes integrales se preparan por componentes y permiten ejecución parcial confirmada. Los descriptivos automáticos describen observaciones sin IC de media; no se confirma independencia implícitamente. Las familias Holm y las dependencias conservan sus restricciones. Véase [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md).
+
 ## Contrato y procedimientos
 
 Plan v1 se conserva sin reescribir. ExecutionSpec v1 decide métodos por índice de componente, tipos por referencia `{file_id,sheet,column}`, unidades, marcadores ausentes/conservados, orden ordinal, filtros aceptados, grupos, diseño, confianza, alternativa bilateral y multiplicidad. El preparador reconoce nombres/códigos del catálogo en el campo `method` de planes antiguos, pero solo los admite tras contrastar familia, roles, decisiones y originales. Varios nombres conservan la ambigüedad; no interpreta libremente toda la prosa. Un integral antiguo sin componentes o una familia no soportada requiere revisar la propuesta.

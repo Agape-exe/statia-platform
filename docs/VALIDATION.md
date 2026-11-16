@@ -1,5 +1,27 @@
 # Validación — historial de sesiones
 
+## Ejecución integral parcial y UX (16 de noviembre de 2026)
+
+Backend: **260 pytest en la suite completa** (234,73 s), más **1 regresión adicional** de recuperación de un run histórico sin aplicar requisitos de una ejecución nueva. Incluye Titanic original 891×15, nombres sintéticos, múltiples archivos, estados selectivos, dependencias/ciclos, aceptación, todos/ninguno disponible, continuación, hashes, bloqueo de especificaciones alteradas, ausencia de IC descriptivos sin independencia, ZIP e idempotencia. Se mantienen referencias numéricas analíticas/SciPy y los recorridos de Penguins, NA, incertidumbre y alternativa descriptiva. Las rutas/proceso/cálculos son reales; Auth/REST/Storage en esas pruebas son dobles.
+
+Frontend: **62 Vitest**, TypeScript, oxlint sin advertencias nuevas, Prettier y build aprobados. SQL: **3 suites PostgreSQL/PGlite** con la migración 005, asociación propuesta/mensaje, títulos, textos nuevos, transacciones, RLS y aislamiento. Ruff/formato del alcance, compileall y pip check aprobados. Advertencias conocidas: deprecación Starlette/httpx y paquete Vite principal de 500,71 kB.
+
+Navegador local: Workspace y componentes reales → rutas FastAPI reales → originales públicos de Titanic → proceso Python y exportaciones reales, con Auth/REST/Storage en memoria y Gemini deshabilitado en esa sesión. Se confirmó survived categórica, independencia desconocida, selección descriptiva explícita, resultado parcial, revisión posterior declarada de independencia, ejecución exclusiva de los dos procedimientos pendientes y dos runs preservados al recargar. El run parcial contiene solo el descriptivo; la continuación conserva su referencia y declara tres componentes completados. Se observaron seis tablas, ambos PNG cargados y descarga ZIP; el ZIP recibido pasó CRC y todos los SHA-256 del manifiesto. No acredita independencia real de Titanic ni Supabase remoto.
+
+Se verificó desplazamiento manual durante cálculo: conservó la lectura y mostró «Ver resultado disponible». La acción enfocó el run correcto; tras recarga, la tarjeta se situó aproximadamente a 12 px del inicio del transcript (207,15 frente a 194,90 px en escritorio; 254,55 frente a 242,70 px en móvil). El historial móvil abre/cierra como diálogo. Los servidores y archivos temporales QA se retiraron; el servidor Vite del usuario se conserva.
+
+| Viewport | Ancho de página | Alto del transcript | Borde inferior del compositor | Desbordamiento horizontal |
+| --- | --- | --- | --- | --- |
+| 1440×900 | 1440 | 596,5 | 881,2 | No |
+| 1366×768 | 1366 | 464,5 | 749,2 | No |
+| 1024×768 | 1024 | 472,5 | 755,2 | No |
+| 390×844 | 390 | 489,7 | 835,2 | No |
+
+Gemini real: una petición con el perfil público de Titanic, sin muestras ni datos privados, devolvió **una propuesta integral**, cero preguntas y contrato estructurado válido; superó `AssistantReply` y `validate_reply`. Configuración Supabase/Gemini presente, sin exponer valores. No se efectuaron nuevas escrituras ni una integración autenticada con Supabase remoto.
+
+Pendiente manual: aplicar **005** después de 001–004 en el proyecto remoto correcto, reiniciar API/Vite y repetir A–E autenticados con dos cuentas, recarga y descargas privadas. No repetir migraciones ya aplicadas. No se desplegó ni fusionó el PR. El informe de arquitectura, contratos, continuidad, limitaciones e inventario está en [INTEGRAL_EXECUTION](INTEGRAL_EXECUTION.md).
+
+
 ## Corrección del bucle de aclaraciones desconocidas (16 de noviembre de 2026)
 
 Regresión completa: **251 pytest** (180,49 s), **57 Vitest**, **3 suites PostgreSQL/PGlite**, TypeScript, oxlint, Prettier, build Vite, Ruff/formato del alcance de análisis y pip check aprobados. Se conservan las advertencias conocidas de Starlette/httpx y del paquete principal Vite de 500,71 kB. No se cambiaron fórmulas ni procedimientos estadísticos.
