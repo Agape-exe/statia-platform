@@ -222,14 +222,19 @@ def prepare(file, data, spec, settings):
             f"«{name}» está identificada como posible identificador; no se admite como medida sin revisar el plan.",
         )
         values = [r[name] for r in records]
-        candidates = {v for v in values if isinstance(v, str) and v.strip().casefold() in candidate_tokens}
+        candidates = {v.strip() for v in values if isinstance(v, str) and v.strip().casefold() in candidate_tokens}
         require(
             candidates <= set(d.missing_markers) | set(d.retained_markers),
             f"Confirma si cada marcador de «{name}» significa ausencia o un valor legítimo: {', '.join(sorted(candidates))}.",
         )
+        numeric_markers = {numeric(m) for m in d.missing_markers if numeric(m) is not None}
         for row in records:
             value = row[name]
-            if value is None or value == "" or (isinstance(value, str) and value in d.missing_markers):
+            marker = str(value).strip() if value is not None else ""
+            declared_missing = marker in d.missing_markers or (
+                d.statistical_type in QUANTITATIVE and numeric(value) is not None and numeric(value) in numeric_markers
+            )
+            if value is None or (isinstance(value, str) and not value.strip()) or declared_missing:
                 row[name] = None
                 continue
             if d.statistical_type in QUANTITATIVE:

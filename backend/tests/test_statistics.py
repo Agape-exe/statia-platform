@@ -199,7 +199,7 @@ def test_full_engine_exports_precision_and_hashes():
 
 
 def test_missing_markers_require_decision_and_preserve_original():
-    data = b"cantidad,estrato,otra\n1,A,2\n2,A,3\nNA,A,4\n4,B,5\n5,B,7\n6,B,8\n"
+    data = b"cantidad,estrato,otra\n1,A,2\n2,A,3\n NA ,A,4\n4,B,5\n5,B,7\n6,B,8\n"
     job = job_for(data)
     original = copy.deepcopy(job)
     with pytest.raises(AnalysisError, match="marcador"):
@@ -411,6 +411,8 @@ def test_native_formats_selected_sheet_and_original_values(extension):
     ]
     job = job_for()
     if extension == "json":
+        records.append({"cantidad": -999.0, "estrato": "A"})
+        job["specification"]["decisions"][0]["missing_markers"] = ["-999"]
         data = json.dumps(records).encode()
     else:
         workbook = Workbook()

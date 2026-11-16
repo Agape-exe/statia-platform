@@ -105,15 +105,30 @@ export function ExecutionReview({
       const decision = saved?.specification.decisions.find(
         (d) => variableKey(d.variable) === variableKey(variable),
       )
+      const column = files
+        .find((f) => f.id === variable.file_id)
+        ?.metadata.profile?.columns.find((c) => c.name === variable.column)
+      const known = Object.keys({
+        ...column?.ambiguous_missing,
+        ...column?.missing_markers,
+      })
       return {
         variable,
         type: decision?.statistical_type || '',
         unit: decision?.unit || '',
+        extraMarkers: (decision?.missing_markers || [])
+          .filter((m) => !known.includes(m))
+          .join('\n'),
+        extraRetained: (decision?.retained_markers || [])
+          .filter((m) => !known.includes(m))
+          .join('\n'),
         ordinal: decision?.ordinal_order.join('\n') || '',
-        markers: Object.fromEntries([
-          ...(decision?.missing_markers || []).map((m) => [m, 'missing']),
-          ...(decision?.retained_markers || []).map((m) => [m, 'retained']),
-        ]) as Record<string, 'missing' | 'retained' | ''>,
+        markers: Object.fromEntries(
+          [
+            ...(decision?.missing_markers || []).map((m) => [m, 'missing']),
+            ...(decision?.retained_markers || []).map((m) => [m, 'retained']),
+          ].filter(([marker]) => known.includes(marker)),
+        ) as Record<string, 'missing' | 'retained' | ''>,
       }
     }),
   )
@@ -215,12 +230,28 @@ export function ExecutionReview({
           .split('\n')
           .map((s) => s.trim())
           .filter(Boolean),
-        missing_markers: Object.entries(d.markers)
-          .filter(([, choice]) => choice === 'missing')
-          .map(([marker]) => marker),
-        retained_markers: Object.entries(d.markers)
-          .filter(([, choice]) => choice === 'retained')
-          .map(([marker]) => marker),
+        missing_markers: [
+          ...new Set([
+            ...Object.entries(d.markers)
+              .filter(([, choice]) => choice === 'missing')
+              .map(([marker]) => marker),
+            ...d.extraMarkers
+              .split('\n')
+              .map((m) => m.trim())
+              .filter(Boolean),
+          ]),
+        ],
+        retained_markers: [
+          ...new Set([
+            ...Object.entries(d.markers)
+              .filter(([, choice]) => choice === 'retained')
+              .map(([marker]) => marker),
+            ...d.extraRetained
+              .split('\n')
+              .map((m) => m.trim())
+              .filter(Boolean),
+          ]),
+        ],
       })),
       filters: plan.comparison?.filters || [],
       confidence_level: confidence,
@@ -479,6 +510,34 @@ export function ExecutionReview({
                       </select>
                     </label>
                   ))}
+                  <label>
+                    Otros marcadores de ausencia de {decision.variable.column}{' '}
+                    (opcional, uno por línea)
+                    <textarea
+                      value={decision.extraMarkers}
+                      maxLength={6000}
+                      onChange={(e) =>
+                        changeDecision(index, { extraMarkers: e.target.value })
+                      }
+                    />
+                    <span>
+                      Solo para esta variable y ejecución. Se ignoran espacios
+                      exteriores del marcador; en medidas cuantitativas, -999 y
+                      -999.0 representan el mismo valor. El original permanece
+                      intacto.
+                    </span>
+                  </label>
+                  <label>
+                    Otros marcadores que deben conservarse en{' '}
+                    {decision.variable.column} (opcional, uno por línea)
+                    <textarea
+                      value={decision.extraRetained}
+                      maxLength={6000}
+                      onChange={(e) =>
+                        changeDecision(index, { extraRetained: e.target.value })
+                      }
+                    />
+                  </label>
                   {!markers.length && (
                     <p>
                       Los nulos y las celdas vacías cuentan como ausencias.

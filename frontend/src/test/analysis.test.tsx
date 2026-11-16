@@ -224,6 +224,12 @@ describe('revisión y ejecución', () => {
       screen.getByRole('combobox', { name: /Marcador «NA»/ }),
       'missing',
     )
+    await userEvent.type(
+      screen.getByRole('textbox', {
+        name: /Otros marcadores de ausencia de medida/,
+      }),
+      '-999',
+    )
     await userEvent.click(
       screen.getByRole('checkbox', { name: /Declaro un diseño/ }),
     )
@@ -237,7 +243,10 @@ describe('revisión y ejecución', () => {
     expect(close).not.toHaveBeenCalled()
     const first = execute.mock.calls[0][0]
     expect(first.specification.components[0].method).toBe('welch_t')
-    expect(first.specification.decisions[0].missing_markers).toEqual(['NA'])
+    expect(first.specification.decisions[0].missing_markers).toEqual([
+      'NA',
+      '-999',
+    ])
     view.unmount()
     render(
       <ExecutionReview
