@@ -25,6 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["Content-Disposition", "X-Statia-Error", "X-Gemini-Status", "X-Statia-Validation"],
     )
     app.include_router(router)
     app.include_router(chat_router)

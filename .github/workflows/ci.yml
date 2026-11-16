@@ -23,6 +23,8 @@ jobs:
       - run: python scripts/check_analysis_quality.py
       - run: python -m pytest -q
       - run: python -m pip check
+      - name: Medir memoria del análisis en Linux
+        run: python scripts/measure_analysis_memory.py
   frontend:
     runs-on: ubuntu-latest
     defaults:

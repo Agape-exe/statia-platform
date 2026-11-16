@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
+from urllib.parse import urlsplit
 
 
 class Settings(BaseSettings):
@@ -19,6 +20,17 @@ class Settings(BaseSettings):
     # Decisiones explícitas por columna; no se deducen categorías ausentes por su nombre.
     missing_value_overrides: dict[str, list[str]] = Field(default_factory=dict)
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("allowed_origins")
+    @classmethod
+    def exact_origins(cls, value: str) -> str:
+        for origin in (part.strip() for part in value.split(",") if part.strip()):
+            parsed = urlsplit(origin)
+            if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                    or "*" in origin or parsed.path or parsed.query or parsed.fragment
+                    or parsed.username or parsed.password):
+                raise ValueError("ALLOWED_ORIGINS requiere orígenes HTTP(S) exactos, sin rutas ni comodines.")
+        return value
 
     @property
     def origins(self) -> list[str]:

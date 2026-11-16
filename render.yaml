@@ -1,0 +1,32 @@
+# Plantilla para creación manual. No sincronizar sobre otro servicio existente.
+services:
+  - type: web
+    name: statia-api
+    runtime: python
+    plan: free
+    region: virginia
+    branch: feat/sesion4-contexto-despliegue
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: sh start.sh
+    healthCheckPath: /health
+    autoDeployTrigger: 'off'
+    envVars:
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: OPENBLAS_NUM_THREADS
+        value: '1'
+      - key: OMP_NUM_THREADS
+        value: '1'
+      - key: MKL_NUM_THREADS
+        value: '1'
+      - key: MPLBACKEND
+        value: Agg
