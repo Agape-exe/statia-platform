@@ -33,7 +33,7 @@ class SupabaseStore:
     async def user(self):
         return (await self.request("GET", "/auth/v1/user")).json()
 
-    async def rows(self, table, filters=None, *, order=None, limit=None, select='*'):
+    async def rows(self, table, filters=None, *, order=None, limit=None, offset=None, select='*'):
         params = {k: f"in.({','.join(v)})" if isinstance(v, list) else f"{v[0]}.{v[1]}" if isinstance(v, tuple) else f"eq.{v}"
                   for k, v in (filters or {}).items()}
         params["select"] = select
@@ -41,6 +41,8 @@ class SupabaseStore:
             params["order"] = order
         if limit:
             params["limit"] = str(limit)
+        if offset:
+            params['offset'] = str(offset)
         return (await self.request("GET", f"/rest/v1/{table}", params=params)).json()
 
     async def one(self, table, filters):
@@ -63,12 +65,24 @@ class SupabaseStore:
         response = await self.request("POST", f"/rest/v1/rpc/{name}", json=data)
         return response.json() if response.content else None
 
-    async def upload(self, path, data, mime):
-        await self.request("POST", f"/storage/v1/object/project-files/{quote(path, safe='/')}",
+    async def upload(self, path, data, mime, *, bucket='project-files'):
+        await self.request("POST", f"/storage/v1/object/{bucket}/{quote(path, safe='/')}",
                            content=data, headers={"Content-Type": mime, "x-upsert": "false"})
 
-    async def remove_object(self, path):
-        await self.request("DELETE", "/storage/v1/object/project-files", json={"prefixes": [path]})
+    async def remove_object(self, path, *, bucket='project-files'):
+        await self.request("DELETE", f"/storage/v1/object/{bucket}", json={"prefixes": [path]})
 
-    async def download(self, path):
-        return (await self.request("GET", f"/storage/v1/object/authenticated/project-files/{quote(path, safe='/')}")).content
+    async def download(self, path, *, bucket='project-files', max_bytes=None):
+        url = f"/storage/v1/object/authenticated/{bucket}/{quote(path, safe='/')}"
+        if max_bytes is None:
+            return (await self.request("GET", url)).content
+        async with self.client.stream('GET', url) as response:
+            if response.is_error:
+                raise HTTPException(response.status_code if response.status_code in (401, 403) else 422,
+                                    'El archivo privado no está disponible. Revisa tu acceso y su existencia en Storage.')
+            output = bytearray()
+            async for chunk in response.aiter_bytes():
+                if len(output) + len(chunk) > max_bytes:
+                    raise HTTPException(413, 'El archivo supera el límite de descarga para esta ejecución.')
+                output.extend(chunk)
+            return bytes(output)

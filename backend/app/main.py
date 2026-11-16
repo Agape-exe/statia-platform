@@ -8,15 +8,17 @@ from fastapi.responses import JSONResponse
 from app.api.health import router
 from app.core.config import Settings
 from app.api.chat import router as chat_router
+from app.api.analysis import router as analysis_router
 from app.services.gemini import GeminiProvider
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
-    app = FastAPI(title="Statia Platform API", version="0.2.0")
+    app = FastAPI(title="Statia Platform API", version="0.3.0")
     app.state.settings = settings
     app.state.provider = GeminiProvider(settings)
     app.state.profile_lock = asyncio.Semaphore(1)
+    app.state.analysis_lock = asyncio.Semaphore(1)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins,
@@ -26,6 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(router)
     app.include_router(chat_router)
+    app.include_router(analysis_router)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
