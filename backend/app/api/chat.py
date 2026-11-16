@@ -92,8 +92,9 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
     conversation = await conversation_for(user, project_id, conversation_id)
     if body.action == 'message' and not body.content:
         raise HTTPException(422, 'Escribe un mensaje.')
-    payload = body.model_dump(mode='json', exclude={'request_id'})
-    payload['display'] = body.content or ACTION_LABELS[body.action]
+    payload = body.model_dump(mode='json', exclude={'request_id'}, exclude_none=True)
+    execution_labels = {'prepare_execution': 'Preparar el análisis aceptado', 'clarify_execution': 'Responder aclaración de ejecución', 'cancel_execution': 'Dejar pendiente la ejecución'}
+    payload['display'] = body.content or execution_labels.get(body.action) or ACTION_LABELS[body.action]
     params = {'p_conversation': str(conversation_id), 'p_request': str(body.request_id)}
     started = await user.store.rpc('begin_chat_turn', {**params, 'p_payload': payload})
     if started == 'completed':
@@ -106,7 +107,14 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
         project = await project_for(user, project_id)
         # Tiempo total menor que la concesión durable de 180 segundos.
         async with asyncio.timeout(150):
-            result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
+            preparing = body.action in execution_labels or (body.action == 'message' and (conversation.get('stage_data', {}).get('execution_preparation') or {}).get('result', {}).get('status') == 'NEEDS_CLARIFICATION')
+            if preparing:
+                if request.app.state.analysis_lock.locked():
+                    raise HTTPException(409, 'El motor está ocupado. Reintenta la misma solicitud en un momento.')
+                async with request.app.state.analysis_lock:
+                    result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
+            else:
+                result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
         await user.store.rpc('finish_chat_turn', {**params, 'p_result': result})
     except BaseException as exc:
         try:

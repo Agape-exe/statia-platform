@@ -41,6 +41,14 @@ def calculate(job):
     plan = Plan.model_validate(job["plan"])
     spec = ExecutionSpec.model_validate(job["specification"])
     validate_spec(plan, spec)
+    if job.get("preparation_fingerprint"):
+        from app.services.statistics.automatic import assess
+
+        preparation = assess({**job, **job["preparation_context"]})
+        require(
+            preparation["status"] == "READY" and preparation["fingerprint"] == job["preparation_fingerprint"],
+            "Los datos o decisiones cambiaron. Vuelve a preparar el análisis antes de ejecutarlo.",
+        )
     settings = Settings(_env_file=None, **job.get("limits", {}))
     prepared, provenance = {}, []
     required_files = {v.file_id for v in plan.variables}
@@ -61,6 +69,10 @@ def calculate(job):
                 "initial_rows": prepared[file["id"]].initial,
             }
         )
+    if job.get("review_conditions"):
+        from app.services.statistics.automatic import check_conditions
+
+        check_conditions(plan, spec, prepared)
     results, resources = [], {}
     original_sources = sources(plan)
     for component in sorted(spec.components, key=lambda c: c.source_index):

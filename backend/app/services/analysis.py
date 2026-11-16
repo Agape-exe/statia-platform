@@ -12,6 +12,11 @@ from app.models.analysis import AnalysisResult, RunView
 from app.models.chat import Plan
 from app.services.analysis_exports import build_exports
 from app.services.analysis_worker import run_calculation
+from app.services.execution_preparation import (
+    LIMIT_NAMES,
+    originals_for,
+    preparation_context,
+)
 from app.services.statistics.catalog import CATALOG
 from app.services.statistics.preparation import AnalysisError, validate_spec
 
@@ -70,6 +75,21 @@ async def execute(store, identity, project, conversation, proposal, body, settin
         ) from None
     if proposal["status"] != "accepted":
         raise HTTPException(409, "Solo se pueden ejecutar propuestas aceptadas.")
+    preparation = conversation.get("stage_data", {}).get("execution_preparation") or {}
+    if body.preparation_fingerprint:
+        ready = preparation.get("result", {})
+        expected = body.specification.model_dump(mode="json")
+        expected["decisions_confirmed"] = False
+        if (
+            preparation.get("proposal_id") != proposal["id"]
+            or ready.get("request_id") != str(body.request_id)
+            or ready.get("status") != "READY"
+            or ready.get("fingerprint") != body.preparation_fingerprint
+            or ready.get("specification") != expected
+        ):
+            raise HTTPException(
+                409, "La preparación cambió o todavía tiene preguntas pendientes. Vuelve a preparar el análisis."
+            )
     state = await store.rpc(
         "begin_analysis_run",
         {
@@ -95,34 +115,7 @@ async def execute(store, identity, project, conversation, proposal, body, settin
     uploaded = []
     try:
         async with asyncio.timeout(150):
-            links = await store.rows(
-                "conversation_files", {"conversation_id": conversation["id"], "project_id": project["id"]}
-            )
-            ids = {v.file_id for v in plan.variables}
-            if not ids <= {link["file_id"] for link in links}:
-                raise HTTPException(422, "Un archivo del plan ya no está asociado a la conversación.")
-            files = await store.rows("project_files", {"project_id": project["id"], "id": sorted(ids)})
-            if len(files) != len(ids) or len(files) > 4:
-                raise HTTPException(422, "La ejecución admite de 1 a 4 datasets accesibles.")
-            total, originals = 0, []
-            for file in files:
-                if file["file_role"] != "dataset":
-                    raise HTTPException(422, "Solo los datasets pueden suministrar observaciones estadísticas.")
-                data = await store.download(
-                    file["storage_path"], max_bytes=min(settings.max_file_bytes, 10 * 1024 * 1024)
-                )
-                total += len(data)
-                if total > 20 * 1024 * 1024:
-                    raise HTTPException(413, "Los originales exceden el límite conjunto de 20 MB por ejecución.")
-                originals.append(
-                    {
-                        "id": file["id"],
-                        "original_name": file["original_name"],
-                        "file_type": file["file_type"],
-                        "metadata": file["metadata"],
-                        "data": base64.b64encode(data).decode("ascii"),
-                    }
-                )
+            originals = await originals_for(store, project, conversation, plan, settings)
             job = {
                 "run_id": run_id,
                 "project_id": project["id"],
@@ -131,19 +124,14 @@ async def execute(store, identity, project, conversation, proposal, body, settin
                 "plan": proposal["analysis_plan"],
                 "specification": body.specification.model_dump(mode="json"),
                 "files": originals,
-                "limits": {
-                    name: getattr(settings, name)
-                    for name in [
-                        "max_file_bytes",
-                        "max_rows",
-                        "max_columns",
-                        "max_expanded_bytes",
-                        "missing_value_markers",
-                    ]
-                },
+                "review_conditions": True,
+                "limits": {name: getattr(settings, name) for name in LIMIT_NAMES},
             }
+            if body.preparation_fingerprint:
+                job["preparation_context"] = preparation_context(project, conversation, preparation.get("answers", {}))
+                job["preparation_fingerprint"] = body.preparation_fingerprint
             output = await run_calculation(job)
-            del job, originals, data
+            del job, originals
             result = AnalysisResult.model_validate(output["result"]).model_dump(mode="json")
             resources = await asyncio.to_thread(
                 build_exports, result, {name: base64.b64decode(data) for name, data in output["charts"].items()}

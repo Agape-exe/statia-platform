@@ -36,8 +36,9 @@ def sources(plan):
     return plan.components if plan.procedure == "integral" else [plan]
 
 
-def validate_spec(plan: Plan, spec: ExecutionSpec):
-    require(spec.decisions_confirmed, "Confirma las decisiones de ejecución antes de calcular.")
+def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True):
+    if require_confirmation:
+        require(spec.decisions_confirmed, "Confirma las decisiones de ejecución antes de calcular.")
     require(not plan.joins, "Las uniones entre tablas no están implementadas. Solicita análisis separados.")
     components = sources(plan)
     require(bool(components), "El plan integral antiguo no declara componentes. Solicita una propuesta actualizada.")
@@ -89,6 +90,13 @@ def validate_spec(plan: Plan, spec: ExecutionSpec):
     )
     for component in spec.components:
         source = components[component.source_index]
+        from app.services.statistics.methods import named_methods
+
+        named = named_methods(source)
+        require(
+            len(named) != 1 or component.method in named,
+            "El método cambia el procedimiento expresamente aceptado. Solicita una propuesta revisada antes de ejecutarlo.",
+        )
         if (
             comparison
             and comparison.design != "unknown"
@@ -133,10 +141,10 @@ def validate_spec(plan: Plan, spec: ExecutionSpec):
                 sum(v.role == "outcome" for v in variables) == 2 and sum(v.role == "pair_id" for v in variables) == 1,
                 "El plan pareado requiere dos resultados y un identificador único de par explícito.",
             )
-        if component.method in {"chi_square", "fisher_exact"}:
+        if component.method in {"chi_square", "fisher_exact", "pearson", "spearman"}:
             require(
                 component.design == "independent",
-                "Confirma que las observaciones de la tabla categórica son independientes.",
+                "Confirma que las observaciones son independientes según el diseño de recolección.",
             )
         if component.method in {"pearson", "spearman"}:
             measures = [v for v in variables if v.role not in {"group", "time", "pair_id"}]

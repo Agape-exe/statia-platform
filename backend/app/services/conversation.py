@@ -66,6 +66,10 @@ def comparison_scope(conversation, turn, files):
 
 
 async def process_turn(store, project, conversation, turn, files, provider, settings):
+    preparation = conversation.get('stage_data', {}).get('execution_preparation') or {}
+    if turn.action in ('prepare_execution', 'clarify_execution', 'cancel_execution') or (turn.action == 'message' and preparation.get('result', {}).get('status') == 'NEEDS_CLARIFICATION'):
+        from app.services.execution_preparation import preparation_turn
+        return await preparation_turn(store, project, conversation, turn, settings)
     stage = conversation['current_stage']
     action = turn.action
     normalized = normalize(turn.content)

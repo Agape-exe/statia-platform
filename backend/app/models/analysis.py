@@ -59,6 +59,41 @@ class ExecutionSpec(StrictModel):
 class ExecuteRequest(StrictModel):
     request_id: UUID
     specification: ExecutionSpec
+    preparation_fingerprint: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+class PreparationChoice(StrictModel):
+    value: str
+    label: str
+
+
+class PreparationQuestion(StrictModel):
+    id: str
+    prompt: str
+    explanation: str
+    choices: list[PreparationChoice]
+    variable: Variable | None = None
+
+
+class PreparationEvidence(StrictModel):
+    subject: str
+    origin: Literal["verified", "inferred", "user"]
+    detail: str
+
+
+class ExecutionPreparation(StrictModel):
+    schema_version: Literal[1] = 1
+    request_id: UUID
+    status: Literal["READY", "NEEDS_CLARIFICATION", "UNSUPPORTED"]
+    specification: ExecutionSpec | None = None
+    methods: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    evidence: list[PreparationEvidence] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    questions: list[PreparationQuestion] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    files: list[dict[str, JsonValue]] = Field(default_factory=list)
+    fingerprint: str
 
 
 class ResultTable(StrictModel):

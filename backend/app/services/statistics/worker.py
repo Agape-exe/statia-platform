@@ -13,11 +13,16 @@ from app.services.statistics.preparation import AnalysisError
 def main():
     try:
         job = json.loads(sys.stdin.buffer.read(32 * 1024 * 1024 + 1))
-        result, charts = calculate(job)
-        response = {
-            "result": result,
-            "charts": {name: base64.b64encode(data).decode("ascii") for name, data in charts.items()},
-        }
+        if job.get("operation") == "prepare":
+            from app.services.statistics.automatic import assess
+
+            response = {"preparation": assess(job)}
+        else:
+            result, charts = calculate(job)
+            response = {
+                "result": result,
+                "charts": {name: base64.b64encode(data).decode("ascii") for name, data in charts.items()},
+            }
     except (AnalysisError, HTTPException) as exc:
         response = {"error": str(exc.detail) if isinstance(exc, HTTPException) else str(exc)}
     except Exception:
