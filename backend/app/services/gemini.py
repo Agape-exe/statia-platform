@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import re
 from typing import Protocol
 
@@ -20,6 +21,10 @@ from app.services.independence import validate_independence
 from app.services.planning_errors import PlanningError
 from app.services.analysis_context import validate_numeric_claims
 from app.services.statistics.catalog import CATALOG
+
+# Dos generaciones (original y corrección) <= 130 s dentro del turno de 150 s.
+# Incluye cliente, espera y reintento; el timeout configurable sigue siendo por intento.
+GENERATION_BUDGET_SECONDS = 65
 
 SYSTEM = """Eres el asistente estadístico de Statia. Responde exclusivamente en español.
 Si result_discussion=true, el usuario consulta resultados guardados o metodología del mismo
@@ -250,6 +255,13 @@ class GeminiProvider:
         if correction:
             budget = max(0, self.settings.gemini_context_chars - len(prompt) - 80)
             prompt += '\nCorrige la respuesta anterior: ' + correction[:budget]
+        try:
+            async with asyncio.timeout(GENERATION_BUDGET_SECONDS):
+                return await self._generate(prompt)
+        except (TimeoutError, httpx.TimeoutException):
+            raise diagnostic('timeout', 504) from None
+
+    async def _generate(self, prompt):
         async with genai.Client(
             api_key=self.settings.gemini_api_key.get_secret_value(),
             http_options=types.HttpOptions(timeout=self.settings.gemini_timeout_seconds * 1000,
@@ -268,7 +280,8 @@ class GeminiProvider:
                 except errors.APIError as exc:
                     status = int(exc.code or 500)
                     if status in (429, 500, 503) and attempt == 0:
-                        await asyncio.sleep(1)
+                        # Solo un escalón de backoff: jitter acotado sin aumentar intentos.
+                        await asyncio.sleep(random.uniform(1.0, 2.0))
                         continue
                     raise api_diagnostic(exc) from None
                 except (TimeoutError, httpx.TimeoutException):
