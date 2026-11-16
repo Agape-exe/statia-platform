@@ -127,6 +127,22 @@ function chat() {
 }
 
 describe('chat persistente y acciones', () => {
+  it('prepara la propuesta aceptada en el mismo chat sin abrir el formulario técnico', async () => {
+    detail.conversation.current_stage = 'ready'
+    detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]
+    detail.files = [dataset]
+    chat()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Ejecutar análisis' }),
+    )
+    await waitFor(() => expect(chatService.turn).toHaveBeenCalledOnce())
+    expect(vi.mocked(chatService.turn).mock.calls[0][2]).toMatchObject({
+      action: 'prepare_execution',
+      proposal_id: 'pr1',
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /Mensaje/ })).toBeInTheDocument()
+  })
   it('distingue texto CSV de números inferidos y avisa sobre NA ambiguos', async () => {
     detail.files = [structuredClone(dataset)]
     const profile = detail.files[0].metadata.profile!

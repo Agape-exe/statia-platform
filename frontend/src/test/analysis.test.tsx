@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { ExecutionReview } from '../components/ExecutionReview'
+import { ExecutionPreparationCard } from '../components/ExecutionPreparationCard'
 import { ProposalCard } from '../components/ProposalCard'
 import { AnalysisResultCard } from '../components/AnalysisResultCard'
 import { AnalysisResults } from '../components/AnalysisResults'
@@ -11,7 +12,11 @@ import { analysisService } from '../services/analysis'
 import { chatService } from '../services/chat'
 import { formatResult } from '../lib/analysis-format'
 import type { ProjectFile, Proposal } from '../types/chat'
-import type { AnalysisRun, ProcedureInfo } from '../types/analysis'
+import type {
+  AnalysisRun,
+  ExecutionPreparation,
+  ProcedureInfo,
+} from '../types/analysis'
 
 vi.mock('../services/analysis', () => ({
   analysisService: {
@@ -296,6 +301,199 @@ describe('revisión y ejecución', () => {
       screen.getByRole('button', { name: 'Reintentar catálogo' }),
     )
     await screen.findByRole('option', { name: /t de Welch/ })
+  })
+})
+
+const preparation: ExecutionPreparation = {
+  request_id: '00000000-0000-4000-8000-000000000099',
+  status: 'READY',
+  specification: {
+    schema_version: 1,
+    components: [
+      {
+        source_index: 0,
+        method: 'welch_t',
+        design: 'independent',
+        equal_variances_confirmed: false,
+        group_values: ['A', 'B'],
+        posthoc: 'none',
+      },
+    ],
+    decisions: variables.map((variable, i) => ({
+      variable,
+      statistical_type: i === 0 ? 'continuous' : 'nominal',
+      missing_markers: i === 0 ? ['NA'] : [],
+      retained_markers: [],
+      ordinal_order: [],
+      unit: '',
+    })),
+    filters: [],
+    confidence_level: 0.95,
+    alternative: 'two-sided',
+    missing_policy: 'available_cases_per_procedure',
+    multiplicity: 'none',
+    decisions_confirmed: false,
+  },
+  methods: ['t de Welch'],
+  reasons: ['Se conserva el método aceptado.'],
+  evidence: [
+    {
+      subject: 'Medida',
+      origin: 'inferred',
+      detail: 'Perfil numérico consistente.',
+    },
+  ],
+  warnings: ['El diseño procede de lo informado por el usuario.'],
+  blockers: [],
+  questions: [],
+  files: [
+    {
+      id: 'archivo',
+      name: 'mediciones.csv',
+      sheet: 'tabla',
+      sha256: 'a'.repeat(64),
+      rows: 6,
+    },
+  ],
+  fingerprint: 'b'.repeat(64),
+}
+
+describe('preparación conversacional', () => {
+  function prepared(
+    props: Partial<React.ComponentProps<typeof ExecutionPreparationCard>> = {},
+  ) {
+    return render(
+      <ExecutionPreparationCard
+        preparation={preparation}
+        proposal={proposal}
+        projectId="proyecto"
+        conversationId="chat"
+        busy={false}
+        onAnswer={vi.fn()}
+        onCancel={vi.fn()}
+        onAdvanced={vi.fn()}
+        onExecute={vi.fn()}
+        {...props}
+      />,
+    )
+  }
+  it('presenta un resumen y calcula únicamente tras la confirmación final', async () => {
+    const execute = vi.fn().mockResolvedValue(undefined)
+    prepared({ onExecute: execute })
+    expect(
+      screen.getByRole('heading', { name: 'Análisis preparado' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(execute).not.toHaveBeenCalled()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Ejecutar análisis' }),
+    )
+    expect(execute).toHaveBeenCalledOnce()
+    expect(execute.mock.calls[0][0].specification.decisions_confirmed).toBe(
+      true,
+    )
+    expect(execute.mock.calls[0][0].preparation_fingerprint).toBe(
+      preparation.fingerprint,
+    )
+    expect(preparation.specification?.decisions_confirmed).toBe(false)
+    expect(
+      await screen.findByRole('heading', { name: 'Análisis ejecutado' }),
+    ).toBeInTheDocument()
+  })
+  it('conserva el UUID y las decisiones al fallar y reabrir', async () => {
+    const execute = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Storage temporalmente no disponible'))
+      .mockResolvedValue(undefined)
+    const first = prepared({ onExecute: execute })
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Ejecutar análisis' }),
+    )
+    await screen.findByText('Storage temporalmente no disponible')
+    const body = execute.mock.calls[0][0]
+    first.unmount()
+    prepared({ onExecute: execute })
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Ejecutar análisis' }),
+    )
+    expect(execute.mock.calls[1][0]).toEqual(body)
+  })
+  it('pregunta con opciones claras y nunca ejecuta con aclaraciones pendientes', async () => {
+    const answer = vi.fn()
+    prepared({
+      onAnswer: answer,
+      preparation: {
+        ...preparation,
+        status: 'NEEDS_CLARIFICATION',
+        questions: [
+          {
+            id: 'q1',
+            prompt: '¿Qué significa NA en grupo?',
+            explanation: 'Puede ser información ausente o una categoría.',
+            choices: [
+              { value: 'missing', label: 'Representa información faltante' },
+              { value: 'unknown', label: 'No lo sé' },
+            ],
+          },
+        ],
+      },
+    })
+    expect(
+      screen.queryByRole('button', { name: 'Ejecutar análisis' }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'No lo sé' }))
+    expect(answer).toHaveBeenCalledWith('q1', 'unknown', 'No lo sé')
+    expect(screen.getByText(/sin inventar supuestos/)).toBeInTheDocument()
+  })
+  it('muestra impedimentos y conserva el acceso a las opciones avanzadas', async () => {
+    const advanced = vi.fn()
+    prepared({
+      onAdvanced: advanced,
+      preparation: {
+        ...preparation,
+        status: 'UNSUPPORTED',
+        blockers: ['El método requiere una tabla 2×2.'],
+      },
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('2×2')
+    expect(
+      screen.queryByRole('button', { name: 'Ejecutar análisis' }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Opciones avanzadas' }),
+    )
+    expect(advanced).toHaveBeenCalledOnce()
+  })
+  it('deshabilita controles durante la preparación o el cálculo', () => {
+    prepared({ busy: true })
+    for (const button of screen.getAllByRole('button'))
+      expect(button).toBeDisabled()
+  })
+  it('precarga decisiones preparadas en el modo avanzado sin confirmar ni calcular', async () => {
+    const execute = vi.fn()
+    render(
+      <ExecutionReview
+        projectId="proyecto"
+        conversationId="chat"
+        proposal={proposal}
+        files={files}
+        busy={false}
+        initialSpecification={preparation.specification}
+        onClose={vi.fn()}
+        onExecute={execute}
+      />,
+    )
+    await screen.findByRole('option', { name: /t de Welch/ })
+    expect(
+      screen.getByRole('combobox', { name: 'Procedimiento confirmado' }),
+    ).toHaveValue('welch_t')
+    expect(
+      screen.getByRole('combobox', { name: 'Tipo de medida' }),
+    ).toHaveValue('continuous')
+    expect(
+      screen.getByRole('checkbox', { name: /Confirmo los métodos/ }),
+    ).not.toBeChecked()
+    expect(execute).not.toHaveBeenCalled()
   })
 })
 

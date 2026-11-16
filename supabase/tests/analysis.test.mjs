@@ -92,5 +92,26 @@ test('resultados: migración, RLS, integridad, concesiones, transacción e idemp
     assert.equal((await q('select status from public.analysis_runs where id=$1', [second.run_id]))[0].status, 'failed')
     await q('select public.begin_chat_turn($1,$2,$3)', [cid, request2, JSON.stringify({display:'Pregunta', action:'message'})])
     assert.equal((await begin(spec, request2)).status, 'busy')
+    // La preparación usa JSONB/RPC existentes; no requiere otra migración.
+    const preparation = { proposal_id: proposal, answers: { 'pregunta-con-hash': 'missing' },
+      result: { schema_version: 1, status: 'NEEDS_CLARIFICATION', specification: null,
+        questions: [{ id: 'pregunta-con-hash', prompt: '¿Qué significa este marcador?' }] } }
+    const preparedTurn = { stage: 'ready', content: 'Aclaremos el marcador antes de ejecutar.', message_type: 'question',
+      stage_data: { execution_preparation: preparation }, metadata: { execution_preparation: preparation.result }, proposals: [] }
+    await q('select public.finish_chat_turn($1,$2,$3)', [cid, request2, JSON.stringify(preparedTurn)])
+    const messagesBeforeReplay = (await q('select id from public.messages where conversation_id=$1', [cid])).length
+    assert.equal((await q('select public.begin_chat_turn($1,$2,$3) as status', [cid, request2, JSON.stringify({display:'Pregunta', action:'message'})]))[0].status, 'completed')
+    assert.equal((await q('select id from public.messages where conversation_id=$1', [cid])).length, messagesBeforeReplay)
+    assert.deepEqual((await q('select stage_data from public.conversations where id=$1', [cid]))[0].stage_data.execution_preparation, preparation)
+    assert.deepEqual((await q('select analysis_plan from public.analysis_proposals where id=$1', [proposal]))[0].analysis_plan, plan)
+    const answerRequest = '20000000-0000-0000-0000-000000000003'
+    const answerPayload = { action: 'clarify_execution', proposal_id: proposal, question_id: 'pregunta-con-hash', answer: 'missing', display: 'Es información faltante' }
+    assert.equal((await q('select public.begin_chat_turn($1,$2,$3) as status', [cid, answerRequest, JSON.stringify(answerPayload)]))[0].status, 'started')
+    assert.equal((await begin(spec, answerRequest)).status, 'busy')
+    await q('select public.finish_chat_turn($1,$2,$3)', [cid, answerRequest, JSON.stringify(preparedTurn)])
+    assert.equal((await q('select public.begin_chat_turn($1,$2,$3) as status', [cid, answerRequest, JSON.stringify(answerPayload)]))[0].status, 'completed')
+    await db.exec(`set request.jwt.claim.sub='${b}';`)
+    assert.equal((await q('select stage_data from public.conversations where id=$1', [cid])).length, 0)
+    assert.equal((await q('select * from public.messages where conversation_id=$1', [cid])).length, 0)
   } finally { await db.close() }
 })
