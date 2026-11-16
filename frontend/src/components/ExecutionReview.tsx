@@ -23,6 +23,21 @@ const types: [StatisticalType, string][] = [
 const variableKey = (v: { file_id: string; sheet: string; column: string }) =>
   JSON.stringify([v.file_id, v.sheet, v.column])
 
+function pendingExecution(storageKey: string): ExecuteRequest | null {
+  try {
+    const value = JSON.parse(
+      sessionStorage.getItem(storageKey) || 'null',
+    ) as ExecuteRequest | null
+    return value?.specification?.schema_version === 1 &&
+      Array.isArray(value.specification.components) &&
+      Array.isArray(value.specification.decisions)
+      ? value
+      : null
+  } catch {
+    return null
+  }
+}
+
 export function ExecutionReview({
   projectId,
   conversationId,
@@ -42,27 +57,67 @@ export function ExecutionReview({
 }) {
   const plan = proposal.analysis_plan
   const sources = plan.procedure === 'integral' ? plan.components || [] : [plan]
+  const storageKey = `statia:execution:${projectId}:${conversationId}:${proposal.id}`
+  const [saved] = useState(() => pendingExecution(storageKey))
   const [catalog, setCatalog] = useState<ProcedureInfo[] | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
-  const [methods, setMethods] = useState<string[]>(() => sources.map(() => ''))
-  const [independent, setIndependent] = useState(false)
-  const [equal, setEqual] = useState(false)
-  const [confidence, setConfidence] = useState(0.95)
+  const [methods, setMethods] = useState<string[]>(() =>
+    sources.map(
+      (_, i) =>
+        saved?.specification.components.find((c) => c.source_index === i)
+          ?.method || '',
+    ),
+  )
+  const [independent, setIndependent] = useState(
+    () =>
+      saved?.specification.components.some((c) => c.design === 'independent') ||
+      false,
+  )
+  const [paired, setPaired] = useState(
+    () =>
+      saved?.specification.components.some((c) => c.design === 'paired') ||
+      false,
+  )
+  const [posthoc, setPosthoc] = useState<('none' | 'welch_holm')[]>(() =>
+    sources.map(
+      (_, i) =>
+        saved?.specification.components.find((c) => c.source_index === i)
+          ?.posthoc || 'none',
+    ),
+  )
+  const [equal, setEqual] = useState(
+    () =>
+      saved?.specification.components.some(
+        (c) => c.equal_variances_confirmed,
+      ) || false,
+  )
+  const [confidence, setConfidence] = useState(
+    saved?.specification.confidence_level || 0.95,
+  )
   const [multiplicity, setMultiplicity] = useState<'none' | 'holm'>(
-    plan.comparison?.multiplicity === 'holm' ? 'holm' : 'none',
+    saved?.specification.multiplicity ||
+      (plan.comparison?.multiplicity === 'holm' ? 'holm' : 'none'),
   )
   const [confirmed, setConfirmed] = useState(false)
   const [decisions, setDecisions] = useState(() =>
-    plan.variables.map((variable) => ({
-      variable,
-      type: '',
-      unit: '',
-      ordinal: '',
-      markers: {} as Record<string, 'missing' | 'retained' | ''>,
-    })),
+    plan.variables.map((variable) => {
+      const decision = saved?.specification.decisions.find(
+        (d) => variableKey(d.variable) === variableKey(variable),
+      )
+      return {
+        variable,
+        type: decision?.statistical_type || '',
+        unit: decision?.unit || '',
+        ordinal: decision?.ordinal_order.join('\n') || '',
+        markers: Object.fromEntries([
+          ...(decision?.missing_markers || []).map((m) => [m, 'missing']),
+          ...(decision?.retained_markers || []).map((m) => [m, 'retained']),
+        ]) as Record<string, 'missing' | 'retained' | ''>,
+      }
+    }),
   )
-  const pending = useRef<ExecuteRequest | null>(null)
+  const pending = useRef<ExecuteRequest | null>(saved)
   const submitting = useRef(false)
   useEffect(() => {
     let active = true
@@ -132,12 +187,22 @@ export function ExecutionReview({
     const components: ExecutionComponent[] = sources.map((_, index) => ({
       source_index: index,
       method: methods[index] as ExecutionComponent['method'],
-      design: independent ? 'independent' : 'not_applicable',
+      design: ['paired_t', 'wilcoxon'].includes(methods[index])
+        ? paired
+          ? 'paired'
+          : 'not_applicable'
+        : independent
+          ? 'independent'
+          : 'not_applicable',
       equal_variances_confirmed: equal,
       group_values:
-        plan.comparison && ['student_t', 'welch_t'].includes(methods[index])
+        plan.comparison &&
+        ['student_t', 'welch_t', 'mann_whitney'].includes(methods[index])
           ? plan.comparison.groups
           : [],
+      posthoc: ['anova', 'welch_anova'].includes(methods[index])
+        ? posthoc[index]
+        : 'none',
     }))
     const specification: ExecutionSpec = {
       schema_version: 1,
@@ -165,7 +230,6 @@ export function ExecutionReview({
       decisions_confirmed: confirmed,
     }
     // Conserva el UUID ante errores de red y al recargar esta pestaña; no guarda archivos originales.
-    const storageKey = `statia:execution:${projectId}:${conversationId}:${proposal.id}`
     try {
       const stored = sessionStorage.getItem(storageKey)
       if (stored) pending.current = JSON.parse(stored) as ExecuteRequest
@@ -283,6 +347,33 @@ export function ExecutionReview({
                     igualdad. Confirma el número de grupos, el diseño y las
                     distribuciones; el método no se elige por el valor p.
                   </p>
+                )}
+                {['anova', 'welch_anova'].includes(methods[index]) && (
+                  <label>
+                    Comparaciones por pares preespecificadas
+                    <select
+                      value={posthoc[index]}
+                      onChange={(e) => {
+                        setPosthoc((current) =>
+                          current.map((p, i) =>
+                            i === index
+                              ? (e.target.value as 'none' | 'welch_holm')
+                              : p,
+                          ),
+                        )
+                        setConfirmed(false)
+                      }}
+                    >
+                      <option value="none">Solo contraste global</option>
+                      <option value="welch_holm">
+                        Todas las parejas: Welch + Holm (familia separada)
+                      </option>
+                    </select>
+                    <span>
+                      Selección previa al cálculo; los IC de las diferencias son
+                      individuales, no simultáneos.
+                    </span>
+                  </label>
                 )}
                 {chosen && (
                   <>
@@ -461,7 +552,16 @@ export function ExecutionReview({
               </select>
             </label>
             {methods.some((m) =>
-              ['student_t', 'welch_t', 'anova', 'welch_anova'].includes(m),
+              [
+                'student_t',
+                'welch_t',
+                'anova',
+                'welch_anova',
+                'mann_whitney',
+                'kruskal',
+                'chi_square',
+                'fisher_exact',
+              ].includes(m),
             ) && (
               <label className="checkbox-label">
                 <input
@@ -491,6 +591,22 @@ export function ExecutionReview({
                 />
                 Justifico el supuesto de igualdad de varianzas requerido por el
                 método clásico.
+              </label>
+            )}
+            {methods.some((m) => ['paired_t', 'wilcoxon'].includes(m)) && (
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  required
+                  checked={paired}
+                  onChange={(e) => {
+                    setPaired(e.target.checked)
+                    setConfirmed(false)
+                  }}
+                />
+                Confirmo que cada fila contiene dos mediciones del mismo par,
+                con identificador único declarado en el plan. Revisaré la
+                independencia entre pares.
               </label>
             )}
             <label className="checkbox-label">

@@ -1,14 +1,29 @@
 """Contratos de ejecución independientes de Plan v1 y de la prosa del proveedor."""
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import Field, JsonValue
 
-from app.models.chat import StrictModel, Variable, Selection
+from app.models.chat import Selection, StrictModel, Variable
 
-Method = Literal['descriptive', 'pearson', 'spearman', 'student_t', 'welch_t', 'anova', 'welch_anova']
-StatisticalType = Literal['continuous', 'discrete', 'ordinal', 'nominal', 'binary', 'temporal', 'identifier']
+Method = Literal[
+    "descriptive",
+    "pearson",
+    "spearman",
+    "student_t",
+    "welch_t",
+    "anova",
+    "welch_anova",
+    "paired_t",
+    "mann_whitney",
+    "wilcoxon",
+    "kruskal",
+    "chi_square",
+    "fisher_exact",
+]
+StatisticalType = Literal["continuous", "discrete", "ordinal", "nominal", "binary", "temporal", "identifier"]
 
 
 class DataDecision(StrictModel):
@@ -17,15 +32,16 @@ class DataDecision(StrictModel):
     missing_markers: list[str] = Field(default_factory=list, max_length=30)
     retained_markers: list[str] = Field(default_factory=list, max_length=30)
     ordinal_order: list[str] = Field(default_factory=list, max_length=100)
-    unit: str = Field(default='', max_length=60)
+    unit: str = Field(default="", max_length=60)
 
 
 class ExecutionComponent(StrictModel):
     source_index: int = Field(ge=0, le=3)
     method: Method
-    design: Literal['independent', 'not_applicable'] = 'not_applicable'
+    design: Literal["independent", "paired", "not_applicable"] = "not_applicable"
     equal_variances_confirmed: bool = False
     group_values: list[str] = Field(default_factory=list, max_length=20)
+    posthoc: Literal["none", "welch_holm"] = "none"
 
 
 class ExecutionSpec(StrictModel):
@@ -34,9 +50,9 @@ class ExecutionSpec(StrictModel):
     decisions: list[DataDecision] = Field(min_length=1, max_length=40)
     filters: list[Selection] = Field(default_factory=list, max_length=6)
     confidence_level: float = Field(default=0.95, ge=0.8, le=0.99, allow_inf_nan=False)
-    alternative: Literal['two-sided'] = 'two-sided'
-    missing_policy: Literal['available_cases_per_procedure'] = 'available_cases_per_procedure'
-    multiplicity: Literal['none', 'holm'] = 'none'
+    alternative: Literal["two-sided"] = "two-sided"
+    missing_policy: Literal["available_cases_per_procedure"] = "available_cases_per_procedure"
+    multiplicity: Literal["none", "holm"] = "none"
     decisions_confirmed: bool
 
 
@@ -53,7 +69,7 @@ class ResultTable(StrictModel):
 
 class Assumption(StrictModel):
     name: str
-    status: Literal['evaluated', 'pending', 'violated', 'not_applicable']
+    status: Literal["evaluated", "pending", "violated", "not_applicable"]
     detail: str
 
 
@@ -61,7 +77,7 @@ class ComponentResult(StrictModel):
     source_index: int
     method: Method
     title: str
-    status: Literal['completed', 'partial', 'failed']
+    status: Literal["completed", "partial", "failed"]
     error: str | None = None
     variables: list[Variable]
     scope: dict[str, str] = Field(default_factory=dict)
@@ -71,7 +87,7 @@ class ComponentResult(StrictModel):
     warnings: list[str] = Field(default_factory=list)
     tables: list[ResultTable] = Field(default_factory=list)
     charts: list[str] = Field(default_factory=list)
-    interpretation: str = ''
+    interpretation: str = ""
 
 
 class AnalysisResult(StrictModel):
@@ -87,7 +103,7 @@ class AnalysisResult(StrictModel):
     files: list[dict[str, JsonValue]]
     dependencies: dict[str, str]
     components: list[ComponentResult]
-    status: Literal['completed', 'partial', 'failed']
+    status: Literal["completed", "partial", "failed"]
     summary: str
 
 
@@ -108,7 +124,7 @@ class RunView(StrictModel):
     proposal_id: UUID
     request_id: UUID
     title: str
-    status: Literal['running', 'completed', 'partial', 'failed']
+    status: Literal["running", "completed", "partial", "failed"]
     created_at: datetime
     finished_at: datetime | None = None
     error: str | None = None

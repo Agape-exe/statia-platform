@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_publishable_key: str = ""
     gemini_api_key: SecretStr = SecretStr("")
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_timeout_seconds: int = Field(default=35, ge=5, le=45)
     gemini_context_chars: int = Field(default=45000, ge=4000, le=100000)
     max_file_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)

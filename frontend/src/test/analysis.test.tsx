@@ -193,7 +193,7 @@ describe('revisión y ejecución', () => {
       .mockRejectedValueOnce(new Error('Fallo temporal de Storage.'))
       .mockResolvedValueOnce(undefined)
     const close = vi.fn()
-    render(
+    const view = render(
       <ExecutionReview
         projectId="proyecto"
         conversationId="chat"
@@ -238,6 +238,28 @@ describe('revisión y ejecución', () => {
     const first = execute.mock.calls[0][0]
     expect(first.specification.components[0].method).toBe('welch_t')
     expect(first.specification.decisions[0].missing_markers).toEqual(['NA'])
+    view.unmount()
+    render(
+      <ExecutionReview
+        projectId="proyecto"
+        conversationId="chat"
+        proposal={proposal}
+        files={files}
+        busy={false}
+        onClose={close}
+        onExecute={execute}
+      />,
+    )
+    await screen.findByRole('option', { name: /t de Welch/ })
+    expect(
+      screen.getByRole('combobox', { name: 'Tipo de medida' }),
+    ).toHaveValue('continuous')
+    expect(
+      screen.getByRole('checkbox', { name: /Confirmo los métodos/ }),
+    ).not.toBeChecked()
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /Confirmo los métodos/ }),
+    )
     await userEvent.click(
       screen.getByRole('button', { name: 'Ejecutar análisis confirmado' }),
     )

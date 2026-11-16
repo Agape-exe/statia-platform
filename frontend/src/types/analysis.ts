@@ -8,6 +8,12 @@ export type Method =
   | 'welch_t'
   | 'anova'
   | 'welch_anova'
+  | 'paired_t'
+  | 'mann_whitney'
+  | 'wilcoxon'
+  | 'kruskal'
+  | 'chi_square'
+  | 'fisher_exact'
 export type StatisticalType =
   | 'continuous'
   | 'discrete'
@@ -27,9 +33,10 @@ export interface DataDecision {
 export interface ExecutionComponent {
   source_index: number
   method: Method
-  design: 'independent' | 'not_applicable'
+  design: 'independent' | 'paired' | 'not_applicable'
   equal_variances_confirmed: boolean
   group_values: string[]
+  posthoc: 'none' | 'welch_holm'
 }
 export interface ExecutionSpec {
   schema_version: 1

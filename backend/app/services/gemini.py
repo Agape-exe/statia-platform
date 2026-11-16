@@ -19,6 +19,7 @@ from app.services.methodology import available_analyses, validate_methodology, v
 from app.services.independence import validate_independence
 from app.services.planning_errors import PlanningError
 from app.services.analysis_context import validate_numeric_claims
+from app.services.statistics.catalog import CATALOG
 
 SYSTEM = """Eres el asistente estadístico de Statia. Responde exclusivamente en español.
 Tu tarea es comprender datos, preparar planes e interpretar analysis_results guardados. NO ejecutar cálculos.
@@ -41,6 +42,9 @@ Solo puedes citar valores p, t o efectos ya presentes en analysis_results. No ca
 Si no hay resultados guardados, no presentar cifras inferenciales. Integral agrupa únicamente métodos viables.
 La aceptación prepara la revisión y ejecución por Python; nunca acepta ni ejecuta por tu cuenta.
 En preguntas posteriores usa el resultado pertinente, menciona su procedimiento y sus limitaciones.
+El contexto solo incluye hasta tres ejecuciones recientes y subconjuntos agregados con conteos de omisiones.
+Si el resultado o una medida no están en ese contexto, reconoce el límite y solicita identificar el resultado;
+no supongas que no se calculó porque no aparece en el resumen. No reproducir tablas completas innecesariamente.
 Los resultados numéricos y descargas son inmutables respecto a tu explicación. No sustituir ni corregir sus cifras.
 No confundir p con probabilidad de H0, no demostrar H0 por falta de significación ni causalidad por asociación.
 Si falta una estadística, reconocerlo y proponer un plan compatible con la finalidad para confirmación y nueva ejecución.
@@ -151,7 +155,8 @@ def build_context(project, conversation, messages, files, turn, settings, analys
                'history': [{'role': 'system' if action_of(m) != 'message' else m['role'],
                             'kind': 'action' if action_of(m) != 'message' else 'message',
                             'content': redact(m['content'][:6000])} for m in messages[-18:]],
-               'files': [], 'analysis_results': analysis_results or []}
+               'files': [], 'analysis_results': analysis_results or [],
+               'execution_methods': [{'code': p.code, 'name': p.name, 'families': p.families, 'variables': p.variable_types} for p in CATALOG.values()]}
     for file in files:
         metadata = file['metadata']
         item = {'file_id': file['id'], 'file_name': redact(file.get('original_name', 'archivo de datos')), 'role': file['file_role'], 'sheets': metadata.get('sheets', []),

@@ -148,7 +148,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     data = dict(conversation.get('stage_data', {}))
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
     conversation = {**conversation, 'stage_data': data}
-    analysis_results = await saved_results_context(store, conversation)
+    analysis_results = await saved_results_context(store, conversation, turn.content)
     context = build_context(project, conversation, messages, files, turn, settings, analysis_results)
     # Dos generaciones como máximo; cada alternativa se evalúa por separado.
     reply = await provider.generate(context)
