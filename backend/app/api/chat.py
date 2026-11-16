@@ -57,6 +57,14 @@ async def get_conversation(project_id: UUID, conversation_id: UUID, user: Curren
         conversation = {**conversation, 'stage_data': {**conversation['stage_data'], 'execution_preparation': normalized_preparation(conversation['stage_data']['execution_preparation'])}}
     messages = await user.store.rows('messages', {'conversation_id': str(conversation_id)}, order='position.desc', limit=100)
     messages.reverse()
+    await attach_run_events(user.store, conversation_id, messages)
+    preparation_run = None
+    request_id = (conversation.get('stage_data', {}).get('execution_preparation') or {}).get('result', {}).get('request_id')
+    if request_id:
+        runs = await user.store.rows('analysis_runs', {'conversation_id': str(conversation_id), 'request_id': request_id}, select='id,request_id,status')
+        preparation_run = next((r for r in runs if r['status'] in ('completed', 'partial') or r.get('result') is not None), None)
+        if preparation_run:
+            preparation_run = {k: preparation_run[k] for k in ('id', 'request_id', 'status')}
     proposals = await user.store.rows('analysis_proposals', {'conversation_id': str(conversation_id)}, order='created_at.asc')
     turns = await user.store.rows('chat_requests', {'conversation_id': str(conversation_id)}, order='created_at.desc', limit=1)
     retry = None
@@ -64,7 +72,7 @@ async def get_conversation(project_id: UUID, conversation_id: UUID, user: Curren
         retry = {key: value for key, value in turns[0]['payload'].items() if key != 'display'}
         retry['request_id'] = turns[0]['request_id']
     return {'conversation': conversation, 'messages': messages, 'files': await linked_files(user.store, conversation), 'proposals': proposals,
-            'retry_turn': retry, 'has_more_messages': len(messages) == 100}
+            'retry_turn': retry, 'has_more_messages': len(messages) == 100, 'preparation_run': preparation_run}
 
 
 @router.get('/conversations/{conversation_id}/messages', summary='Recuperar historial anterior por posición, sin perder mensajes antiguos')
@@ -73,7 +81,20 @@ async def earlier_messages(project_id: UUID, conversation_id: UUID, user: Curren
     await conversation_for(user, project_id, conversation_id)
     messages = await user.store.rows('messages', {'conversation_id': str(conversation_id), 'position': ('lt', before)}, order='position.desc', limit=100)
     messages.reverse()
+    await attach_run_events(user.store, conversation_id, messages)
     return {'messages': messages, 'has_more_messages': len(messages) == 100}
+
+
+async def attach_run_events(store, conversation_id, messages):
+    ids = [m.get('metadata', {}).get('analysis_run_id') for m in messages if m.get('metadata', {}).get('analysis_run_id')]
+    if not ids:
+        return
+    runs = await store.rows('analysis_runs', {'conversation_id': str(conversation_id), 'id': ids}, select='id,proposal_id,request_id,status')
+    by_id = {r['id']: r for r in runs}
+    for message in messages:
+        run = by_id.get(message.get('metadata', {}).get('analysis_run_id'))
+        if run:
+            message['metadata'] = {**message['metadata'], 'proposal_id': run['proposal_id'], 'execution_request_id': run['request_id'], 'execution_status': run['status']}
 
 
 @router.patch('/conversations/{conversation_id}', summary='Renombrar sin sobrescritura automática posterior')
@@ -111,7 +132,7 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
         # Tiempo total menor que la concesión durable de 180 segundos.
         async with asyncio.timeout(150):
             preparation = normalized_preparation(conversation.get('stage_data', {}).get('execution_preparation'))
-            preparing = body.action in ('prepare_execution', 'clarify_execution', 'review_execution') or (body.action == 'message' and not preparation.get('paused') and preparation.get('result', {}).get('status') == 'NEEDS_CLARIFICATION')
+            preparing = body.action in ('prepare_execution', 'clarify_execution', 'review_execution') or (body.action == 'message' and not preparation.get('paused') and preparation.get('result', {}).get('status') in ('NEEDS_CLARIFICATION', 'PARTIALLY_READY') and bool(preparation.get('result', {}).get('questions')))
             if preparing:
                 if request.app.state.analysis_lock.locked():
                     raise HTTPException(409, 'El motor está ocupado. Reintenta la misma solicitud en un momento.')

@@ -69,12 +69,16 @@ def levels(column):
 def validate_methodology(plan, column_for, context=None):
     context = context or {}
     selections = {_key(v) for v in plan.variables}
-    from app.services.statistics.preparation import plan_filters
+    from app.services.statistics.preparation import AnalysisError, component_order, plan_filters
     for selection in plan_filters(plan):
         column = column_for(selection.variable)
         if _key(selection.variable) not in selections or not set(selection.values) <= levels(column):
             raise PlanningError('comparison_scope', 'Los filtros deben declarar columnas del plan y categorías reales del archivo.')
     if plan.procedure == 'integral':
+        try:
+            component_order(plan)
+        except AnalysisError as exc:
+            raise PlanningError('component_variables', str(exc)) from None
         if len(plan.components) < 2 or len({s.procedure for s in plan.components}) < 2:
             raise PlanningError('component_variables', 'El plan integral debe declarar al menos dos procedimientos distintos, pertinentes y verificables en components.')
     elif plan.components:

@@ -9,7 +9,7 @@ from scipy import special, stats
 from app.services.statistics.preparation import require
 
 
-def mean_summary(values, confidence):
+def mean_summary(values, confidence, *, intervals=True):
     x = np.asarray(values, dtype=float)
     n = len(x)
     require(n > 0, "No hay observaciones cuantitativas válidas.")
@@ -22,7 +22,7 @@ def mean_summary(values, confidence):
     maximum = max(counts.values())
     modes = sorted(v for v, count in counts.items() if count == maximum) if maximum > 1 else []
     ci = None
-    if n > 1 and sd > 0:
+    if intervals and n > 1 and sd > 0:
         margin = float(stats.t.ppf((1 + confidence) / 2, n - 1)) * sd / math.sqrt(n)
         ci = {
             "low": mean - margin,

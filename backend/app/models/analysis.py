@@ -42,6 +42,7 @@ class ExecutionComponent(StrictModel):
     equal_variances_confirmed: bool = False
     group_values: list[str] = Field(default_factory=list, max_length=20)
     posthoc: Literal["none", "welch_holm"] = "none"
+    descriptive_intervals: bool = True
 
 
 class ExecutionSpec(StrictModel):
@@ -54,6 +55,7 @@ class ExecutionSpec(StrictModel):
     missing_policy: Literal["available_cases_per_procedure"] = "available_cases_per_procedure"
     multiplicity: Literal["none", "holm"] = "none"
     decisions_confirmed: bool
+    partial_execution: bool = False
 
 
 class ExecuteRequest(StrictModel):
@@ -89,10 +91,33 @@ class PreparationEvidence(StrictModel):
     detail: str
 
 
+class ComponentPreparation(StrictModel):
+    id: str
+    source_index: int
+    method: str
+    variables: list[Variable]
+    status: Literal[
+        "READY", "NEEDS_CLARIFICATION", "BLOCKED_UNCERTAINTY", "UNSUPPORTED", "RUNNING", "COMPLETED", "FAILED"
+    ]
+    fingerprint: str = ""
+    question_ids: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    completed_run_id: str | None = None
+    depends_on: list[int] = Field(default_factory=list)
+    decisions: list[DataDecision] = Field(default_factory=list)
+    filters: list[Selection] = Field(default_factory=list)
+    evidence: list[PreparationEvidence] = Field(default_factory=list)
+    assumptions: list[PreparationClarification] = Field(default_factory=list)
+
+
 class ExecutionPreparation(StrictModel):
     schema_version: Literal[1] = 1
     request_id: UUID
-    status: Literal["READY", "NEEDS_CLARIFICATION", "BLOCKED_UNCERTAINTY", "UNSUPPORTED"]
+    status: Literal[
+        "READY", "PARTIALLY_READY", "COMPLETED", "NEEDS_CLARIFICATION", "BLOCKED_UNCERTAINTY", "UNSUPPORTED"
+    ]
+    components: list[ComponentPreparation] = Field(default_factory=list)
     specification: ExecutionSpec | None = None
     methods: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
@@ -149,6 +174,7 @@ class AnalysisResult(StrictModel):
     components: list[ComponentResult]
     status: Literal["completed", "partial", "failed"]
     summary: str
+    component_states: list[ComponentPreparation] = Field(default_factory=list)
 
 
 class Artifact(StrictModel):

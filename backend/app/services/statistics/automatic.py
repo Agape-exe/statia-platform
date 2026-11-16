@@ -10,6 +10,7 @@ import numpy as np
 
 from app.core.config import Settings
 from app.models.analysis import (
+    ComponentPreparation,
     DataDecision,
     ExecutionComponent,
     ExecutionPreparation,
@@ -28,6 +29,7 @@ from app.services.statistics.preparation import (
     INDEPENDENT_GROUPS,
     QUANTITATIVE,
     AnalysisError,
+    component_order,
     key,
     original_table,
     plan_filters,
@@ -65,6 +67,12 @@ def assess(job):
     scope = digest({"plan": job["plan"], "files": provenance})
     questions, clarifications, evidence, blockers, warnings, reasons = [], [], [], [], [], []
     reviewing = job.get("review_question_id")
+    owners = set(range(len(sources(plan))))
+    question_owners, blocker_owners = {}, {}
+
+    def block(message):
+        blockers.append(message)
+        blocker_owners.setdefault(message, set()).update(owners)
 
     def note(subject, origin, detail):
         evidence.append(PreparationEvidence(subject=subject, origin=origin, detail=detail))
@@ -101,6 +109,7 @@ def assess(job):
             scope_fingerprint=local_scope,
             limitation=limitation or "No tenemos información suficiente para resolver esta decisión. " + explanation,
         )
+        question_owners.setdefault(qid, set()).update(owners)
         answer = answers.get(qid)
         if answer not in {c.value for c in choices}:
             answer = None
@@ -108,7 +117,14 @@ def assess(job):
         if not any(q.id == qid for q in clarifications):
             clarifications.append(PreparationClarification(**question.model_dump(), status=state, answer=answer))
         if state == "answered":
-            note(subject, "user", next(c.label for c in choices if c.value == answer))
+            display = (
+                f"{tables[variable.file_id][0]['original_name']} / {variable.sheet} / {variable.column}"
+                if variable
+                else prompt
+            )
+            if ":marker:" in subject:
+                display += " · marcador: " + subject.split(":marker:", 1)[1]
+            note(display, "user", next(c.label for c in choices if c.value == answer))
         elif state == "pending":
             if not any(q.id == qid for q in questions):
                 questions.append(question)
@@ -117,14 +133,17 @@ def assess(job):
         return answer if state == "answered" else None
 
     if plan.joins:
-        blockers.append("Las uniones entre tablas no están implementadas. Solicita análisis separados.")
+        block("Las uniones entre tablas no están implementadas. Solicita análisis separados.")
     if not sources(plan):
-        blockers.append("El plan integral antiguo no declara componentes. Solicita una propuesta actualizada.")
+        block("El plan integral antiguo no declara componentes. Solicita una propuesta actualizada.")
     if job.get("thesis") and not plan.methodology_confirmed:
-        blockers.append("La metodología de tesis requiere una propuesta revisada y confirmada.")
+        block("La metodología de tesis requiere una propuesta revisada y confirmada.")
 
     decisions = []
     for v in plan.variables:
+        owners = {i for i, source in enumerate(sources(plan)) if key(v) in {key(x) for x in source.variables}}
+        if any(key(v) == key(f.variable) for f in plan_filters(plan)):
+            owners = set(range(len(sources(plan))))
         file, _, columns, _ = tables[v.file_id]
         require(
             v.sheet == file["metadata"]["selected_sheet"] and v.column in columns,
@@ -136,9 +155,7 @@ def assess(job):
         if v.role == "pair_id":
             kind = "identifier"
         elif column["possible_identifier"] or column["possible_temporal"]:
-            blockers.append(
-                f"«{v.column}»: este catálogo no admite identificadores ni fechas como medidas. Revisa la propuesta."
-            )
+            block(f"«{v.column}»: este catálogo no admite identificadores ni fechas como medidas. Revisa la propuesta.")
         elif v.role == "group" or any(key(v) == key(f.variable) for f in plan_filters(plan)):
             kind = "nominal"
             note(
@@ -214,6 +231,7 @@ def assess(job):
     )
     components = []
     for index, source in enumerate(sources(plan)):
+        owners = {index}
         component_scope = {
             "source": {
                 "procedure": source.procedure,
@@ -244,15 +262,13 @@ def assess(job):
                 "bootstrap",
             )
         ):
-            blockers.append(
+            block(
                 f"Componente {index + 1}: el método solicitado no está implementado en este catálogo. Solicita otra propuesta."
             )
             continue
         method = next(iter(named)) if len(named) == 1 else None
         if method and method not in compatible:
-            blockers.append(
-                f"Componente {index + 1}: el método y la familia aceptados son incompatibles. Revisa la propuesta."
-            )
+            block(f"Componente {index + 1}: el método y la familia aceptados son incompatibles. Revisa la propuesta.")
             continue
         if not method and source.procedure in {"descriptive", "exploratory"}:
             method = "descriptive"
@@ -360,7 +376,7 @@ def assess(job):
                     limitation="No tenemos información suficiente para confirmar la independencia de las observaciones. Por ahora no puedo presentar este contraste inferencial como metodológicamente validado.",
                 )
                 if answer == "no":
-                    blockers.append(
+                    block(
                         "El diseño informado no es compatible con este contraste. Solicita una propuesta revisada o descriptiva."
                     )
                 if answer == "yes":
@@ -387,7 +403,7 @@ def assess(job):
             if not equal and any(
                 q.subject == f"variance:{index}" and q.status == "answered" and q.answer == "no" for q in clarifications
             ):
-                blockers.append("Revisa la propuesta antes de cambiar Student o ANOVA clásico por Welch.")
+                block("Revisa la propuesta antes de cambiar Student o ANOVA clásico por Welch.")
         groups = plan.comparison.groups if plan.comparison and method in INDEPENDENT_GROUPS else []
         if method in INDEPENDENT_GROUPS and not plan.comparison:
             group = next((v for v in source.variables if v.role == "group"), None)
@@ -403,7 +419,7 @@ def assess(job):
                     }
                 )
                 if len(groups) > 20:
-                    blockers.append("La comparación admite hasta 20 grupos. Revisa la propuesta.")
+                    block("La comparación admite hasta 20 grupos. Revisa la propuesta.")
                     groups = []
                 note(
                     "Grupos",
@@ -412,7 +428,12 @@ def assess(job):
                 )
         components.append(
             ExecutionComponent(
-                source_index=index, method=method, design=design, equal_variances_confirmed=equal, group_values=groups
+                source_index=index,
+                method=method,
+                design=design,
+                equal_variances_confirmed=equal,
+                group_values=groups,
+                descriptive_intervals=False,
             )
         )
     multiplicity = plan.comparison.multiplicity if plan.comparison else "none"
@@ -441,20 +462,135 @@ def assess(job):
             multiplicity=multiplicity or "none",
             decisions_confirmed=False,
         )
-    uncertain = any(q.status == "unknown" for q in clarifications)
+    states = []
+    for index, source in enumerate(sources(plan)):
+        relevant = [q for q in clarifications if index in question_owners.get(q.id, set())]
+        problems = [b for b in blockers if index in blocker_owners.get(b, set())]
+        current = next((c for c in components if c.source_index == index), None)
+        state = (
+            "UNSUPPORTED"
+            if problems
+            else "BLOCKED_UNCERTAINTY"
+            if any(q.status == "unknown" for q in relevant)
+            else "NEEDS_CLARIFICATION"
+            if any(q.status == "pending" for q in relevant)
+            else "READY"
+            if current
+            else "UNSUPPORTED"
+        )
+        problems.extend(q.limitation for q in relevant if q.status == "unknown")
+        selected = spec.model_copy(update={"components": [current], "partial_execution": True}) if current else None
+        fingerprint = ""
+        if selected:
+            selected_keys = {key(v) for v in source.variables} | {key(f.variable) for f in plan_filters(plan)}
+            if plan.comparison and plan.comparison.strata:
+                selected_keys.add(key(plan.comparison.strata.variable))
+            local = selected.model_copy(
+                update={"decisions": [d for d in decisions if key(d.variable) in selected_keys]}
+            )
+            fingerprint = digest(
+                {
+                    "source": source.model_dump(mode="json"),
+                    "spec": local.model_dump(mode="json"),
+                    "files": [f for f in provenance if f["id"] in {v.file_id for v in source.variables}],
+                }
+            )
+            if state == "READY":
+                try:
+                    validate_spec(plan, selected, require_confirmation=False)
+                    prepared = {fid: prepare(file, data, local, settings) for fid, (file, data, _, _) in tables.items()}
+                    check_conditions(plan, selected, prepared)
+                except AnalysisError as exc:
+                    problems.append(str(exc))
+                    state = "UNSUPPORTED"
+        completed = next(
+            (
+                c
+                for c in job.get("completed_components", [])
+                if c.get("source_index") == index
+                and c.get("fingerprint") == fingerprint
+                and c.get("status") == "COMPLETED"
+            ),
+            None,
+        )
+        if completed and state == "READY":
+            state = "COMPLETED"
+        states.append(
+            ComponentPreparation(
+                id=f"component:{index}",
+                source_index=index,
+                method=current.method if current else source.method,
+                variables=source.variables,
+                status=state,
+                fingerprint=fingerprint,
+                question_ids=[q.id for q in relevant],
+                blockers=problems,
+                completed_run_id=completed.get("completed_run_id") if completed and state == "COMPLETED" else None,
+                depends_on=getattr(source, "depends_on", []),
+                decisions=[
+                    d
+                    for d in decisions
+                    if key(d.variable)
+                    in {key(v) for v in source.variables} | {key(f.variable) for f in plan_filters(plan)}
+                ],
+                filters=plan_filters(plan),
+                evidence=[
+                    e
+                    for e in evidence
+                    if e.subject
+                    in {v.column for v in source.variables} | {"Originales", "Ausencias", f"Método {index + 1}"}
+                    or any(q.status == "answered" and e.subject == q.prompt for q in relevant)
+                ],
+                assumptions=[q for q in relevant if q.subject.startswith(("design:", "variance:"))],
+            )
+        )
+    # Una familia Holm no se divide entre ejecuciones con ajustes incompatibles.
+    inference = [s for s in states if s.method != "descriptive"]
+    if multiplicity == "holm" and any(s.status == "READY" for s in inference):
+        for state in inference:
+            if state.status == "COMPLETED":
+                state.status = "READY"
+                state.completed_run_id = None
+                state.warnings.append(
+                    "Se recalculará la familia inferencial completa para mantener un ajuste Holm compatible. Los resultados anteriores se conservan."
+                )
+    if multiplicity == "holm" and any(s.status not in {"READY", "COMPLETED"} for s in inference):
+        for state in inference:
+            if state.status == "READY":
+                state.status = "NEEDS_CLARIFICATION"
+                state.blockers.append(
+                    "Pendiente de los otros contrastes de la familia Holm para conservar el control de multiplicidad."
+                )
+    try:
+        for index in component_order(plan):
+            state = states[index]
+            for dependency in state.depends_on:
+                if states[dependency].status not in {"READY", "COMPLETED"}:
+                    state.status = states[dependency].status
+                    state.blockers.append(f"Requiere completar el componente {dependency + 1} antes de continuar.")
+    except AnalysisError as exc:
+        for state in states:
+            state.status = "UNSUPPORTED"
+            state.blockers.append(str(exc))
+    available = {s.source_index for s in states if s.status == "READY"}
+    if spec:
+        if available:
+            spec = spec.model_copy(
+                update={
+                    "components": [c for c in components if c.source_index in available],
+                    "partial_execution": len(available) < len(states),
+                }
+            )
+        elif states and all(s.status == "COMPLETED" for s in states):
+            spec = None
+    uncertain = any(s.status == "BLOCKED_UNCERTAINTY" for s in states)
     if reviewing:
         questions.sort(key=lambda q: q.id != reviewing)
-    if not questions and not uncertain and not blockers and spec:
-        try:
-            validate_spec(plan, spec, require_confirmation=False)
-            prepared = {fid: prepare(file, data, spec, settings) for fid, (file, data, _, _) in tables.items()}
-            check_conditions(plan, spec, prepared)
-        except AnalysisError as exc:
-            blockers.append(str(exc))
+    blockers = list(dict.fromkeys(b for s in states for b in s.blockers)) if states else blockers
     warnings.extend(plan.limitations)
     if any(c.method != "descriptive" for c in components):
         warnings.append(
-            "La independencia procede del diseño informado. La normalidad, atípicos y demás diagnósticos se informarán en los resultados; no prueban causalidad ni determinan el método por su valor p."
+            "La independencia es un requisito de la inferencia y solo se confirma con evidencia del usuario. Los diagnósticos disponibles se informarán en los resultados; no prueban causalidad ni determinan el método por su valor p."
         )
     note(
         "Parámetros",
@@ -466,18 +602,33 @@ def assess(job):
         "verified",
         "Catálogo existente: tablas, gráficos, resultados JSON, resumen y ZIP privados. Efectos e intervalos limitados a los implementados por cada método.",
     )
-    fingerprint = digest({"scope": scope, "answers": answers, "spec": spec.model_dump(mode="json") if spec else None})
+    fingerprint = digest(
+        {
+            "scope": scope,
+            "answers": answers,
+            "spec": spec.model_dump(mode="json") if spec else None,
+            "components": [s.model_dump(mode="json") for s in states],
+            "previous_runs": job.get("previous_runs", []),
+        }
+    )
     return ExecutionPreparation(
         request_id=uuid5(NAMESPACE_URL, f"statia:preparation:{job.get('proposal_id', '')}:{fingerprint}"),
-        status="UNSUPPORTED"
-        if blockers
+        status="COMPLETED"
+        if states and all(s.status == "COMPLETED" for s in states)
+        else "READY"
+        if states and all(s.status in {"READY", "COMPLETED"} for s in states)
+        else "PARTIALLY_READY"
+        if available
+        else "UNSUPPORTED"
+        if not states or all(s.status == "UNSUPPORTED" for s in states)
         else "NEEDS_CLARIFICATION"
         if any(q.id == reviewing for q in questions)
         else "BLOCKED_UNCERTAINTY"
         if uncertain
         else "NEEDS_CLARIFICATION"
         if questions
-        else "READY",
+        else "UNSUPPORTED",
+        components=states,
         specification=spec,
         methods=[CATALOG[c.method].name for c in components],
         reasons=reasons,

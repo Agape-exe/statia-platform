@@ -69,7 +69,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     from app.services.execution_preparation import EXECUTION_ACTIONS, bind_descriptive_scope, descriptive_request, normalized_preparation, preparation_turn
     preparation = normalized_preparation(conversation.get('stage_data', {}).get('execution_preparation'))
     alternative = await descriptive_request(store, conversation, turn) if turn.action == 'request_descriptive' else None
-    if not alternative and (turn.action in EXECUTION_ACTIONS or (turn.action == 'message' and not preparation.get('paused') and preparation.get('result', {}).get('status') in ('NEEDS_CLARIFICATION', 'BLOCKED_UNCERTAINTY'))):
+    if not alternative and (turn.action in EXECUTION_ACTIONS or (turn.action == 'message' and not preparation.get('paused') and preparation.get('result', {}).get('status') in ('NEEDS_CLARIFICATION', 'BLOCKED_UNCERTAINTY', 'PARTIALLY_READY'))):
         return await preparation_turn(store, project, conversation, turn, settings)
     if alternative:
         conversation = {**conversation, 'stage_data': {**conversation.get('stage_data', {}), 'execution_preparation': preparation}}

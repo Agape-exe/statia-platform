@@ -15,6 +15,8 @@ from app.services.statistics.common import inference_text, table
 from app.services.statistics.numerics import holm
 from app.services.statistics.preparation import (
     Prepared,
+    active_spec,
+    component_order,
     key,
     prepare,
     require,
@@ -41,14 +43,25 @@ def calculate(job):
     plan = Plan.model_validate(job["plan"])
     spec = ExecutionSpec.model_validate(job["specification"])
     validate_spec(plan, spec)
+    preparation = None
     if job.get("preparation_fingerprint"):
         from app.services.statistics.automatic import assess
 
         preparation = assess({**job, **job["preparation_context"]})
         require(
-            preparation["status"] == "READY" and preparation["fingerprint"] == job["preparation_fingerprint"],
+            preparation["status"] in {"READY", "PARTIALLY_READY"}
+            and preparation["fingerprint"] == job["preparation_fingerprint"],
             "Los datos o decisiones cambiaron. Vuelve a preparar el análisis antes de ejecutarlo.",
         )
+        expected = spec.model_dump(mode="json")
+        expected["decisions_confirmed"] = False
+        require(
+            expected == preparation["specification"], "La especificación no coincide con los componentes preparados."
+        )
+    require(
+        not spec.partial_execution or preparation is not None,
+        "La ejecución selectiva requiere una preparación vigente.",
+    )
     settings = Settings(_env_file=None, **job.get("limits", {}))
     prepared, provenance = {}, []
     required_files = {v.file_id for v in plan.variables}
@@ -58,7 +71,7 @@ def calculate(job):
     )
     for file in job["files"]:
         data = base64.b64decode(file["data"], validate=True)
-        prepared[file["id"]] = prepare(file, data, spec, settings)
+        prepared[file["id"]] = prepare(file, data, active_spec(plan, spec), settings)
         provenance.append(
             {
                 "id": file["id"],
@@ -75,8 +88,22 @@ def calculate(job):
         check_conditions(plan, spec, prepared)
     results, resources = [], {}
     original_sources = sources(plan)
-    for component in sorted(spec.components, key=lambda c: c.source_index):
+    selected = {c.source_index: c for c in spec.components}
+    for index in component_order(plan):
+        if index not in selected:
+            continue
+        component = selected[index]
         source = original_sources[component.source_index]
+        dependencies = getattr(source, "depends_on", [])
+        previous = {c["source_index"] for c in (preparation or {}).get("components", []) if c["status"] == "COMPLETED"}
+        completed = {
+            r.source_index
+            for r in results
+            if r.status == "completed"
+            and all(x.status == "completed" for x in results if x.source_index == r.source_index)
+        }
+        if not set(dependencies) <= previous | completed:
+            continue
         # Descriptivos de varios archivos son independientes; nunca se unen filas.
         for file_id in sorted({v.file_id for v in source.variables}):
             dataset = prepared[file_id]
@@ -134,7 +161,7 @@ def calculate(job):
                         "Familia de contrastes: ajuste de Holm",
                         [
                             {
-                                "Contraste": f"{test.get('variable_x', result.title)} / {test.get('variable_y', result.scope)}",
+                                "Contraste": f"{test.get('variable_x', result.title)} / {test.get('variable_y', ', '.join(f'{k}: {v}' for k, v in result.scope.items()) or 'comparación global')}",
                                 "p sin ajuste": test["p"],
                                 "p Holm": test["p_adjusted"],
                                 "Contrastes en la familia": len(tests),
@@ -154,7 +181,25 @@ def calculate(job):
                 f"{len(tests)} contrastes inferenciales sin ajuste de multiplicidad por decisión confirmada; aumenta el riesgo de falsos positivos."
             )
     successful = sum(r.status != "failed" for r in results)
-    status = "completed" if all(r.status == "completed" for r in results) else "partial" if successful else "failed"
+    status = (
+        "completed"
+        if results and all(r.status == "completed" for r in results)
+        else "partial"
+        if successful
+        else "failed"
+    )
+    states = preparation["components"] if preparation else []
+    for state in states:
+        calculated = [r for r in results if r.source_index == state["source_index"]]
+        if calculated:
+            state["status"] = "COMPLETED" if all(r.status == "completed" for r in calculated) else "FAILED"
+            if state["status"] == "COMPLETED":
+                state["completed_run_id"] = job["run_id"]
+        elif state["source_index"] in selected and state["depends_on"]:
+            state["status"] = "NEEDS_CLARIFICATION"
+            state["blockers"].append("Una dependencia no terminó correctamente; este componente no se calculó.")
+    if states and any(s["status"] != "COMPLETED" for s in states) and successful:
+        status = "partial"
     result = AnalysisResult(
         run_id=job["run_id"],
         project_id=job["project_id"],
@@ -170,10 +215,17 @@ def calculate(job):
             **{name: version(name) for name in ["numpy", "scipy", "matplotlib", "openpyxl"]},
         },
         components=results,
+        component_states=states,
         status=status,
-        summary=f"{successful} de {len(results)} componentes con resultados. "
+        summary=(
+            f"{sum(s['status'] == 'COMPLETED' for s in states)} de {len(states)} componentes del plan completados. "
+            if states
+            else f"{successful} de {len(results)} componentes con resultados. "
+        )
         + (
-            "Hay componentes fallidos o parcialmente calculables; revisa los motivos antes de concluir. "
+            "Quedan componentes pendientes que no se calcularon; consulta sus motivos y revisa las aclaraciones para continuar. "
+            if status == "partial" and states and all(r.status == "completed" for r in results)
+            else "Hay componentes fallidos o parcialmente calculables; revisa los motivos antes de concluir. "
             if status != "completed"
             else ""
         )

@@ -103,6 +103,8 @@ def build_exports(result, charts):
         "run_id": result["run_id"],
         "date": result["created_at"],
         "status": result["status"],
+        "component_states": result.get("component_states", []),
+        "continuation": "Los componentes completados en ejecuciones anteriores se referencian por completed_run_id; sus recursos permanecen en esas ejecuciones.",
         "procedures": [c["method"] for c in result["components"]],
         "files": result["files"],
         "dependencies": result["dependencies"],

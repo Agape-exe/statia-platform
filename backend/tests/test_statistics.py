@@ -254,7 +254,7 @@ def test_integral_preserves_failed_component_and_reports_partial():
         ],
     )
     job["specification"]["components"] = [
-        {"source_index": 0, "method": "descriptive"},
+        {"source_index": 0, "method": "descriptive", "descriptive_intervals": False},
         {"source_index": 1, "method": "welch_t", "design": "independent"},
     ]
     result, _ = calculate(job)

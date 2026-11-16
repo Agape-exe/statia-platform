@@ -291,15 +291,15 @@ def test_chat_preparation_answers_reload_execution_and_idempotency(preparation_c
     assert client.post(endpoint, json=body).json()["id"] == response.json()["id"]
     assert len(store.data["analysis_runs"]) == 1
     assert client.get(path).json()["conversation"]["stage_data"]["execution_preparation"] == state
-    # Otra preparación idéntica, incluso desde otro dispositivo, conserva UUID.
+    # Otra preparación recupera el resultado compatible y no ofrece recalcularlo.
     again = client.post(
         path + "/turns", json={"request_id": str(uuid4()), "action": "prepare_execution", "proposal_id": proposal["id"]}
     )
     assert again.status_code == 200
-    assert (
-        client.get(path).json()["conversation"]["stage_data"]["execution_preparation"]["result"]["request_id"]
-        == body["request_id"]
-    )
+    completed = client.get(path).json()["conversation"]["stage_data"]["execution_preparation"]["result"]
+    assert completed["status"] == "COMPLETED"
+    assert completed["specification"] is None
+    assert completed["components"][0]["completed_run_id"] == response.json()["id"]
     assert client.post(endpoint, json=body).json()["id"] == response.json()["id"]
     assert len(store.data["analysis_runs"]) == 1
 

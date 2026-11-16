@@ -24,9 +24,11 @@ from app.services.statistics.preparation import (
 )
 
 
-def quantitative_row(name, values, missing, confidence):
-    summary = mean_summary(values, confidence)
+def quantitative_row(name, values, missing, confidence, intervals=True):
+    summary = mean_summary(values, confidence, intervals=intervals)
     ci = summary["mean_ci"]
+    if not intervals:
+        summary.pop("mean_ci")
     row = {
         "Variable": name,
         "N válido": summary["n"],
@@ -45,6 +47,9 @@ def quantitative_row(name, values, missing, confidence):
         "IC media inferior": ci["low"] if ci else None,
         "IC media superior": ci["high"] if ci else None,
     }
+    if not intervals:
+        row.pop("IC media inferior")
+        row.pop("IC media superior")
     return row, summary
 
 
@@ -80,9 +85,11 @@ def describe(result, source, prepared, component, spec, charts):
                 result.warnings.append(f"{display}: sin observaciones válidas; no se calculó un resumen.")
                 continue
             if decision.statistical_type in QUANTITATIVE:
-                row, summary = quantitative_row(display, values, missing, spec.confidence_level)
+                row, summary = quantitative_row(
+                    display, values, missing, spec.confidence_level, component.descriptive_intervals
+                )
                 numeric_rows.append(row)
-                if summary["mean_ci"] is None:
+                if component.descriptive_intervals and summary["mean_ci"] is None:
                     result.warnings.append(
                         f"{display}: IC de media no disponible por muestra insuficiente o varianza nula."
                     )
@@ -121,7 +128,12 @@ def describe(result, source, prepared, component, spec, charts):
                 f"Agrupación {groups[0].column}: {missing_group} filas sin grupo, excluidas de los resúmenes agrupados."
             )
     for title, rows in [
-        ("Descriptivos cuantitativos (IC t, cuartiles lineales)", numeric_rows),
+        (
+            "Descriptivos cuantitativos (IC t, cuartiles lineales)"
+            if component.descriptive_intervals
+            else "Descriptivos cuantitativos (cuartiles lineales, sin inferencia)",
+            numeric_rows,
+        ),
         ("Frecuencias sobre observaciones válidas", frequencies),
         ("Medianas ordinales por orden confirmado", medians),
     ]:
@@ -131,8 +143,10 @@ def describe(result, source, prepared, component, spec, charts):
     result.assumptions.append(
         Assumption(
             name="IC de media",
-            status="pending",
-            detail="Los IC t requieren independencia y normalidad aproximada de la media; el descriptivo no verifica el diseño.",
+            status="pending" if component.descriptive_intervals else "not_applicable",
+            detail="Los IC t requieren independencia y normalidad aproximada de la media; el descriptivo no verifica el diseño."
+            if component.descriptive_intervals
+            else "Solo se describen los registros observados. No se calculan pruebas ni se presentan intervalos de confianza.",
         )
     )
     result.interpretation = "Se describieron las observaciones válidas de cada variable y grupo. Los porcentajes usan como denominador los valores presentes; los ausentes se informan aparte. DE y varianza son muestrales (n−1). No se eliminaron atípicos ni se demuestra causalidad."
@@ -357,7 +371,14 @@ def compare(result, source, prepared, component, spec, charts):
         )
         row["Variable"] = label(outcome, prepared) + " / " + name
         desc.append(row)
-    result.tables.append(table("Resumen por grupos (orden de la diferencia: grupo 1 − grupo 2)", desc))
+    result.tables.append(
+        table(
+            "Resumen por grupos (orden de la diferencia: grupo 1 − grupo 2)"
+            if len(labels) == 2
+            else "Resumen por grupos",
+            desc,
+        )
+    )
     scalar = {k: v for k, v in computed.items() if isinstance(v, (int, float))}
     names = {
         "df": "Grados de libertad del contraste",

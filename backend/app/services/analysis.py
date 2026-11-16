@@ -8,12 +8,13 @@ import httpx
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.models.analysis import AnalysisResult, RunView
+from app.models.analysis import AnalysisResult, ExecutionSpec, RunView
 from app.models.chat import Plan
 from app.services.analysis_exports import build_exports
 from app.services.analysis_worker import run_calculation
 from app.services.execution_preparation import (
     LIMIT_NAMES,
+    execution_history,
     originals_for,
     preparation_context,
 )
@@ -59,6 +60,21 @@ async def public_run(store, run, *, detail=False):
 
 
 async def execute(store, identity, project, conversation, proposal, body, settings):
+    if proposal["status"] != "accepted":
+        raise HTTPException(409, "Solo se pueden ejecutar propuestas aceptadas.")
+    previous = await store.rows(
+        "analysis_runs",
+        {"conversation_id": conversation["id"], "proposal_id": proposal["id"], "request_id": str(body.request_id)},
+        limit=1,
+    )
+    if previous and previous[0].get("result") is not None:
+        existing = previous[0]
+        if (
+            existing["plan_snapshot"] != proposal["analysis_plan"]
+            or ExecutionSpec.model_validate(existing["specification"]) != body.specification
+        ):
+            raise HTTPException(409, "Esta clave corresponde a otras decisiones. Prepara una ejecución nueva.")
+        return await public_run(store, existing, detail=True)
     try:
         plan = Plan.model_validate(proposal["analysis_plan"])
         if project.get("project_type") == "thesis" and not plan.methodology_confirmed:
@@ -73,8 +89,10 @@ async def execute(store, identity, project, conversation, proposal, body, settin
             if isinstance(exc, AnalysisError)
             else "El contrato del plan aceptado ya no es válido. Solicita una propuesta nueva.",
         ) from None
-    if proposal["status"] != "accepted":
-        raise HTTPException(409, "Solo se pueden ejecutar propuestas aceptadas.")
+    if body.specification.partial_execution and not body.preparation_fingerprint:
+        raise HTTPException(
+            422, "La ejecución selectiva requiere preparar los componentes y confirmar los disponibles."
+        )
     preparation = conversation.get("stage_data", {}).get("execution_preparation") or {}
     if body.preparation_fingerprint:
         ready = preparation.get("result", {})
@@ -83,7 +101,7 @@ async def execute(store, identity, project, conversation, proposal, body, settin
         if (
             preparation.get("proposal_id") != proposal["id"]
             or ready.get("request_id") != str(body.request_id)
-            or ready.get("status") != "READY"
+            or ready.get("status") not in {"READY", "PARTIALLY_READY"}
             or ready.get("fingerprint") != body.preparation_fingerprint
             or ready.get("specification") != expected
         ):
@@ -129,6 +147,7 @@ async def execute(store, identity, project, conversation, proposal, body, settin
             }
             if body.preparation_fingerprint:
                 job["preparation_context"] = preparation_context(project, conversation, preparation.get("answers", {}))
+                job["preparation_context"].update(await execution_history(store, conversation, proposal))
                 job["preparation_fingerprint"] = body.preparation_fingerprint
             output = await run_calculation(job)
             del job, originals

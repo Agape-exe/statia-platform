@@ -36,6 +36,20 @@ def sources(plan):
     return plan.components if plan.procedure == "integral" else [plan]
 
 
+def component_order(plan):
+    pending = set(range(len(sources(plan))))
+    ordered = []
+    while pending:
+        ready = sorted(i for i in pending if set(getattr(sources(plan)[i], "depends_on", [])) <= set(ordered))
+        require(
+            bool(ready),
+            "Las dependencias del plan son cíclicas o apuntan a componentes inexistentes. Revisa la propuesta.",
+        )
+        ordered.extend(ready)
+        pending.difference_update(ready)
+    return ordered
+
+
 def plan_filters(plan):
     legacy = plan.comparison.filters if plan.comparison else []
     require(
@@ -45,14 +59,31 @@ def plan_filters(plan):
     return plan.filters or legacy
 
 
+def active_spec(plan, spec):
+    """Decisiones de las columnas usadas; las demás se conservan en la auditoría."""
+    active = {key(v) for c in spec.components for v in sources(plan)[c.source_index].variables}
+    active.update(key(f.variable) for f in spec.filters)
+    if plan.comparison and plan.comparison.strata:
+        active.add(key(plan.comparison.strata.variable))
+    return spec.model_copy(update={"decisions": [d for d in spec.decisions if key(d.variable) in active]})
+
+
 def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True):
     if require_confirmation:
         require(spec.decisions_confirmed, "Confirma las decisiones de ejecución antes de calcular.")
     require(not plan.joins, "Las uniones entre tablas no están implementadas. Solicita análisis separados.")
     components = sources(plan)
+    component_order(plan)
     require(bool(components), "El plan integral antiguo no declara componentes. Solicita una propuesta actualizada.")
     require(
-        sorted(c.source_index for c in spec.components) == list(range(len(components))),
+        (
+            len({c.source_index for c in spec.components}) == len(spec.components)
+            and all(c.source_index < len(components) for c in spec.components)
+            and (
+                spec.partial_execution
+                or sorted(c.source_index for c in spec.components) == list(range(len(components)))
+            )
+        ),
         "Debes resolver exactamente una vez cada componente del plan, sin omisiones.",
     )
     expected = {key(v) for v in plan.variables}
@@ -99,6 +130,11 @@ def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True)
     )
     for component in spec.components:
         source = components[component.source_index]
+        if component.method == "descriptive" and component.descriptive_intervals:
+            require(
+                component.design == "independent",
+                "Los intervalos de media requieren independencia confirmada; desactiva los intervalos para describir únicamente los registros observados.",
+            )
         from app.services.statistics.methods import named_methods
 
         named = named_methods(source)

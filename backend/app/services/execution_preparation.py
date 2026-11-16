@@ -44,7 +44,7 @@ def normalized_preparation(state):
         q for q in questions if not any(c["id"] == q["id"] and c["status"] == "unknown" for c in clarifications)
     ]
     if (
-        result.get("status") != "UNSUPPORTED"
+        result.get("status") not in {"UNSUPPORTED", "PARTIALLY_READY", "COMPLETED"}
         and any(c["status"] == "unknown" for c in clarifications)
         and not state.get("review_question_id")
     ):
@@ -53,7 +53,13 @@ def normalized_preparation(state):
 
 
 def preparation_message(preparation):
+    if preparation["status"] == "COMPLETED":
+        return "Todos los componentes compatibles de este plan ya están completados. Conservamos sus resultados; no es necesario recalcularlos."
+    if preparation["status"] == "PARTIALLY_READY":
+        return "He preparado tu análisis integral. Algunos procedimientos pueden ejecutarse, pero otros necesitan información adicional. Revisa los estados y confirma «Ejecutar componentes disponibles» para realizar una ejecución parcial. No se ejecutarán los componentes pendientes."
     if preparation["status"] == "READY":
+        if any(c["status"] == "COMPLETED" for c in preparation.get("components", [])):
+            return "Los componentes pendientes están preparados. Conservamos los resultados compatibles anteriores. Revisa y confirma «Ejecutar componentes pendientes» para completar el plan."
         return "Análisis preparado. Revisa el resumen y confirma «Ejecutar análisis» cuando quieras calcular. Aún no se ha ejecutado ningún cálculo estadístico."
     if preparation["status"] == "UNSUPPORTED":
         return "No puedo ejecutar este plan con las condiciones actuales. " + " ".join(preparation["blockers"])
@@ -68,6 +74,8 @@ def preparation_message(preparation):
             )
             + " Tu respuesta «No lo sé» está guardada; no volveré a preguntarlo automáticamente. Puedes solicitar una propuesta descriptiva alternativa, revisar tu respuesta o dejar pendiente el análisis."
         )
+    if not preparation["questions"]:
+        return "Hay componentes pendientes. Revisa sus motivos y las respuestas metodológicas para continuar."
     q = preparation["questions"][0]
     return q["prompt"] + " " + q["explanation"]
 
@@ -136,6 +144,37 @@ def preparation_context(project, conversation, answers):
     }
 
 
+async def execution_history(store, conversation, proposal):
+    compatible, offset = [], 0
+    while True:
+        page = await store.rows(
+            "analysis_runs",
+            {"conversation_id": conversation["id"], "proposal_id": proposal["id"]},
+            order="created_at.asc,id.asc",
+            limit=100,
+            offset=offset,
+            select="id,status,result_status:result->>status,component_states:result->component_states,plan_snapshot:result->plan_snapshot",
+        )
+        for run in page:
+            result = run.get("result") or (run if run.get("result_status") else None)
+            if result and result.get("plan_snapshot") == proposal["analysis_plan"]:
+                compatible.append(
+                    {"id": run["id"], "status": run["status"], "components": result.get("component_states") or []}
+                )
+        if len(page) < 100:
+            break
+        offset += len(page)
+    return {
+        "completed_components": [
+            {**component, "completed_run_id": run["id"]}
+            for run in compatible
+            for component in run["components"]
+            if component["status"] == "COMPLETED" and component.get("completed_run_id") in (None, run["id"])
+        ],
+        "previous_runs": [{"id": r["id"], "status": r["status"]} for r in compatible],
+    }
+
+
 async def preparation_turn(store, project, conversation, turn, settings):
     data = dict(conversation.get("stage_data", {}))
     previous = normalized_preparation(data.get("execution_preparation"))
@@ -178,7 +217,11 @@ async def preparation_turn(store, project, conversation, turn, settings):
     questions = previous.get("result", {}).get("questions", [])
     clarifications = previous.get("result", {}).get("clarifications", [])
     reviewing = previous.get("review_question_id") if previous.get("proposal_id") == proposal_id else None
-    if turn.action == "message" and previous.get("result", {}).get("status") == "BLOCKED_UNCERTAINTY":
+    if turn.action == "message" and (
+        previous.get("result", {}).get("status") == "BLOCKED_UNCERTAINTY"
+        or previous.get("result", {}).get("status") == "PARTIALLY_READY"
+        and not questions
+    ):
         return result(preparation_message(previous["result"]), previous["result"])
     if turn.action == "review_execution":
         q = next((q for q in clarifications if q["id"] == turn.question_id), None)
@@ -211,6 +254,7 @@ async def preparation_turn(store, project, conversation, turn, settings):
     context = preparation_context(
         project, {**conversation, "stage_data": {**data, "execution_preparation": previous}}, answers
     )
+    context.update(await execution_history(store, conversation, proposal))
     output = await run_calculation(
         {
             "operation": "prepare",

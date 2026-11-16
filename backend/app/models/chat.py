@@ -85,6 +85,7 @@ class AnalysisComponent(StrictModel):
     procedure: Procedure
     method: str = Field(min_length=1, max_length=1500)
     variables: list[Variable] = Field(min_length=1, max_length=40)
+    depends_on: list[int] = Field(default_factory=list, max_length=4)
 
 
 class Plan(StrictModel):
