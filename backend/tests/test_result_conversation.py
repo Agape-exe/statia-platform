@@ -6,12 +6,14 @@ import json
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from test_analysis_api import analysis_client as original_client
 from test_chat_api import ControlledProvider
 from test_statistics import job_for
 
 from app.core.config import Settings
 from app.models.chat import AssistantReply
+from app.models.research_context import ResearchContext
 from app.services.analysis_context import saved_results_context, validate_numeric_claims
 from app.services.planning_errors import PlanningError
 from app.services.profiling import inspect_file
@@ -232,3 +234,37 @@ def test_provider_cannot_invent_inference_or_replace_plan_for_interpretation(res
     assert len(provider.contexts) == 2
     assert len(store.data["analysis_runs"]) == 1
     assert client.get(path).json()["conversation"]["stage_data"]["execution_preparation"] == previous
+
+    # Reutilizar el resultado ya calculado por este escenario: un fallo de Gemini
+    # no requiere otra ejecución estadística ni cambia sus recursos privados.
+    store.data["projects"][0]["project_type"] = "thesis"
+    store.data["research_contexts"] = [
+        {
+            "project_id": store.project_id,
+            "revision": 1,
+            "document": ResearchContext(research_title="Tesis sintética").model_dump(mode="json"),
+        }
+    ]
+    tables = ("analysis_runs", "analysis_artifacts", "analysis_proposals", "research_contexts", "project_files")
+    before = {name: copy.deepcopy(store.data[name]) for name in tables}
+    objects = copy.deepcopy(store.objects)
+    stage_data = copy.deepcopy(store.data["conversations"][0]["stage_data"])
+    provider.replies = [
+        HTTPException(
+            503,
+            "Indisponibilidad sintética",
+            headers={
+                "X-Statia-Error": "gemini_unavailable",
+                "X-Gemini-Status": "503",
+            },
+        )
+    ]
+    request_id = str(uuid4())
+    response = turn(content="Explícame los resultados parciales", request_id=request_id)
+    assert response.status_code == 503 and response.headers["X-Gemini-Status"] == "503"
+    assert all(store.data[name] == before[name] for name in tables)
+    assert store.objects == objects
+    assert store.data["conversations"][0]["stage_data"] == stage_data
+    detail = client.get(path).json()
+    assert detail["retry_turn"]["request_id"] == request_id
+    assert sum(m.get("metadata", {}).get("request_id") == request_id for m in detail["messages"]) == 1

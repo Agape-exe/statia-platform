@@ -21,7 +21,14 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
       - run: python scripts/check_analysis_quality.py
-      - run: python -m pytest -q
+      # La barrera RSS incluye el proceso pytest. Aislar cada módulo evita
+      # acumular objetos/importaciones de otros escenarios en esa medición.
+      # Todos los módulos son obligatorios; no se omiten ni repiten fallos.
+      - name: Probar todos los módulos backend en procesos aislados
+        run: |
+          for test_module in tests/test_*.py; do
+            python -m pytest -q "$test_module"
+          done
       - run: python -m pip check
       - name: Medir memoria del análisis en Linux
         run: python scripts/measure_analysis_memory.py
