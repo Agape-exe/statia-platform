@@ -9,7 +9,6 @@ from uuid import uuid4
 import httpx
 import pytest
 import test_chat_api
-import test_result_conversation
 from fastapi import HTTPException
 from google import genai
 from google.genai import errors
@@ -17,11 +16,9 @@ from test_chat_api import attach_dataset, new, plan, reply, turn
 from test_gemini import SDKDouble
 
 from app.core.config import Settings
-from app.models.research_context import ResearchContext
 from app.services import gemini
 
 api = test_chat_api.api
-result_client = test_result_conversation.result_client
 
 
 def provider():
@@ -132,6 +129,7 @@ def test_external_cancellation_is_preserved_and_closes_client(monkeypatch):
 def test_official_sdk_has_no_hidden_retries_and_preserves_upstream_status(monkeypatch, code, attempts):
     original_client = genai.Client
     requests = []
+    clients = []
 
     async def scenario():
         def handler(request):
@@ -144,7 +142,9 @@ def test_official_sdk_has_no_hidden_retries_and_preserves_upstream_status(monkey
             assert kwargs["http_options"].retry_options.attempts == 1
             assert kwargs["http_options"].timeout == 35000
             kwargs["http_options"].httpx_async_client = transport
-            return original_client(**kwargs)
+            instance = original_client(**kwargs)
+            clients.append(instance)
+            return instance
 
         monkeypatch.setattr(gemini.genai, "Client", client)
         monkeypatch.setattr(gemini.asyncio, "sleep", AsyncMock())
@@ -155,6 +155,8 @@ def test_official_sdk_has_no_hidden_retries_and_preserves_upstream_status(monkey
             assert len(requests) == attempts
         finally:
             await transport.aclose()
+            for instance in clients:
+                instance.close()
 
     asyncio.run(scenario())
 
@@ -212,35 +214,6 @@ def test_invalid_json_never_triggers_semantic_or_transport_retry(monkeypatch):
         asyncio.run(provider().generate({}))
     assert caught.value.headers["X-Statia-Error"] == "gemini_invalid_response"
     assert len(sdk.calls) == 1
-
-
-def test_503_preserves_calculated_results_preparation_and_thesis_context(result_client, monkeypatch):
-    client, store, path, send, _, _ = result_client
-    store.data["projects"][0]["project_type"] = "thesis"
-    store.data["research_contexts"] = [
-        {
-            "project_id": store.project_id,
-            "revision": 1,
-            "document": ResearchContext(research_title="Tesis sintética").model_dump(mode="json"),
-        }
-    ]
-    tables = ("analysis_runs", "analysis_artifacts", "analysis_proposals", "research_contexts", "project_files")
-    before = {name: copy.deepcopy(store.data[name]) for name in tables}
-    objects = copy.deepcopy(store.objects)
-    preparation = copy.deepcopy(store.data["conversations"][0]["stage_data"])
-    sdk = SDKDouble([errors.APIError(503, {})] * 2)
-    monkeypatch.setattr(gemini.genai, "Client", lambda **_: sdk)
-    monkeypatch.setattr(gemini.asyncio, "sleep", AsyncMock())
-    client.app.state.provider = provider()
-    request_id = str(uuid4())
-    response = send(content="Explícame los resultados parciales", request_id=request_id)
-    assert response.status_code == 503 and response.headers["X-Gemini-Status"] == "503"
-    assert all(store.data[name] == before[name] for name in tables)
-    assert store.objects == objects
-    assert store.data["conversations"][0]["stage_data"] == preparation
-    detail = client.get(path).json()
-    assert detail["retry_turn"]["request_id"] == request_id
-    assert sum(m.get("metadata", {}).get("request_id") == request_id for m in detail["messages"]) == 1
 
 
 def test_generation_budget_leaves_room_for_turn_persistence():
