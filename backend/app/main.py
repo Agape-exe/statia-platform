@@ -11,6 +11,7 @@ from app.api.health import router
 from app.api.research_context import router as context_router
 from app.core.config import Settings
 from app.services.gemini import GeminiProvider
+from app.services.openai_provider import OpenAIProvider
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -18,6 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Statia Platform API", version="0.3.0")
     app.state.settings = settings
     app.state.provider = GeminiProvider(settings)
+    app.state.openai_provider = OpenAIProvider(settings)
     app.state.analysis_lock = asyncio.Semaphore(1)
     app.state.profile_lock = app.state.analysis_lock
     app.add_middleware(
@@ -26,7 +28,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
-        expose_headers=["Content-Disposition", "X-Statia-Error", "X-Gemini-Status", "X-Statia-Validation"],
+        expose_headers=[
+            "Content-Disposition",
+            "X-Statia-Error",
+            "X-Gemini-Status",
+            "X-OpenAI-Status",
+            "X-Statia-Validation",
+        ],
     )
     app.include_router(router)
     app.include_router(chat_router)

@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_timeout_seconds: int = Field(default=35, ge=5, le=45)
     gemini_context_chars: int = Field(default=45000, ge=4000, le=100000)
+    gemini_max_output_tokens: int = Field(default=7000, ge=256, le=16000)
+    openai_api_key: SecretStr = SecretStr("")
+    openai_terra_enabled: bool = False
+    openai_timeout_seconds: int = Field(default=60, ge=5, le=65)
+    openai_max_output_tokens: int = Field(default=12000, ge=256, le=16000)
+    ai_requests_per_minute: int = Field(default=20, ge=1, le=120)
+    ai_max_requests_per_turn: int = Field(default=4, ge=1, le=4)
     max_file_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     max_rows: int = Field(default=20000, ge=1, le=100000)
     max_columns: int = Field(default=120, ge=1, le=300)

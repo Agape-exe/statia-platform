@@ -8,7 +8,9 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Respon
 from pydantic import ValidationError
 
 from app.core.auth import CurrentUser
-from app.models.chat import AssistantReply, ConversationCreate, Decision, Plan, Rename, Turn
+from app.models.chat import AssistantReply, ConversationCreate, Decision, Plan, ProviderChange, Rename, Turn
+from app.services.providers import catalog, check_available, session_for
+from app.services.plan_capabilities import descriptive_warnings
 from app.services.gemini import validate_reply
 from app.services.conversation import ACTION_LABELS, linked_files, process_turn
 from app.services.profiling import MIMES, inspect_file, safe_name
@@ -39,15 +41,32 @@ async def list_conversations(project_id: UUID, user: CurrentUser):
 
 
 @router.post('/conversations', status_code=201, summary='Crear conversación con bienvenida y etapa inicial')
-async def create_conversation(project_id: UUID, body: ConversationCreate, user: CurrentUser):
+async def create_conversation(project_id: UUID, body: ConversationCreate, user: CurrentUser, request: Request):
     await project_for(user, project_id)
     if body.source_conversation_id:
         source = await conversation_for(user, project_id, body.source_conversation_id)
         if not source.get('stage_data', {}).get('goal_change'):
             raise HTTPException(409, 'No hay una nueva finalidad pendiente en la conversación de origen.')
-    cid = await user.store.rpc('create_conversation', {'p_project': str(project_id),
-        'p_source': str(body.source_conversation_id) if body.source_conversation_id else None})
+    if body.provider != 'gemini':
+        check_available(body.provider, request.app.state)
+    cid = await user.store.rpc('create_provider_conversation', {'p_project': str(project_id),
+        'p_source': str(body.source_conversation_id) if body.source_conversation_id else None, 'p_provider': body.provider})
     return await user.store.one('conversations', {'id': cid})
+
+
+@router.get('/assistant-providers', summary='Informar los destinatarios de datos y su disponibilidad')
+async def assistant_providers(project_id: UUID, user: CurrentUser, request: Request):
+    await project_for(user, project_id)
+    return catalog(request.app.state)
+
+
+@router.patch('/conversations/{conversation_id}/provider', summary='Cambiar explícitamente el destinatario de próximos turnos')
+async def change_provider(project_id: UUID, conversation_id: UUID, body: ProviderChange, user: CurrentUser, request: Request):
+    await conversation_for(user, project_id, conversation_id)
+    check_available(body.provider, request.app.state)
+    await user.store.rpc('select_conversation_provider', {'p_conversation': str(conversation_id),
+        'p_provider': body.provider, 'p_expected': body.expected_provider})
+    return await user.store.one('conversations', {'id': str(conversation_id)})
 
 
 @router.get('/conversations/{conversation_id}', summary='Recuperar conversación, mensajes, archivos y propuestas')
@@ -122,9 +141,14 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
     execution_labels = EXECUTION_ACTIONS
     payload['display'] = body.content or execution_labels.get(body.action) or ACTION_LABELS[body.action]
     params = {'p_conversation': str(conversation_id), 'p_request': str(body.request_id)}
-    started = await user.store.rpc('begin_chat_turn', {**params, 'p_payload': payload})
+    selected = conversation.get('assistant_provider', 'gemini')
+    provider = session_for(selected, request.app.state)
+    started = await user.store.rpc('begin_provider_chat_turn', {**params, 'p_payload': payload,
+        'p_provider': selected, 'p_model': provider.trace['model']})
     if started == 'completed':
         return {'status': 'completed', 'replayed': True}
+    if started == 'provider_changed':
+        raise HTTPException(409, 'El proveedor cambió o este reintento pertenece a otra configuración. Recarga y envía una nueva solicitud explícita.')
     if started in ('busy', 'mismatch'):
         raise HTTPException(409, 'Ya hay una respuesta en curso. Espera y recarga.' if started == 'busy' else 'La clave de reintento pertenece a otro mensaje.')
     try:
@@ -140,9 +164,11 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
                 if request.app.state.analysis_lock.locked():
                     raise HTTPException(409, 'El motor está ocupado. Reintenta la misma solicitud en un momento.')
                 async with request.app.state.analysis_lock:
-                    result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
+                    result = await process_turn(user.store, project, conversation, body, files, provider, request.app.state.settings)
             else:
-                result = await process_turn(user.store, project, conversation, body, files, request.app.state.provider, request.app.state.settings)
+                result = await process_turn(user.store, project, conversation, body, files, provider, request.app.state.settings)
+        result.setdefault('metadata', {})['selected_provider'] = selected
+        result['metadata']['generation'] = provider.trace if provider.calls else {'source': 'deterministic'}
         await user.store.rpc('finish_chat_turn', {**params, 'p_result': result})
     except BaseException as exc:
         try:
@@ -169,7 +195,7 @@ async def decide(project_id: UUID, conversation_id: UUID, proposal_id: UUID, bod
         except (ValidationError, ValueError):
             raise HTTPException(422, 'El plan ya no es válido para los archivos actuales. Solicita una propuesta nueva.') from None
     await user.store.rpc('decide_proposal', {'p_conversation': str(conversation_id), 'p_proposal': str(proposal_id), 'p_status': body.status})
-    return {'status': body.status}
+    return {'status': body.status, 'warnings': descriptive_warnings(plan) if body.status == 'accepted' else []}
 
 
 @router.get('/files', summary='Listar archivos disponibles para reutilización')

@@ -6,6 +6,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = [
+    "app/services/provider_runtime.py",
+    "app/services/openai_provider.py",
+    "app/services/providers.py",
+    "app/services/plan_capabilities.py",
+    "tests/test_openai_provider.py",
+    "tests/test_provider_selection.py",
     "app/api/research_context.py",
     "app/models/research_context.py",
     "app/services/research_context.py",

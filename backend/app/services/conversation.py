@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
 from app.services.gemini import build_context
-from app.services.conversation_text import ACTION_LABELS, normalize, statistical_request, humanize_reply
+from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply
 from app.services.methodology import levels
 from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
@@ -211,7 +211,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             if retained:
                 reply, partial = retained, True
                 break
-            raise HTTPException(502, 'Gemini propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
+            raise HTTPException(502, 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
                                 headers={'X-Statia-Error': 'planning_validation',
                                          'X-Statia-Validation': ','.join(sorted({issue.category for issue in assessment.issues}))}) from None
         failures = '\n'.join(f'Propuesta {issue.plan_index + 1 if issue.plan_index is not None else "respuesta"} [{issue.category}]: {issue.message}'
@@ -231,6 +231,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         reply.detected_goal = context['goal_evidence'][-1][:2000]
     if turn.action != 'message' or not statistical_request(turn.content):
         reply.goal_change = False
+    from app.services.plan_capabilities import warn_capabilities
+    reply = warn_capabilities(reply)
     result = reply_result(reply, conversation)
     if research:
         result['metadata']['research_context_revision'] = research['revision']
