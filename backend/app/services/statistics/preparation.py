@@ -69,6 +69,13 @@ def active_spec(plan, spec):
 
 
 def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True):
+    from app.services.plan_capabilities import validate_products
+    from app.services.planning_errors import PlanningError
+
+    try:
+        validate_products(plan, decisions=spec.decisions, execution_components=spec.components)
+    except PlanningError as exc:
+        raise AnalysisError(str(exc)) from None
     if require_confirmation:
         require(spec.decisions_confirmed, "Confirma las decisiones de ejecución antes de calcular.")
     require(not plan.joins, "Las uniones entre tablas no están implementadas. Solicita análisis separados.")

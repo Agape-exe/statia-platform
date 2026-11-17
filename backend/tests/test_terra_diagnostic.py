@@ -521,7 +521,7 @@ def test_integral_pearson_interval_does_not_turn_descriptive_component_into_infe
     validate_local_plan(case, source)
 
 
-def test_saved_live_plans_pass_corrected_rule_without_fabricating_assistant_reply(monkeypatch):
+def test_saved_live_plans_preserve_evidence_and_unverified_outputs_require_scope(monkeypatch):
     path = diagnostic.ROOT.parent / "docs/TERRA_M_LIVE_RESULT_2026-11-16.json"
     if not path.exists():
         pytest.skip("Evidencia real local ausente en este checkout.")
@@ -543,7 +543,14 @@ def test_saved_live_plans_pass_corrected_rule_without_fabricating_assistant_repl
         fields = {key: value for key, value in item.items() if key in Plan.model_fields}
         fields["requirements"] = item["pending_assumptions"]
         source = Plan.model_validate(fields)
-        validate_local_plan(case, source)
+        if source.procedure in {"descriptive", "integral"}:
+            # La independencia corregida no acredita productos descriptivos sin alcance.
+            # Conservar originales/hashes y comprobar el nuevo bloqueo, sin adaptar el plan.
+            with pytest.raises(PlanningError) as output_error:
+                validate_local_plan(case, source)
+            assert output_error.value.category in {"output_scope", "output_capability"}
+        else:
+            validate_local_plan(case, source)
         plans.append(source)
     assert len(plans) == 4 and len({p.procedure for p in plans}) == 4
     with pytest.raises(PlanningError) as original_failure:

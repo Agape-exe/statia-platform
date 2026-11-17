@@ -21,6 +21,7 @@ from app.services.planning_errors import PlanningError
 from app.services.analysis_context import validate_numeric_claims
 from app.services.statistics.catalog import CATALOG
 from app.services.provider_runtime import Provider as Provider, RequestBudget, record_generation
+from app.services.plan_capabilities import PRODUCT_INSTRUCTIONS
 
 # Dos generaciones (original y corrección) <= 130 s dentro del turno de 150 s.
 # Incluye cliente, espera y reintento; el timeout configurable sigue siendo por intento.
@@ -271,7 +272,7 @@ class GeminiProvider:
                     async with asyncio.timeout(self.settings.gemini_timeout_seconds):
                         response = await client.models.generate_content(
                             model=self.settings.gemini_model, contents=prompt,
-                            config=types.GenerateContentConfig(system_instruction=SYSTEM, response_mime_type='application/json',
+                            config=types.GenerateContentConfig(system_instruction=SYSTEM + PRODUCT_INSTRUCTIONS, response_mime_type='application/json',
                                                                response_schema=reply_schema(), max_output_tokens=self.settings.gemini_max_output_tokens,
                                                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)),
                         )
@@ -356,6 +357,8 @@ def validate_plan(plan, files, project, context=None):
     columns = [column_for(v) for v in plan.variables]
     validate_objective_columns(plan, known, context)
     validate_methodology(plan, column_for, context)
+    from app.services.plan_capabilities import validate_products
+    validate_products(plan, files)
     tables = {(v.file_id, v.sheet) for v in plan.variables}
     if len(tables) > 1 and plan.procedure not in ('descriptive', 'exploratory') and not plan.joins:
         raise PlanningError('cross_table_relation', 'El análisis conjunto de tablas requiere una relación explícita justificada y confirmada. Puedes proponer exploraciones independientes.')

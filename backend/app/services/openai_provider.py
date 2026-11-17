@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.models.chat import AssistantReply
 from app.services.gemini import SYSTEM
 from app.services.gemini_schema import reply_schema
+from app.services.plan_capabilities import PRODUCT_INSTRUCTIONS
 from app.services.provider_runtime import RequestBudget, record_generation
 
 MODEL = "gpt-6.1-terra"
@@ -127,7 +128,7 @@ class OpenAIProvider:
             prompt += "\nCorrige la respuesta anterior: " + correction[:budget]
         payload = {
             "model": MODEL,
-            "instructions": SYSTEM,
+            "instructions": SYSTEM + PRODUCT_INSTRUCTIONS,
             "input": prompt,
             "reasoning": {"effort": "medium"},
             "store": False,

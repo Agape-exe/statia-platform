@@ -211,7 +211,7 @@ def test_deterministic_flow_never_claims_model_generated_text(api):
     assert client.get(path).json()["messages"][-1]["metadata"]["generation"] == {"source": "deterministic"}
 
 
-def test_descriptive_scope_warning_preserves_contract_and_original_plan():
+def test_descriptive_warning_does_not_repair_incompatible_products():
     original = Plan.model_validate(plan(str(uuid4())))
     grouped = original.model_dump()
     grouped["variables"].append({**grouped["variables"][0], "column": "grupo", "role": "group"})
@@ -220,8 +220,12 @@ def test_descriptive_scope_warning_preserves_contract_and_original_plan():
     before = reply.model_dump()
     warned = warn_capabilities(reply)
     assert reply.model_dump() == before
-    assert "No añade simultáneamente" in warned.warnings[0]
-    assert "planes separados" in warned.proposals[0].limitations[0]
+    assert warned.model_dump() == before
+    from app.services.plan_capabilities import validate_products
+    from app.services.planning_errors import PlanningError
+
+    with pytest.raises(PlanningError, match="no está cubierto"):
+        validate_products(warned.proposals[0])
     assert warned.proposals[0].expected_outputs == grouped["expected_outputs"]
     assert AssistantReply.model_validate(warned.model_dump())
     assert not warn_capabilities(

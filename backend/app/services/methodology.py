@@ -79,7 +79,8 @@ def validate_methodology(plan, column_for, context=None):
             component_order(plan)
         except AnalysisError as exc:
             raise PlanningError('component_variables', str(exc)) from None
-        if len(plan.components) < 2 or len({s.procedure for s in plan.components}) < 2:
+        from app.services.plan_capabilities import separated_descriptives
+        if len(plan.components) < 2 or (len({s.procedure for s in plan.components}) < 2 and not separated_descriptives(plan)):
             raise PlanningError('component_variables', 'El plan integral debe declarar al menos dos procedimientos distintos, pertinentes y verificables en components.')
     elif plan.components:
         raise PlanningError('component_variables', 'Solo un plan integral puede agrupar componentes.')

@@ -65,6 +65,27 @@ def assess(job):
         )
     provenance.sort(key=lambda f: f["id"])
     scope = digest({"plan": job["plan"], "files": provenance})
+    from app.services.plan_capabilities import validate_products
+    from app.services.planning_errors import PlanningError
+
+    try:
+        validate_products(
+            plan,
+            files=[
+                {**f, "metadata": {**f["metadata"], "profile": {"columns": list(columns.values())}}}
+                for f, _, columns, _ in tables.values()
+            ],
+        )
+    except PlanningError as exc:
+        # El plan histórico no se altera; resolver alcance requiere otra propuesta.
+        return ExecutionPreparation(
+            request_id=uuid5(NAMESPACE_URL, f"statia:output-scope:{scope}"),
+            status="UNSUPPORTED",
+            reasons=[str(exc)],
+            blockers=[str(exc)],
+            files=provenance,
+            fingerprint=scope,
+        ).model_dump(mode="json")
     questions, clarifications, evidence, blockers, warnings, reasons = [], [], [], [], [], []
     reviewing = job.get("review_question_id")
     owners = set(range(len(sources(plan))))
