@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from app.core.auth import CurrentUser
 from app.models.chat import AssistantReply, ConversationCreate, Decision, Plan, ProviderChange, Rename, Turn
-from app.services.providers import catalog, check_available, session_for
+from app.services.providers import catalog, check_available, require_rollback_safety, session_for
 from app.services.plan_capabilities import descriptive_warnings
 from app.services.gemini import validate_reply
 from app.services.conversation import ACTION_LABELS, linked_files, process_turn
@@ -49,6 +49,7 @@ async def create_conversation(project_id: UUID, body: ConversationCreate, user: 
             raise HTTPException(409, 'No hay una nueva finalidad pendiente en la conversación de origen.')
     if body.provider != 'gemini':
         check_available(body.provider, request.app.state)
+        await require_rollback_safety(user.store, body.provider)
     cid = await user.store.rpc('create_provider_conversation', {'p_project': str(project_id),
         'p_source': str(body.source_conversation_id) if body.source_conversation_id else None, 'p_provider': body.provider})
     return await user.store.one('conversations', {'id': cid})
@@ -64,6 +65,7 @@ async def assistant_providers(project_id: UUID, user: CurrentUser, request: Requ
 async def change_provider(project_id: UUID, conversation_id: UUID, body: ProviderChange, user: CurrentUser, request: Request):
     await conversation_for(user, project_id, conversation_id)
     check_available(body.provider, request.app.state)
+    await require_rollback_safety(user.store, body.provider)
     await user.store.rpc('select_conversation_provider', {'p_conversation': str(conversation_id),
         'p_provider': body.provider, 'p_expected': body.expected_provider})
     return await user.store.one('conversations', {'id': str(conversation_id)})
@@ -142,6 +144,7 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
     payload['display'] = body.content or execution_labels.get(body.action) or ACTION_LABELS[body.action]
     params = {'p_conversation': str(conversation_id), 'p_request': str(body.request_id)}
     selected = conversation.get('assistant_provider', 'gemini')
+    await require_rollback_safety(user.store, selected)
     provider = session_for(selected, request.app.state)
     started = await user.store.rpc('begin_provider_chat_turn', {**params, 'p_payload': payload,
         'p_provider': selected, 'p_model': provider.trace['model']})

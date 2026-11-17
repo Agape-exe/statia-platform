@@ -15,6 +15,23 @@ def provider_model(provider_id, settings):
     raise HTTPException(422, "Proveedor desconocido. Selecciona gemini u openai.")
 
 
+async def require_rollback_safety(store, provider_id):
+    if provider_id != "openai":
+        return
+    try:
+        version = await store.rpc("provider_rollback_safety", {})
+        if type(version) is int and version == 1:
+            return
+    except HTTPException as exc:
+        if exc.status_code in (401, 403):
+            raise
+    raise HTTPException(
+        503,
+        "Terra permanece bloqueado: falta verificar la protección de rollback de la migración 008.",
+        headers={"X-Statia-Error": "openai_rollback_guard"},
+    )
+
+
 def check_available(provider_id, state):
     provider_model(provider_id, state.settings)
     if provider_id == "openai":

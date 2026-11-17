@@ -7,6 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = [
     "tests/test_plan_capabilities.py",
+    "tests/test_provider_rollback.py",
+    "tests/helpers",
     "app/services/provider_runtime.py",
     "app/services/openai_provider.py",
     "app/services/providers.py",

@@ -67,6 +67,8 @@ class MemoryStore:
         return self.objects[path]
 
     async def rpc(self, name, data):
+        if name == 'provider_rollback_safety':
+            return 1
         cid = data.get('p_conversation')
         if name == 'create_provider_conversation':
             created = await self.rpc('create_conversation', data)
