@@ -1,5 +1,14 @@
 # Arquitectura
 
+La [integración multiproveedor de Sesión 5A](MULTIPROVIDER_BACKEND.md) añade
+`OpenAIProvider` (Responses API, Terra fijo, experimental y deshabilitado por defecto).
+`provider_runtime` conserva el protocolo, cuotas locales y métricas por turno;
+`providers` selecciona explícitamente el cliente y `plan_capabilities` advierte del
+alcance descriptivo agrupado. Gemini conserva su configuración y el valor predeterminado.
+La migración aditiva 007 persiste selección por conversación e instantánea por solicitud,
+con RPC invoker y eventos bajo RLS. Los contratos, validadores compartidos y motor Python
+siguen siendo la barrera de planificación/ejecución; ningún fallo cambia de proveedor.
+
 La [ejecución integral por componentes](INTEGRAL_EXECUTION.md) amplía JSONB/contratos existentes y añade la migración 005 para asociar propuestas nuevas a mensajes de la misma conversación. Las ejecuciones parciales y sus continuaciones conservan runs y artefactos inmutables.
 
 La corrección de UX de Sesión 03 incorpora preparación determinista y aclaraciones en el mismo chat. `execution_preparation.py` orquesta la relectura privada compartida con ejecución; `statistics/automatic.py` comprueba originales y catálogo en el proceso acotado existente. `methods.py` reconoce conservadoramente nombres/códigos de planes v1 y preserva alternativas ambiguas. No hay otro motor ni ejecución de código generado.
