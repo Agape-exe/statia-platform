@@ -25,8 +25,9 @@ No existe un campo HTTP ni una variable para elegir otro modelo OpenAI. Gemini
 conserva `GEMINI_MODEL`. Mantener las claves fuera de `VITE_*`, respuestas y logs.
 El servidor arranca sin claves; el catálogo informa disponibilidad sin exponerlas.
 
-Aplicar manualmente **solo** `supabase/migrations/202611170007_assistant_providers.sql`
-después de 001–006, revisando el proyecto y su historial. No se aplicó en esta sesión.
+La instalación requiere 007 y la corrección aditiva 008 antes del backend corregido.
+No repetir 007 si ya existe ni revertir sus funciones al recuperar el backend. Ver
+[secuencia manual y recuperación segura](PR07_SAFE_ROLLOUT.md); no se aplicaron migraciones remotas.
 Es transaccional y aditiva: añade `conversations.assistant_provider` con default Gemini
 y `chat_requests.provider/model`. Las conversaciones y solicitudes previas corresponden
 a Gemini; el modelo histórico desconocido queda `null`. Los mensajes antiguos mantienen
@@ -74,8 +75,10 @@ para mensajes previos sin metadata indicar modelo histórico no registrado. Los 
 ## Concurrencia, consumo e idempotencia
 
 `begin_provider_chat_turn` bloquea la fila de conversación, comprueba selección/modelo y
-delega a `begin_chat_turn`, conservando la serialización con ejecuciones Python y el
-payload original. Fija el destinatario/modelo en `chat_requests` antes de generar. Los
+adquiere directamente el turno con serialización con ejecuciones Python y el
+payload original. En 008 ya no delega a `begin_chat_turn`: el RPC legacy solo permite
+Gemini sin modelo vinculado y replay completado, y lanza conflicto para cualquier
+destinatario/modelo que el backend anterior no puede acreditar. Fija el destinatario/modelo en `chat_requests` antes de generar. Los
 triggers impiden cambios durante turnos o cálculos activos, incluso por escritura REST
 directa; el cambio y su evento se guardan en una transacción.
 
@@ -122,23 +125,43 @@ estadísticas compartidas. No se atribuye un 401 OpenAI a la sesión Supabase de
 columna de las frecuencias. Un solo componente no produce simultáneamente el resumen
 global, el agrupado y las frecuencias del agrupador que prometió I.
 
-Se elige **advertir**, mediante una regla determinista para cualquier descriptivo agrupado,
-en vez de interpretar toda prosa libre o ampliar el motor. El aviso se añade a las
-advertencias de respuesta y limitaciones del plan nuevo, conservando las restricciones
-anteriores. La aceptación de esos planes devuelve también el aviso; los históricos
-no se reescriben. Si se requieren todos esos productos, solicitar planes separados y
-revisarlos antes de ejecutar. La advertencia no demuestra cobertura completa de cualquier
-promesa textual ni corrige automáticamente un plan. No se añaden cálculos ni uniones.
+La corrección del bloqueo A usa un catálogo finito de productos, no una interpretación
+exhaustiva mediante patrones. `validate_products` contrasta el alcance y las columnas
+contra los componentes, hojas y archivos declarados. Distingue resúmenes globales,
+por grupo, frecuencias globales, por grupo y del agrupador. La integral puede separar
+estos productos en componentes descriptivos de alcances distintos sin ampliar cálculos.
+
+La regla se comparte en generación/corrección semántica, aceptación, preparación y
+validación de ejecución, también dentro del hijo Python. Una incompatibilidad devuelve
+`output_capability`; un texto no reconocible devuelve `output_scope` y exige aclarar
+el alcance en una propuesta revisada. No se recortan `expected_outputs` ni se reescribe
+el plan histórico. `warn_capabilities` ya no añade limitaciones ni repara nada.
+
+Los productos canónicos son: «Resúmenes globales», «Resúmenes por grupo», «Frecuencias
+categóricas», «Frecuencias categóricas por grupo» y «Frecuencias de la variable de
+agrupación». Su alcance cubre las columnas pertinentes declaradas por el plan, por tabla;
+no se adivinan subconjuntos a partir de prosa. Los alias exactos históricos genéricos
+(p. ej. «Tabla descriptiva», «Tablas y gráficos») solo describen los productos ordinarios
+del componente, sin acreditar productos globales o frecuencias adicionales. La lista
+cerrada vive en `plan_capabilities.py`; frases fuera de ella requieren aclaración.
+Los controles inferenciales existentes permanecen independientes y no se relajan.
+
+Las instrucciones nuevas de producción se agregan a las de ambos proveedores. El
+`SYSTEM` exportado histórico y el diagnóstico aislado conservan sus bytes/payloads.
+La evidencia M original se mantiene: las propuestas con productos no verificables
+ahora se bloquean, aunque hubieran aprobado reglas metodológicas anteriores.
 
 ## Validación y pendientes
 
 Las pruebas usan `httpx.MockTransport`, repositorio controlado y PostgreSQL WASM con
 Auth/Storage emulados. No llaman a modelos ni consumen créditos. La suite SQL aplica
-001–006, crea historial y después aplica 007 para comprobar compatibilidad, RLS,
+001–006, crea historial y después aplica 007; la reproducción de rollback compara 007 sola con 007 + 008 para comprobar compatibilidad, RLS,
 privilegios, replay, instantáneas, eventos y bloqueos. Esto no acredita una instalación
 remota Supabase. La regresión del motor sigue usando Python determinista con datasets
 sintéticos. Los informes históricos del PR #6 permanecen intactos.
 
-Pendientes externos: revisión/aplicación manual de 007 en el entorno autorizado,
+Pendientes externos: revisión/aplicación manual de 007/008 en el entorno autorizado,
 prueba de aislamiento con dos cuentas reales, autorización separada para cualquier
-prueba pagada y revisión del selector frontend. No hay despliegue ni cambios productivos.
+prueba pagada y revisión del selector frontend. La publicación original del PR activó
+una preview automática de Vercel; estas correcciones permanecen locales, sin push,
+despliegues ni cambios productivos.

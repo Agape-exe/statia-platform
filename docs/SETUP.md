@@ -1,8 +1,8 @@
 # Configuración local
 
 Sesión 5A: consultar [backend multiproveedor](MULTIPROVIDER_BACKEND.md) para la migración
-aditiva 007, configuración experimental OpenAI y contrato del futuro selector. Gemini
-conserva el valor predeterminado; Terra requiere habilitación explícita del servidor.
+aditiva 007 y su corrección obligatoria 008, configuración experimental OpenAI y contrato del futuro selector. Gemini
+conserva el valor predeterminado; Terra requiere habilitación explícita y la protección 008. Ver [instalación y recuperación manual](PR07_SAFE_ROLLOUT.md).
 
 Sesión 04: aplicar únicamente la migración aditiva 006 si aún no está instalada para habilitar [Contexto de tesis](THESIS_CONTEXT.md). La preparación y publicación manual de backend/frontend, variables de producción y Auth se explican en [DEPLOYMENT](DEPLOYMENT.md). Conservar el acceso local; no repetir 001–005 ya aplicadas.
 

@@ -3,10 +3,12 @@
 La [integración multiproveedor de Sesión 5A](MULTIPROVIDER_BACKEND.md) añade
 `OpenAIProvider` (Responses API, Terra fijo, experimental y deshabilitado por defecto).
 `provider_runtime` conserva el protocolo, cuotas locales y métricas por turno;
-`providers` selecciona explícitamente el cliente y `plan_capabilities` advierte del
-alcance descriptivo agrupado. Gemini conserva su configuración y el valor predeterminado.
+`providers` selecciona explícitamente el cliente y exige la protección SQL 008 para
+Terra. `plan_capabilities` bloquea productos descriptivos sin cobertura o alcance verificable
+en generación, aceptación, preparación y ejecución. Gemini conserva su configuración y el valor predeterminado.
 La migración aditiva 007 persiste selección por conversación e instantánea por solicitud,
-con RPC invoker y eventos bajo RLS. Los contratos, validadores compartidos y motor Python
+con RPC invoker y eventos bajo RLS. La corrección aditiva 008 separa adquisición legacy
+y multiproveedor y protege finalización/procedencia ante rollback; ver [secuencia manual](PR07_SAFE_ROLLOUT.md). Los contratos, validadores compartidos y motor Python
 siguen siendo la barrera de planificación/ejecución; ningún fallo cambia de proveedor.
 
 La [ejecución integral por componentes](INTEGRAL_EXECUTION.md) amplía JSONB/contratos existentes y añade la migración 005 para asociar propuestas nuevas a mensajes de la misma conversación. Las ejecuciones parciales y sus continuaciones conservan runs y artefactos inmutables.
