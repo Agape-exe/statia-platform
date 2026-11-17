@@ -12,3 +12,5 @@ coverage/
 .vercel/
 .ruff_cache/
 frontend/__qa__/
+# Evidencia histórica local A/D: conservar sin publicar ni ejecutar al recoger pruebas.
+/backend/test_terra_statia_env.py

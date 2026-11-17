@@ -15,6 +15,7 @@ TARGETS = [
     "tests/test_research_context.py",
     "tests/test_gemini_resilience.py",
     "tests/test_gemini_diagnostic.py",
+    "tests/test_terra_diagnostic.py",
     "app/api/analysis.py",
     "app/models/analysis.py",
     "app/services/statistics",

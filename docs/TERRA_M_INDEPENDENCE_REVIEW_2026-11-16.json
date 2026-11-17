@@ -1,0 +1,148 @@
+{
+  "date": "2026-11-16",
+  "kind": "offline_review_of_persisted_real_M_evidence",
+  "result": "passed_for_persisted_evidence",
+  "new_provider_requests": 0,
+  "additional_provider_cost_usd": 0,
+  "source_path": "docs/TERRA_M_LIVE_RESULT_2026-11-16.json",
+  "source_sha256": "62c6e9021c08cbb796851a5a2d077e6a9ca1422d34feb5e0235b529349130758",
+  "original_result_unchanged": {
+    "result": "failed",
+    "category": "independence",
+    "exit_code": 1
+  },
+  "original_failure_reproduced": {
+    "category": "independence",
+    "reproduced": true,
+    "proposal_index": 1
+  },
+  "context_schema_system_payload_match_original": true,
+  "original_full_assistant_reply_validation": {
+    "passed": true
+  },
+  "original_recommendation_coverage_validation": {
+    "passed": true
+  },
+  "proposal_count": 4,
+  "covered_procedures": [
+    "correlation",
+    "descriptive",
+    "group_comparison",
+    "integral"
+  ],
+  "plan_checks": [
+    {
+      "index": 1,
+      "title": "Descripción de medidas y grupos",
+      "procedure": "descriptive",
+      "plan_contract_valid": true,
+      "native_methodology_valid_for_recovered_plan": true,
+      "corrected_additional_criteria_valid": true,
+      "persisted_prose_valid": true,
+      "independence_required_by_step": [
+        {
+          "procedure": "descriptive",
+          "required": false
+        }
+      ],
+      "contract_defaults_for_unpersisted_fields": {
+        "schema_version": 1,
+        "joins": [],
+        "filters": []
+      }
+    },
+    {
+      "index": 2,
+      "title": "Comparación global entre grupos",
+      "procedure": "group_comparison",
+      "plan_contract_valid": true,
+      "native_methodology_valid_for_recovered_plan": true,
+      "corrected_additional_criteria_valid": true,
+      "persisted_prose_valid": true,
+      "independence_required_by_step": [
+        {
+          "procedure": "group_comparison",
+          "required": true
+        }
+      ],
+      "contract_defaults_for_unpersisted_fields": {
+        "schema_version": 1,
+        "joins": [],
+        "filters": []
+      }
+    },
+    {
+      "index": 3,
+      "title": "Relación entre las medidas",
+      "procedure": "correlation",
+      "plan_contract_valid": true,
+      "native_methodology_valid_for_recovered_plan": true,
+      "corrected_additional_criteria_valid": true,
+      "persisted_prose_valid": true,
+      "independence_required_by_step": [
+        {
+          "procedure": "correlation",
+          "required": true
+        }
+      ],
+      "contract_defaults_for_unpersisted_fields": {
+        "schema_version": 1,
+        "joins": [],
+        "filters": []
+      }
+    },
+    {
+      "index": 4,
+      "title": "Exploración integral",
+      "procedure": "integral",
+      "plan_contract_valid": true,
+      "native_methodology_valid_for_recovered_plan": true,
+      "corrected_additional_criteria_valid": true,
+      "persisted_prose_valid": true,
+      "independence_required_by_step": [
+        {
+          "procedure": "descriptive",
+          "required": false
+        },
+        {
+          "procedure": "group_comparison",
+          "required": true
+        },
+        {
+          "procedure": "correlation",
+          "required": true
+        }
+      ],
+      "contract_defaults_for_unpersisted_fields": {
+        "schema_version": 1,
+        "joins": [],
+        "filters": []
+      }
+    }
+  ],
+  "persisted_root_prose_valid": true,
+  "full_assistant_reply_replayed": false,
+  "limits": {
+    "raw_provider_response_not_persisted": true,
+    "assistant_reply_fields_not_persisted": [
+      "suggested_stage",
+      "detected_goal",
+      "suggested_title",
+      "clarification_required",
+      "involved_file_ids",
+      "selected_variables",
+      "confirmation_required",
+      "goal_change",
+      "goal_change_reason",
+      "context_summary"
+    ],
+    "plan_fields_not_explicitly_persisted": [
+      "schema_version",
+      "joins",
+      "filters"
+    ],
+    "plan_default_policy": "Valores predeterminados del contrato para la vista local; no se atribuyen como campos observados del JSON original. El informe histórico también documenta ausencia de uniones.",
+    "scope_of_conclusion": "Las cuatro propuestas y toda la prosa persistida superan los criterios corregidos. No se afirma haber reproducido la validación completa del JSON original ausente."
+  },
+  "diagnostic_sha256": "193b3e50c9f1af9e6279055960eba14d3e22227d8e909aadfd2871daee53cde7"
+}

@@ -1,0 +1,309 @@
+{
+  "date": "2026-11-16",
+  "branch": "test/preparar-terra-mi",
+  "execution_exit_code": 1,
+  "metrics": [
+    {
+      "case": "M",
+      "model": "gpt-6.1-terra",
+      "reasoning_effort": "medium",
+      "max_output_tokens": 12000,
+      "result": "failed",
+      "category": "independence",
+      "context_valid": true,
+      "schema_valid_locally": true,
+      "requests_attempted": 1,
+      "provider_http_status": 200,
+      "provider_status": "completed",
+      "tokens": {
+        "input": 6019,
+        "output": 3003,
+        "cached_input": 0,
+        "reasoning": 267,
+        "visible_output": 2736
+      },
+      "estimated_cost_usd": 0.021034,
+      "pricing": {
+        "input_usd_per_m": 1.0,
+        "output_usd_per_m": 5.0,
+        "cached_input_usd_per_m": 0.05,
+        "source_sha256": "ee1e2fa11b73ef5239a1c4eaa4f553f1c2c1a9611daf31ee6e9218f9f06c992a"
+      },
+      "cost_basis": "configured_rates",
+      "duration_seconds": 36.011,
+      "contract_valid": true,
+      "scenario_valid": false,
+      "proposal_count": 4,
+      "manual_review_required": true,
+      "context_sha256": "0a8128d4487f9f6a16242d96f171dad4c07e4204e30cd2bb531e5dd6a428bc01",
+      "schema_sha256": "4998525628c02193116ad04503732dcd598ec1ed173d391b3a49ecad06636446",
+      "system_sha256": "3a1261d82a5a8718f886d3a90ae0202f836c5d91a6edf316458e21638e088a3d",
+      "payload_sha256": "fddbe4c16ab13504686a07f1c8a89b2e334963ae5b61c3cba25b4388bcf3b7a8"
+    }
+  ],
+  "proposals": [
+    {
+      "index": 1,
+      "title": "Descripción de medidas y grupos",
+      "procedure": "descriptive",
+      "objective": "Describir las medidas `medida_a` y `medida_b` y la distribución de la variable `grupo`.",
+      "variables": [
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "medida_a",
+          "role": "outcome"
+        },
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "medida_b",
+          "role": "predictor"
+        },
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "grupo",
+          "role": "group"
+        }
+      ],
+      "method": "Estadística descriptiva: resumir `medida_a` y `medida_b` mediante medidas de posición y dispersión, y `grupo` mediante frecuencias y porcentajes.",
+      "justification": "Permite conocer la distribución de las variables sin depender de una prueba inferencial.",
+      "limitations": [
+        "Los resúmenes describen los datos sintéticos y no establecen causalidad ni generalización.",
+        "La independencia desconocida no impide obtener resúmenes descriptivos."
+      ],
+      "pending_assumptions": [
+        "Revisar el significado y las unidades de `medida_a` y `medida_b`, así como las categorías de `grupo`.",
+        "Revisar los valores ausentes y atípicos al ejecutar, sin modificar los originales."
+      ],
+      "expected_outputs": [
+        "Tabla de resúmenes de las medidas",
+        "Tabla de frecuencias de los grupos",
+        "Gráficos descriptivos"
+      ],
+      "methodology_confirmed": false,
+      "comparison": null,
+      "components": [],
+      "statia_plan_validation": {
+        "passed": true
+      }
+    },
+    {
+      "index": 2,
+      "title": "Comparación global entre grupos",
+      "procedure": "group_comparison",
+      "objective": "Evaluar si la media de `medida_a` difiere globalmente entre las categorías A, B y C de `grupo`.",
+      "variables": [
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "medida_a",
+          "role": "outcome"
+        },
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "grupo",
+          "role": "group"
+        }
+      ],
+      "method": "ANOVA de Welch global para `medida_a` según `grupo`, incluyendo todas sus categorías.",
+      "justification": "El contraste global permite comparar las medias sin seleccionar solo algunas categorías y admite varianzas desiguales.",
+      "limitations": [
+        "La inferencia es tentativa hasta revisar el diseño y los supuestos.",
+        "El contraste global no identifica por sí solo qué grupos difieren ni demuestra causalidad."
+      ],
+      "pending_assumptions": [
+        "Verificar con el diseño la independencia: muestreo, repeticiones, pareamiento y conglomerados.",
+        "Revisar el significado de `medida_a` y `grupo`, los tamaños disponibles, las distribuciones y los valores atípicos por grupo.",
+        "Evaluar la adecuación de la aproximación inferencial y definir el tratamiento de ausencias en las variables necesarias sin modificar los originales."
+      ],
+      "expected_outputs": [
+        "Resumen de `medida_a` por `grupo`",
+        "Resultado del contraste global",
+        "Diagnósticos de distribución y valores atípicos"
+      ],
+      "methodology_confirmed": false,
+      "comparison": null,
+      "components": [],
+      "statia_plan_validation": {
+        "passed": true
+      }
+    },
+    {
+      "index": 3,
+      "title": "Relación entre las medidas",
+      "procedure": "correlation",
+      "objective": "Explorar la asociación lineal entre `medida_a` y `medida_b`.",
+      "variables": [
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "medida_a",
+          "role": "outcome"
+        },
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "medida_b",
+          "role": "predictor"
+        }
+      ],
+      "method": "Correlación de Pearson entre `medida_a` y `medida_b`, acompañada de un gráfico de dispersión.",
+      "justification": "Ambas variables están perfiladas como cuantitativas y Pearson resume su asociación lineal.",
+      "limitations": [
+        "La inferencia es tentativa mientras no se revise el diseño.",
+        "La correlación lineal puede no resumir relaciones no lineales y no implica causalidad."
+      ],
+      "pending_assumptions": [
+        "Revisar el significado y las unidades de ambas medidas, la forma de la relación y los valores atípicos.",
+        "Para la inferencia, verificar la independencia mediante el diseño y evaluar la adecuación de los supuestos distribucionales.",
+        "Usar observaciones con ambas medidas disponibles, sin modificar los datos originales."
+      ],
+      "expected_outputs": [
+        "Coeficiente de correlación e intervalo de confianza, si procede",
+        "Gráfico de dispersión",
+        "Diagnósticos de la relación"
+      ],
+      "methodology_confirmed": false,
+      "comparison": null,
+      "components": [],
+      "statia_plan_validation": {
+        "passed": true
+      }
+    },
+    {
+      "index": 4,
+      "title": "Exploración integral",
+      "procedure": "integral",
+      "objective": "Describir `medida_a`, `medida_b` y `grupo`; comparar globalmente `medida_a` entre categorías de `grupo`; y explorar la asociación lineal entre `medida_a` y `medida_b`.",
+      "variables": [
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "medida_a",
+          "role": "outcome"
+        },
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "medida_b",
+          "role": "predictor"
+        },
+        {
+          "file_id": "00000000-0000-0000-0000-000000000002",
+          "sheet": "tabla",
+          "column": "grupo",
+          "role": "group"
+        }
+      ],
+      "method": "Combinar Estadística descriptiva de `medida_a`, `medida_b` y `grupo`; ANOVA de Welch de `medida_a` por `grupo`; y Correlación de Pearson entre `medida_a` y `medida_b`.",
+      "justification": "Reúne una visión descriptiva con una comparación global y una medida de asociación entre las variables cuantitativas.",
+      "limitations": [
+        "Los componentes inferenciales son tentativos hasta revisar el diseño y los supuestos; el componente descriptivo no requiere confirmar independencia.",
+        "El ANOVA global no identifica por sí solo diferencias entre pares de grupos; la correlación no implica causalidad."
+      ],
+      "pending_assumptions": [
+        "Revisar significados, unidades, valores ausentes y atípicos sin modificar los datos originales.",
+        "Verificar la independencia con el diseño, incluyendo muestreo, repeticiones, pareamiento y conglomerados.",
+        "Examinar las distribuciones por grupo para el ANOVA y la linealidad y adecuación inferencial para Pearson.",
+        "Precisar la finalidad inferencial y la estrategia de multiplicidad antes de interpretar conjuntamente los contrastes."
+      ],
+      "expected_outputs": [
+        "Resúmenes y frecuencias descriptivas",
+        "Contraste global entre grupos",
+        "Correlación y gráfico de dispersión",
+        "Diagnósticos pertinentes"
+      ],
+      "methodology_confirmed": false,
+      "comparison": null,
+      "components": [
+        {
+          "procedure": "descriptive",
+          "method": "Estadística descriptiva de `medida_a` y `medida_b`, y frecuencias de `grupo`.",
+          "variables": [
+            {
+              "file_id": "00000000-0000-0000-0000-000000000002",
+              "sheet": "tabla",
+              "column": "medida_a",
+              "role": "outcome"
+            },
+            {
+              "file_id": "00000000-0000-0000-0000-000000000002",
+              "sheet": "tabla",
+              "column": "medida_b",
+              "role": "predictor"
+            },
+            {
+              "file_id": "00000000-0000-0000-0000-000000000002",
+              "sheet": "tabla",
+              "column": "grupo",
+              "role": "group"
+            }
+          ],
+          "depends_on": []
+        },
+        {
+          "procedure": "group_comparison",
+          "method": "ANOVA de Welch global de `medida_a` según `grupo`.",
+          "variables": [
+            {
+              "file_id": "00000000-0000-0000-0000-000000000002",
+              "sheet": "tabla",
+              "column": "medida_a",
+              "role": "outcome"
+            },
+            {
+              "file_id": "00000000-0000-0000-0000-000000000002",
+              "sheet": "tabla",
+              "column": "grupo",
+              "role": "group"
+            }
+          ],
+          "depends_on": []
+        },
+        {
+          "procedure": "correlation",
+          "method": "Correlación de Pearson entre `medida_a` y `medida_b`.",
+          "variables": [
+            {
+              "file_id": "00000000-0000-0000-0000-000000000002",
+              "sheet": "tabla",
+              "column": "medida_a",
+              "role": "outcome"
+            },
+            {
+              "file_id": "00000000-0000-0000-0000-000000000002",
+              "sheet": "tabla",
+              "column": "medida_b",
+              "role": "predictor"
+            }
+          ],
+          "depends_on": []
+        }
+      ],
+      "statia_plan_validation": {
+        "passed": true
+      }
+    }
+  ],
+  "validations": {
+    "pydantic": true,
+    "scenario_m": false,
+    "statia_full": {
+      "passed": true
+    },
+    "recommendation_coverage": {
+      "passed": true
+    },
+    "methodology_all_plans": true
+  },
+  "assistant_response": "En **terra_sintetico.csv**, `medida_a` y `medida_b` están perfiladas como cuantitativas y `grupo` como categórica. `registro_id` es un identificador, no una medida de resultado. Los datos son sintéticos y no se informó un diseño de recolección.\n\nTe propongo cuatro alternativas diferenciadas: descripción, comparación global entre grupos, correlación y un análisis integral que reúne las anteriores. Las opciones inferenciales son tentativas: la independencia está pendiente de verificar revisando muestreo, repeticiones, pareamiento y conglomerados. No se han calculado resultados ni modificado los datos.\n\n¿Quieres elegir alguna propuesta para revisarla? Su aceptación y ejecución serían pasos posteriores.",
+  "warnings": [
+    "Los datos son sintéticos y no se informó un diseño de recolección.",
+    "La independencia es un supuesto pendiente de verificar; no se ha confirmado.",
+    "Las propuestas no contienen resultados calculados y requieren aceptación y ejecución posteriores."
+  ],
+  "questions": []
+}

@@ -1,0 +1,166 @@
+{
+  "date_lima": "2026-11-16",
+  "case": "I",
+  "branch": "test/preparar-terra-mi",
+  "metrics": {
+    "case": "I",
+    "model": "gpt-6.1-terra",
+    "reasoning_effort": "medium",
+    "max_output_tokens": 8000,
+    "result": "success",
+    "category": null,
+    "context_valid": true,
+    "schema_valid_locally": true,
+    "requests_attempted": 1,
+    "provider_http_status": 200,
+    "provider_status": "completed",
+    "tokens": {
+      "input": 6013,
+      "output": 1609,
+      "cached_input": 0,
+      "reasoning": 124,
+      "visible_output": 1485
+    },
+    "estimated_cost_usd": 0.014058,
+    "pricing": {
+      "input_usd_per_m": 1.0,
+      "output_usd_per_m": 5.0,
+      "cached_input_usd_per_m": 0.05,
+      "source_sha256": "ee1e2fa11b73ef5239a1c4eaa4f553f1c2c1a9611daf31ee6e9218f9f06c992a"
+    },
+    "cost_basis": "configured_rates",
+    "duration_seconds": 20.708,
+    "contract_valid": true,
+    "json_integrity_valid": true,
+    "statia_native_valid": true,
+    "request_valid": true,
+    "scenario_valid": true,
+    "proposal_count": 1,
+    "component_count": 2,
+    "evidence_response_saved": true,
+    "manual_review_required": true,
+    "context_sha256": "c3a3d29a633eb9939d911dd5898fa6f9246f4057daaac995a9e3fad5594ba01c",
+    "schema_sha256": "4998525628c02193116ad04503732dcd598ec1ed173d391b3a49ecad06636446",
+    "system_sha256": "3a1261d82a5a8718f886d3a90ae0202f836c5d91a6edf316458e21638e088a3d",
+    "payload_sha256": "cdc736000ff4ab14ab613f9e8284138d9499db00a3bcf943749bb8b070baca1b",
+    "assistant_reply_sha256": "2c509cd6ac8353e0c909719a301c302e2cfeb4c2f841e243eee9cb2173e375bc"
+  },
+  "original_response_in_repository": false,
+  "private_evidence_location": "%LOCALAPPDATA%/Statia/terra-evidence/I-20261117T010527Z-cb4b81191b80",
+  "original_assistant_reply_sha256": "2c509cd6ac8353e0c909719a301c302e2cfeb4c2f841e243eee9cb2173e375bc",
+  "original_bytes": 5777,
+  "original_wire_root_fields": 14,
+  "original_response_unmodified": true,
+  "full_offline_replay_passed": true,
+  "validations": {
+    "json_integrity": true,
+    "AssistantReply": true,
+    "statia_native": true,
+    "single_integral_proposal": true,
+    "distinct_component_families": 2,
+    "distinct_catalog_methods": 2,
+    "exact_file_sheet_columns": true,
+    "dependencies_valid": true,
+    "pending_inferential_independence": true,
+    "no_invented_numeric_results_detected": true,
+    "scenario_I": true
+  },
+  "plan_summary": {
+    "title": "Descripción y correlación exploratoria",
+    "procedure": "integral",
+    "objective": "Describir `medida_a` y `medida_b` en conjunto y según `grupo`, y explorar la relación entre ambas medidas.",
+    "justification": "Los resúmenes permiten conocer las distribuciones por grupo; Pearson permite explorar la asociación lineal entre las medidas cuantitativas.",
+    "shared_requirements": [
+      "Descriptiva: revisar el significado y las unidades de `medida_a` y `medida_b`, así como las categorías de `grupo` y los valores ausentes.",
+      "Correlación: revisar observaciones válidas en ambas medidas, forma de la relación y posibles valores atípicos.",
+      "Para la inferencia de Pearson, verificar la independencia con el diseño: muestreo, repeticiones, pareamiento y conglomerados; revisar también los supuestos distributivos pertinentes."
+    ],
+    "shared_limitations": [
+      "Los datos son sintéticos y no se informó un diseño de recolección; la independencia no está confirmada.",
+      "Pearson describe asociación lineal y puede verse afectada por valores atípicos; la asociación no implica causalidad.",
+      "La correlación global no establece cómo se comporta la relación dentro de cada `grupo`."
+    ],
+    "methodology_confirmed": false
+  },
+  "components": [
+    {
+      "index": 0,
+      "procedure": "descriptive",
+      "method": "Estadística descriptiva (`descriptive`) de `medida_a` y `medida_b`, globalmente y por `grupo`, y frecuencias de `grupo`.",
+      "variables": [
+        {
+          "column": "medida_a",
+          "role": "outcome",
+          "sheet": "tabla"
+        },
+        {
+          "column": "medida_b",
+          "role": "outcome",
+          "sheet": "tabla"
+        },
+        {
+          "column": "grupo",
+          "role": "group",
+          "sheet": "tabla"
+        }
+      ],
+      "catalog_codes": [
+        "descriptive"
+      ],
+      "catalog_family_compatible": true,
+      "depends_on_internal_default": [],
+      "independence_required": false
+    },
+    {
+      "index": 1,
+      "procedure": "correlation",
+      "method": "Correlación de Pearson (`pearson`) entre `medida_a` y `medida_b`.",
+      "variables": [
+        {
+          "column": "medida_a",
+          "role": "outcome",
+          "sheet": "tabla"
+        },
+        {
+          "column": "medida_b",
+          "role": "outcome",
+          "sheet": "tabla"
+        }
+      ],
+      "catalog_codes": [
+        "pearson"
+      ],
+      "catalog_family_compatible": true,
+      "depends_on_internal_default": [],
+      "independence_required": true
+    }
+  ],
+  "component_order": [
+    0,
+    1
+  ],
+  "component_field_note": "Justificación, requisitos y limitaciones pertenecen al Plan, no a AnalysisComponent; no se inventan campos por componente.",
+  "manual_review": {
+    "planning_validators": "passed",
+    "execution_readiness": "requires_output_scope_review",
+    "issues": [
+      {
+        "category": "execution_output_scope",
+        "detail": "El descriptivo promete resúmenes globales y por grupo, y frecuencias de grupo. Con role=group, describe() recorre niveles y omite la variable de agrupación; no añade simultáneamente resumen global ni frecuencias de esa agrupación.",
+        "source": "backend/app/services/statistics/procedures.py:56",
+        "action": "Revisar el alcance o la propuesta antes de una eventual ejecución. No se modifica el plan ni el motor en esta tarea."
+      }
+    ]
+  },
+  "acl_verified": "Only current user and SYSTEM; protected directory; same two identities on every evidence file",
+  "preflight": {
+    "provider_requests": 0,
+    "local_tests_passed": 241,
+    "diagnostic_tests_passed": 99,
+    "lint_format_compile_passed": true,
+    "real_acl_write_test_passed": true
+  },
+  "new_calls_after_live_generation": 0,
+  "statistical_computation_performed": false,
+  "diagnostic_sha256": "714afa347287fdf026215b9020f4dc039761196c059657930b29cd41e47b02f4"
+}
