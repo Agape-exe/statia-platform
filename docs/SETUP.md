@@ -1,5 +1,11 @@
 # Configuración local
 
+Sesión 5B: el [selector multiproveedor frontend](MULTIPROVIDER_FRONTEND.md) consulta
+la disponibilidad al backend y confirma el destinatario antes del cambio. No requiere
+nuevas variables frontend ni migraciones. Gemini conserva la creación rápida; Terra
+solo se selecciona si el catálogo lo habilita y configura. No colocar claves ni
+habilitación OpenAI/Terra en `VITE_*`; el control de producción las rechaza.
+
 Corrección focalizada P1 del PR #7: [productos inferenciales y conservación del alcance](PR07_P1_REPORT.md).
 No requiere nuevas migraciones ni habilita proveedores.
 

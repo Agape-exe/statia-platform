@@ -1,5 +1,12 @@
 # Arquitectura
 
+El [frontend multiproveedor de Sesión 5B](MULTIPROVIDER_FRONTEND.md) obtiene el catálogo
+desde `services/chat`, confirma el cambio y envía `expected_provider`. La selección
+local solo se confirma mediante respuestas del servidor; 409 recarga el detalle y un
+estado incierto bloquea operaciones hasta recuperarlo. La procedencia de cada mensaje
+se lee de su propia metadata, sin atribuirla al proveedor actual. Creación rápida y
+nuevas finalidades conservan Gemini; muestras/PDF mantienen sus decisiones existentes.
+
 La [integración multiproveedor de Sesión 5A](MULTIPROVIDER_BACKEND.md) añade
 `OpenAIProvider` (Responses API, Terra fijo, experimental y deshabilitado por defecto).
 `provider_runtime` conserva el protocolo, cuotas locales y métricas por turno;
