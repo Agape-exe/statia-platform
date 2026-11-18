@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Respon
 from pydantic import ValidationError
 
 from app.core.auth import CurrentUser
-from app.models.chat import AssistantReply, ConversationCreate, Decision, Plan, ProviderChange, Rename, Turn
+from app.models.chat import AssistantReply, ConversationCreate, Decision, FileRows, Plan, ProviderChange, Rename, Turn
 from app.services.providers import catalog, check_available, require_rollback_safety, session_for
 from app.services.plan_capabilities import descriptive_warnings
 from app.services.gemini import validate_reply
@@ -294,6 +294,22 @@ async def select_sheet(project_id: UUID, file_id: UUID, body: Rename, request: R
 async def get_profile(project_id: UUID, file_id: UUID, user: CurrentUser):
     await project_for(user, project_id)
     return (await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)}))['metadata']
+
+
+@router.get('/files/{file_id}/rows', response_model=FileRows, summary='Consultar una página de registros originales, sin enviar datos a IA')
+async def get_rows(project_id: UUID, file_id: UUID, request: Request, user: CurrentUser, response: Response,
+                   offset: int = Query(default=0, ge=0, le=20000), limit: int = Query(default=50, ge=1, le=100)):
+    from app.services.data_preview import preview_rows
+    await project_for(user, project_id)
+    file = await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)})
+    if file['file_role'] != 'dataset':
+        raise HTTPException(422, 'Los instrumentos PDF se consultan desde sus metadatos.')
+    settings = request.app.state.settings
+    async with request.app.state.profile_lock:
+        data = await user.store.download(file['storage_path'], max_bytes=settings.max_file_bytes)
+        page = await asyncio.to_thread(preview_rows, file, data, settings, offset, limit)
+    response.headers['Cache-Control'] = 'no-store'
+    return page
 
 
 @router.get('/files/{file_id}/download', summary='Descargar original con autorización del propietario y RLS')

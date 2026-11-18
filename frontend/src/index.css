@@ -1865,3 +1865,12 @@ summary {
   border-left: 3px solid #b7791f;
   padding-left: 0.6rem;
 }
+
+.original-cell {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.original-rows .table-scroll {
+  max-height: 420px;
+}

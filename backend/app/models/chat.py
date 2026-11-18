@@ -41,6 +41,16 @@ class Decision(StrictModel):
     status: Literal['accepted', 'rejected']
 
 
+class FileRows(StrictModel):
+    columns: list[str]
+    rows: list[list[str | None]]
+    offset: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    total_rows: int = Field(ge=0)
+    has_more: bool
+    sheet: str | None
+
+
 class Variable(StrictModel):
     file_id: str = Field(min_length=1, max_length=36)
     sheet: str = Field(min_length=1, max_length=120)

@@ -233,3 +233,13 @@ export const stageLabel: Record<Stage, string> = {
   proposal: 'Confirmación de propuestas',
   ready: 'Plan aceptado',
 }
+
+export interface DataPage {
+  columns: string[]
+  rows: (string | null)[][]
+  offset: number
+  limit: number
+  total_rows: number
+  has_more: boolean
+  sheet: string | null
+}

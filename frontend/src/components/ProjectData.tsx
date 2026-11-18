@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { chatService } from '../services/chat'
 import type { ProjectFile } from '../types/chat'
+import { DatasetRows } from './DatasetRows'
 import { DatasetCard } from './DatasetCard'
 import { Alert, Loading } from './ui'
 
@@ -10,6 +11,7 @@ export function ProjectData({ projectId }: { projectId: string }) {
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
+  const [rowsId, setRowsId] = useState<string | null>(null)
   const [opened, setOpened] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<Set<string>>(new Set())
   useEffect(() => {
@@ -21,6 +23,7 @@ export function ProjectData({ projectId }: { projectId: string }) {
         setFiles([...new Map(items.map((file) => [file.id, file])).values()])
         setLoaded(new Set())
         setOpened(null)
+        setRowsId(null)
         setError('')
       })
       .catch((err: unknown) => {
@@ -127,6 +130,18 @@ export function ProjectData({ projectId }: { projectId: string }) {
                   ? 'Ocultar metadatos y perfil'
                   : 'Consultar metadatos y perfil'}
             </button>
+            {file.file_role === 'dataset' && (
+              <button
+                className="btn secondary"
+                disabled={!!busy}
+                aria-expanded={rowsId === file.id}
+                onClick={() =>
+                  setRowsId((id) => (id === file.id ? null : file.id))
+                }
+              >
+                {rowsId === file.id ? 'Ocultar datos' : 'Ver datos'}
+              </button>
+            )}
             {opened !== file.id && (
               <button
                 className="btn secondary"
@@ -137,6 +152,9 @@ export function ProjectData({ projectId }: { projectId: string }) {
               </button>
             )}
           </div>
+          {rowsId === file.id && (
+            <DatasetRows key={file.id} projectId={projectId} file={file} />
+          )}
           {opened === file.id && (
             <DatasetCard
               file={file}
