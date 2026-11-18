@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = [
+    "app/services/variable_types.py",
+    "tests/test_session6.py",
     "tests/test_inferential_products.py",
     "tests/test_requested_scope.py",
     "app/services/requested_scope.py",
