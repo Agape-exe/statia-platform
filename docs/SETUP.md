@@ -105,6 +105,9 @@ El historial se puede plegar; en móvil/tablet abre un diálogo temporal. Enter 
 
 ### Diagnóstico general
 
+Para la última validación de Excel y planes descriptivos, consultar
+[hotfix final local](HOTFIX_FINAL_REPORT.md), con pruebas, límites y comandos de localhost.
+
 - Pantalla «Conecta tu espacio»: revisar nombres y ubicación de `frontend/.env.local`, URL y clave; reiniciar Vite.
 - Registro sin acceso inmediato: revisar correo, spam, requisitos de confirmación y Redirect URLs. Supabase limita envíos; esperar o configurar SMTP propio si hace falta.
 - Correo/contraseña incorrectos: confirmar correo, revisar proyecto configurado y credenciales; no desactivar seguridad.

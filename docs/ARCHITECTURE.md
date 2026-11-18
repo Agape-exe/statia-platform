@@ -176,3 +176,10 @@ procedencia inventada y guardado ambiguo en Contexto. Usa la misma corrección
 semántica acotada existente, no nuevos reintentos. No es un verificador científico
 exhaustivo de prosa. Los UUID de ejecución validados se distinguen de IDs de archivo;
 la presentación de un marcador legado no reescribe su mensaje histórico.
+
+El hotfix final muestra la selección pendiente de Excel directamente en el chat;
+conserva el único disparo existente de comprensión tras carga/selección.
+`descriptive_feasibility.py` anticipa en `validate_plan` los bloqueos descriptivos
+conocidos del perfil, tanto al generar como al aceptar. La cardinalidad de subconjuntos
+filtrados sigue validándose con datos reales durante preparación. No cambia el motor
+ni los planes históricos. Ver [validación y límites](HOTFIX_FINAL_REPORT.md).
