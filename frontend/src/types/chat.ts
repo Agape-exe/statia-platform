@@ -1,5 +1,24 @@
 import type { ExecutionPreparation } from './analysis'
 
+export type AssistantProviderId = 'gemini' | 'openai'
+export interface AssistantProvider {
+  id: AssistantProviderId
+  name: string
+  model: string
+  experimental: boolean
+  enabled: boolean
+  configured: boolean
+}
+export interface AssistantProviderCatalog {
+  default: AssistantProviderId
+  providers: AssistantProvider[]
+}
+export interface Generation {
+  provider?: AssistantProviderId
+  model?: string | null
+  source?: string
+}
+
 export type Stage =
   | 'reuse'
   | 'instrument'
@@ -12,6 +31,8 @@ export type Stage =
   | 'ready'
 export interface Conversation {
   id: string
+  assistant_provider: AssistantProviderId
+  active_request_id?: string | null
   project_id: string
   title: string
   primary_goal: string | null
@@ -43,6 +64,10 @@ export interface Message {
   content: string
   message_type: string
   metadata: {
+    selected_provider?: AssistantProviderId
+    generation?: Generation | null
+    source?: string
+    event?: string
     questions?: string[]
     warnings?: string[]
     request_id?: string
@@ -53,6 +78,7 @@ export interface Message {
     execution_request_id?: string
     execution_status?: string
   }
+  generation?: Generation | null
 }
 export interface Column {
   name: string

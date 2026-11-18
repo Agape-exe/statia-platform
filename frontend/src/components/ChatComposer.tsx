@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { LoaderCircle, Paperclip, Send } from 'lucide-react'
 import type { Turn } from '../types/chat'
+import { providerName } from '../lib/assistant-provider'
+import type { AssistantProviderId } from '../types/chat'
 
 export function ChatComposer({
   text,
@@ -10,6 +12,8 @@ export function ChatComposer({
   pending,
   samples,
   instrumentText,
+  provider,
+  retryConflict,
   onText,
   onSend,
   onFiles,
@@ -25,6 +29,8 @@ export function ChatComposer({
   pending: Turn | null
   samples: boolean
   instrumentText: boolean
+  provider: AssistantProviderId
+  retryConflict: boolean
   onText: (value: string) => void
   onSend: () => void
   onFiles: (files: File[]) => void
@@ -47,7 +53,26 @@ export function ChatComposer({
   useLayoutEffect(resize, [text])
   useEffect(() => {
     window.addEventListener('resize', resize)
-    return () => window.removeEventListener('resize', resize)
+    // El historial puede cambiar el ancho después del evento de ventana.
+    // Observar solo el ancho evita reaccionar a nuestra propia altura.
+    let width = -1
+    let frame = 0
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(([entry]) => {
+            if (entry && entry.contentRect.width !== width) {
+              width = entry.contentRect.width
+              cancelAnimationFrame(frame)
+              frame = requestAnimationFrame(resize)
+            }
+          })
+    if (textarea.current) observer?.observe(textarea.current)
+    return () => {
+      window.removeEventListener('resize', resize)
+      observer?.disconnect()
+      cancelAnimationFrame(frame)
+    }
   }, [])
   useEffect(() => {
     if (!busy && !disabled && !pending && returnFocus.current) {
@@ -75,13 +100,24 @@ export function ChatComposer({
     >
       {pending && !busy && (
         <div className="retry-turn" role="status">
-          Tu solicitud no se completó. Puedes reintentar sin duplicar el
-          mensaje.
+          {retryConflict
+            ? 'El reintento está en conflicto con el estado o la configuración del proveedor. Conserva la solicitud original o elige escribir una nueva; se usará otra clave de solicitud.'
+            : 'Tu solicitud no se completó. Puedes reintentar sin duplicar el mensaje.'}
           <div className="chat-actions">
-            <button type="button" className="btn secondary" onClick={onRetry}>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={disabled}
+              onClick={onRetry}
+            >
               Reintentar solicitud
             </button>
-            <button type="button" className="btn secondary" onClick={onDiscard}>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={disabled}
+              onClick={onDiscard}
+            >
               Escribir otra solicitud
             </button>
           </div>
@@ -161,7 +197,7 @@ export function ChatComposer({
       </div>
       <div className="composer-footer">
         <details className="privacy-options">
-          <summary>Información compartida con Gemini</summary>
+          <summary>Información compartida con {providerName(provider)}</summary>
           <div className="privacy-content">
             <p>
               Se envían mensajes y resúmenes de columnas. Evita información

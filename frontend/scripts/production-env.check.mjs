@@ -25,5 +25,8 @@ test('impide publicar con API local, valores ausentes, claves privadas o URLs co
     { VITE_SUPABASE_URL: 'https://user:pass@example.org' },
     { VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_valor_sintetico' },
     { VITE_GEMINI_API_KEY: 'valor_sintetico' },
+    { VITE_OPENAI_API_KEY: 'valor_sintetico' },
+    { VITE_TERRA_API_KEY: 'valor_sintetico' },
+    { VITE_OPENAI_TERRA_ENABLED: 'true' },
   ]) assert.notEqual(check(overrides).status, 0)
 })

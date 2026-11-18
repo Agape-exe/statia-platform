@@ -18,7 +18,7 @@ try {
 } catch { /* Las claves nuevas no son JWT. */ }
 if (!publicKey) throw new Error('VITE_SUPABASE_PUBLISHABLE_KEY debe ser publicable o anon.')
 for (const name of Object.keys(env).filter((name) => name.startsWith('VITE_'))) {
-  if (/secret|service_role|gemini|private|token|password/i.test(name) && name !== 'VITE_AUTH_MIN_PASSWORD_LENGTH') {
+  if (/secret|service_role|gemini|openai|terra|private|token|password/i.test(name) && name !== 'VITE_AUTH_MIN_PASSWORD_LENGTH') {
     throw new Error(`Retira la variable privada ${name} del frontend.`)
   }
 }
