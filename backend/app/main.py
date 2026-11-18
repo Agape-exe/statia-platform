@@ -20,6 +20,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.provider = GeminiProvider(settings)
     app.state.openai_provider = OpenAIProvider(settings)
+    app.state.file_upload_lock = asyncio.Lock()
     app.state.analysis_lock = asyncio.Semaphore(1)
     app.state.profile_lock = app.state.analysis_lock
     app.add_middleware(
@@ -34,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "X-Gemini-Status",
             "X-OpenAI-Status",
             "X-Statia-Validation",
+            "Retry-After",
         ],
     )
     app.include_router(router)

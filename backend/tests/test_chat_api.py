@@ -403,7 +403,7 @@ def test_upload_limits_same_names_download_and_xlsx_selection(api):
     path = new(client, store)
     first = attach_dataset(client, path)
     second = attach_dataset(client, path)
-    assert first != second and len(store.objects) == 2
+    assert first == second and len(store.objects) == 1
     root = f'/projects/{store.project_id}/files/'
     assert client.get(root + first + '/download').content.startswith(b'estudiante_id')
     assert client.get(root + first + '/profile').json()['profile']['row_count'] == 2
