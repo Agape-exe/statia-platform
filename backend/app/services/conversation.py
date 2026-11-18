@@ -177,7 +177,6 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         return reply_result(scope_question(scope), conversation, files=files, scope=scope)
     research = await current_context(store, project)
     context = build_context(project, conversation, messages, files, turn, settings, analysis_results, research)
-    context['confirmed_variable_types'] = data.get('confirmed_variable_types', [])
     if scope:
         # Compromisos del usuario, separados del texto generado por el proveedor.
         context['requested_scope'] = scope

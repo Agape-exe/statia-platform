@@ -208,6 +208,8 @@ def build_context(project, conversation, messages, files, turn, settings, analys
                             'content': redact(m['content'][:6000])} for m in messages[-18:]],
                'files': [], 'analysis_results': analysis_results or [],
                'execution_methods': [{'code': p.code, 'name': p.name, 'families': p.families, 'variables': p.variable_types} for p in CATALOG.values()]}
+    if conversation.get('stage_data', {}).get('confirmed_variable_types'):
+        context['confirmed_variable_types'] = conversation['stage_data']['confirmed_variable_types']
     for file in files:
         metadata = file['metadata']
         item = {'file_id': file['id'], 'file_name': redact(file.get('original_name', 'archivo de datos')), 'role': file['file_role'], 'sheets': metadata.get('sheets', []),
