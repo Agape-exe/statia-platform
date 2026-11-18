@@ -63,6 +63,11 @@ describe('contexto de tesis', () => {
       screen.getByRole('button', { name: 'Cargar importación para revisar' }),
     )
     expect(researchContextService.save).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(
+        'Contexto importado correctamente. Revisa los campos antes de guardar.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.getByLabelText('Título de investigación')).toHaveValue(
       'Estudio importado',
     )

@@ -31,15 +31,17 @@ export function DatasetCard({
   busy,
   onSheet,
   onDownload,
+  expanded,
 }: {
   file: ProjectFile
   busy: boolean
-  onSheet: (sheet: string) => void
+  onSheet?: (sheet: string) => void
+  expanded?: boolean
   onDownload: () => void
 }) {
   const { profile } = file.metadata
   return (
-    <details className="dataset-card">
+    <details className="dataset-card" open={expanded || undefined}>
       <summary>
         {file.original_name}{' '}
         <span className="muted">
@@ -47,7 +49,9 @@ export function DatasetCard({
             ? 'Instrumento PDF'
             : profile
               ? `${profile.row_count} filas · ${profile.column_count} columnas`
-              : 'Selecciona una hoja'}
+              : file.metadata.needs_sheet_selection
+                ? 'Hoja pendiente de selección en el asistente'
+                : 'Perfil no disponible'}
         </span>
       </summary>
       <div className="dataset-body">
@@ -59,10 +63,10 @@ export function DatasetCard({
           {file.metadata.selected_sheet
             ? `Hoja: ${file.metadata.selected_sheet}`
             : file.metadata.pages
-              ? `${file.metadata.pages} páginas`
+              ? `${file.metadata.pages} ${file.metadata.pages === 1 ? 'página' : 'páginas'}`
               : ''}
         </p>
-        {file.metadata.needs_sheet_selection && (
+        {file.metadata.needs_sheet_selection && onSheet && (
           <label>
             Hoja de {file.original_name}
             <select
@@ -80,6 +84,16 @@ export function DatasetCard({
               ))}
             </select>
           </label>
+        )}
+        {file.file_role === 'instrument' && file.metadata.text_excerpt && (
+          <details>
+            <summary>Texto extraído del instrumento</summary>
+            <p className="instrument-excerpt">{file.metadata.text_excerpt}</p>
+            <p className="muted">
+              Compartir extractos con el proveedor requiere habilitarlo
+              explícitamente en el asistente.
+            </p>
+          </details>
         )}
         {profile && (
           <>
@@ -107,6 +121,18 @@ export function DatasetCard({
               implica conversión manual. El significado semántico sigue
               pendiente de confirmar.
             </p>
+            {profile.columns.some(
+              (c) =>
+                c.physical_type === 'numeric' &&
+                c.statistical_type === 'categorical_or_ordinal' &&
+                !c.possible_identifier,
+            ) && (
+              <p className="notice">
+                Para una medida numérica ambigua, confirma su significado en el
+                chat escribiendo: «Confirmo que `nombre_columna` es cuantitativa
+                discreta» o «continua». Se conserva el perfil original.
+              </p>
+            )}
             <div className="table-scroll">
               <table>
                 <caption>Perfil de columnas de {file.original_name}</caption>

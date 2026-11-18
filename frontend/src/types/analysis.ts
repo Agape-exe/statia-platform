@@ -160,6 +160,7 @@ export interface ComponentResult {
   statistics: Record<string, JsonValue>
   assumptions: {
     name: string
+    origin?: 'user' | 'verified' | 'pending' | null
     status: 'evaluated' | 'pending' | 'violated' | 'not_applicable'
     detail: string
   }[]

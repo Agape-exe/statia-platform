@@ -930,3 +930,37 @@ describe('compositor y navegación accesibles', () => {
     ).toBeInTheDocument()
   })
 })
+
+it('muestra la etapa actual de aclaración en presencia de una ejecución histórica completada', async () => {
+  detail.conversation.current_stage = 'clarification'
+  detail.latest_analysis_run = {
+    id: 'historico',
+    proposal_id: 'anterior',
+    status: 'completed',
+  }
+  chat()
+  expect((await screen.findAllByText('Aclaraciones')).length).toBeGreaterThan(0)
+  expect(screen.queryByText('Análisis completado')).not.toBeInTheDocument()
+})
+
+it('un plan recién aceptado conserva su estado aunque exista una ejecución anterior de otro plan', async () => {
+  detail.conversation.current_stage = 'ready'
+  detail.latest_analysis_run = {
+    id: 'historico',
+    proposal_id: 'anterior',
+    status: 'completed',
+  }
+  detail.messages.push({
+    id: 'decision',
+    position: 2,
+    role: 'system',
+    content: 'Plan aceptado.',
+    message_type: 'event',
+    metadata: { proposal_id: 'nuevo', status: 'accepted' },
+  })
+  chat()
+  expect((await screen.findAllByText('Plan aceptado')).length).toBeGreaterThan(
+    0,
+  )
+  expect(screen.queryByText('Análisis completado')).not.toBeInTheDocument()
+})

@@ -275,13 +275,13 @@ export function ExecutionPreparationCard({
         ))}
         <ul>
           {preparation.evidence.map((item, i) => (
-            <li key={i}>
+            <li key={i} className={`evidence-${item.origin}`}>
               <strong>{evidenceSubject(item.subject)}</strong> (
               {
                 {
-                  verified: 'verificado',
+                  verified: 'verificación automática',
                   inferred: 'decisión automática',
-                  user: 'confirmado por ti',
+                  user: 'confirmación del investigador',
                 }[item.origin]
               }
               ): {item.detail}

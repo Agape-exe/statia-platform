@@ -27,12 +27,20 @@ async def get_context(project_id: UUID, user: CurrentUser):
 @router.put("")
 async def save_context(project_id: UUID, body: ContextSave, user: CurrentUser):
     await thesis_project(user, project_id)
-    row = await user.store.rpc(
-        "save_research_context",
-        {
-            "p_project": str(project_id),
-            "p_document": body.document.model_dump(mode="json"),
-            "p_expected_revision": body.expected_revision,
-        },
-    )
+    try:
+        row = await user.store.rpc(
+            "save_research_context",
+            {
+                "p_project": str(project_id),
+                "p_document": body.document.model_dump(mode="json"),
+                "p_expected_revision": body.expected_revision,
+            },
+        )
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            raise HTTPException(
+                409,
+                "La versión guardada del Contexto cambió. Revisa esa versión antes de volver a guardar; tu borrador se conserva.",
+            ) from None
+        raise
     return {"context": {key: row[key] for key in ("document", "revision", "updated_at")}}

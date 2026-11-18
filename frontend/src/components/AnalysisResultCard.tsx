@@ -339,9 +339,22 @@ export function AnalysisResultCard({
                     <summary>Supuestos y advertencias</summary>
                     <ul>
                       {component.assumptions.map((a, i) => (
-                        <li key={i}>
+                        <li
+                          key={i}
+                          className={
+                            a.origin === 'user'
+                              ? 'evidence-user'
+                              : `assumption-${a.status}`
+                          }
+                        >
                           <strong>
-                            {a.name}: {assumptionStatus[a.status]}.
+                            {a.name}:{' '}
+                            {a.origin === 'user'
+                              ? 'confirmación del investigador'
+                              : a.origin === 'verified'
+                                ? 'verificación automática'
+                                : assumptionStatus[a.status]}
+                            .
                           </strong>{' '}
                           {a.detail}
                         </li>

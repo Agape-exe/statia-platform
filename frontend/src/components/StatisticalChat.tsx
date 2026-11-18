@@ -29,6 +29,7 @@ import {
 } from '../types/chat'
 import { Alert, Loading } from './ui'
 import { Modal } from './Modal'
+import { ChatMarkdown } from './ChatMarkdown'
 import { DatasetCard } from './DatasetCard'
 import { ComponentStates } from './ComponentStates'
 import { ProposalCard } from './ProposalCard'
@@ -360,6 +361,22 @@ export function StatisticalChat({ project }: { project: Project }) {
       }),
     )
   const disabled = busy || opening || providerUncertain
+  const headingRun = latestRun || detail?.latest_analysis_run
+  const lastAcceptance = [...(detail?.messages || [])]
+    .reverse()
+    .find((message) => message.metadata.status === 'accepted')
+  const preparationPending =
+    !!conversation?.stage_data.execution_preparation &&
+    ['NEEDS_CLARIFICATION', 'BLOCKED_UNCERTAINTY', 'PARTIALLY_READY'].includes(
+      conversation.stage_data.execution_preparation.result.status,
+    )
+  const showRunStatus =
+    headingRun?.status === 'running' ||
+    (conversation?.current_stage === 'ready' &&
+      !!headingRun &&
+      !preparationPending &&
+      (!lastAcceptance ||
+        lastAcceptance.metadata.proposal_id === headingRun.proposal_id))
   const selectedProvider = conversation?.assistant_provider ?? 'gemini'
   const providerBlocked =
     disabled ||
@@ -711,7 +728,7 @@ export function StatisticalChat({ project }: { project: Project }) {
               <div>
                 <h2>{visible(conversation.title)}</h2>
                 <small>
-                  {latestRun || detail.latest_analysis_run
+                  {showRunStatus
                     ? {
                         running: 'Calculando',
                         partial: 'Análisis parcialmente completado',
@@ -898,7 +915,13 @@ export function StatisticalChat({ project }: { project: Project }) {
                             {messageProvenance(message)}
                           </small>
                         )}
-                        <p>{visible(message.content)}</p>
+                        {message.role === 'assistant' ? (
+                          <ChatMarkdown>
+                            {visible(message.content)}
+                          </ChatMarkdown>
+                        ) : (
+                          <p>{visible(message.content)}</p>
+                        )}
                         {!!message.metadata.questions?.length && (
                           <ul>
                             {message.metadata.questions.map((question, i) => (
@@ -1087,7 +1110,10 @@ export function StatisticalChat({ project }: { project: Project }) {
                       }
                       onClick={() => send('files_ready')}
                     >
-                      Comprender archivos con {providerName(selectedProvider)}
+                      {conversation.stage_data.context_summary
+                        ? 'Volver a comprender archivos con '
+                        : 'Comprender archivos con '}
+                      {providerName(selectedProvider)}
                     </button>
                   )}
                 {conversation.stage_data.awaiting_reuse_update && (

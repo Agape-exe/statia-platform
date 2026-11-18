@@ -92,6 +92,20 @@ export function ProposalCard({
           ))}
         </details>
       )}
+      {!!plan.type_confirmations?.length && (
+        <div className="notice">
+          <strong>Confirmación del investigador</strong>
+          {plan.type_confirmations.map((decision) => (
+            <p key={`${decision.variable.file_id}:${decision.variable.column}`}>
+              {decision.variable.column}: cuantitativa{' '}
+              {decision.statistical_type === 'discrete'
+                ? 'discreta'
+                : 'continua'}
+              . El perfil original se conserva.
+            </p>
+          ))}
+        </div>
+      )}
       {comparison && (
         <details>
           <summary>Alcance y decisiones metodológicas</summary>

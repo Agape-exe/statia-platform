@@ -130,9 +130,14 @@ export function AnalysisResults({ projectId }: { projectId: string }) {
               </div>
               <button
                 className="btn secondary"
-                onClick={() => setParams({ run: item.id })}
+                aria-expanded={selected === item.id}
+                onClick={() =>
+                  setParams(selected === item.id ? {} : { run: item.id })
+                }
               >
-                Consultar y descargar
+                {selected === item.id
+                  ? 'Ocultar detalle'
+                  : 'Consultar y descargar'}
               </button>
             </article>
           ))}

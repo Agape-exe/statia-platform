@@ -58,6 +58,10 @@ export const chatService = {
       body: JSON.stringify(turn),
     }),
   files: (projectId: string) => api<ProjectFile[]>(`${base(projectId)}/files`),
+  profile: (projectId: string, id: string) =>
+    api<ProjectFile['metadata']>(
+      `${base(projectId)}/files/${encodeURIComponent(id)}/profile`,
+    ),
   upload: (projectId: string, id: string, file: File, role: string) => {
     const form = new FormData()
     form.append('file', file)
