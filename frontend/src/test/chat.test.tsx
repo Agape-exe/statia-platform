@@ -711,6 +711,60 @@ describe('chat persistente y acciones', () => {
 })
 
 describe('compositor y navegación accesibles', () => {
+  it('recupera la altura compacta tras cambiar el ancho sin perder el borrador ni enviar', async () => {
+    let notify!: (width: number) => void
+    vi.stubGlobal(
+      'ResizeObserver',
+      class implements ResizeObserver {
+        callback: ResizeObserverCallback
+        constructor(callback: ResizeObserverCallback) {
+          this.callback = callback
+        }
+        observe(target: Element) {
+          if (target instanceof HTMLTextAreaElement) {
+            notify = (width) =>
+              this.callback(
+                [
+                  {
+                    target,
+                    contentRect: new DOMRect(0, 0, width, 0),
+                    borderBoxSize: [],
+                    contentBoxSize: [],
+                    devicePixelContentBoxSize: [],
+                  },
+                ],
+                this,
+              )
+          }
+        }
+        disconnect() {}
+        unobserve() {}
+      },
+    )
+    const view = chat()
+    try {
+      const input = await screen.findByRole('textbox', {
+        name: 'Mensaje para Statia',
+      })
+      await userEvent.type(input, 'Borrador conservado')
+      let height = 158
+      Object.defineProperty(input, 'scrollHeight', {
+        configurable: true,
+        get: () => height,
+      })
+      act(() => notify(80))
+      await waitFor(() => expect(input).toHaveStyle({ height: '160px' }))
+      // El panel termina de redistribuirse sin otro evento de ventana.
+      height = 43
+      act(() => notify(264))
+      await waitFor(() => expect(input).toHaveStyle({ height: '45px' }))
+      expect(input).toHaveValue('Borrador conservado')
+      expect(chatService.turn).not.toHaveBeenCalled()
+    } finally {
+      view.unmount()
+      vi.unstubAllGlobals()
+    }
+  })
   it('Enter envía una sola vez, conserva el foco y bloquea envíos durante la solicitud', async () => {
     let finish!: (value: { status: string }) => void
     vi.mocked(chatService.turn).mockImplementation(

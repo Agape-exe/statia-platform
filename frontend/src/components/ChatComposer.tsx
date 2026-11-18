@@ -53,7 +53,26 @@ export function ChatComposer({
   useLayoutEffect(resize, [text])
   useEffect(() => {
     window.addEventListener('resize', resize)
-    return () => window.removeEventListener('resize', resize)
+    // El historial puede cambiar el ancho después del evento de ventana.
+    // Observar solo el ancho evita reaccionar a nuestra propia altura.
+    let width = -1
+    let frame = 0
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(([entry]) => {
+            if (entry && entry.contentRect.width !== width) {
+              width = entry.contentRect.width
+              cancelAnimationFrame(frame)
+              frame = requestAnimationFrame(resize)
+            }
+          })
+    if (textarea.current) observer?.observe(textarea.current)
+    return () => {
+      window.removeEventListener('resize', resize)
+      observer?.disconnect()
+      cancelAnimationFrame(frame)
+    }
   }, [])
   useEffect(() => {
     if (!busy && !disabled && !pending && returnFocus.current) {
