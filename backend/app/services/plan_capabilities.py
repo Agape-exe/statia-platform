@@ -1,9 +1,10 @@
-"""Catálogo finito de productos descriptivos: la prosa desconocida no acredita cobertura.
+"""Productos verificables contra el catálogo del motor y el alcance de cada componente.
 
 Plan v1 conserva expected_outputs íntegro. Alias genéricos históricos significan solo
 los productos por defecto del componente, nunca resúmenes globales adicionales.
 """
 
+import re
 import unicodedata
 
 from app.services.planning_errors import PlanningError
@@ -12,6 +13,10 @@ PRODUCT_INSTRUCTIONS = """
 Para productos descriptivos en expected_outputs usa el catálogo verificable:
 «Resúmenes globales», «Resúmenes por grupo», «Frecuencias categóricas»,
 «Frecuencias categóricas por grupo», «Frecuencias de la variable de agrupación».
+Los productos inferenciales incluyen «Valores p», «Coeficientes de correlación»,
+«Intervalo de confianza para Pearson» y «Comparaciones post hoc», únicamente si
+el catálogo del motor y las opciones confirmadas los permiten. Para vincular un
+producto a un componente usa «Componente N: producto» (N empieza en 1).
 Cada producto debe quedar cubierto por los componentes para todas sus variables
 pertinentes. Un único descriptivo con role=group no produce resumen global ni
 frecuencias del agrupador. Declara componentes separados para cubrirlos, sin unir
@@ -53,6 +58,15 @@ OUTPUTS = {
     "tablas descriptivas sin intervalos de confianza": ("no_intervals",),
     "intervalo de confianza para pearson": ("pearson_interval",),
     "informes consolidados de descriptivos, correlacion y comparacion": ("combined_report",),
+    "valores p": ("p_value",),
+    "valor p": ("p_value",),
+    "coeficientes de correlacion": ("correlation_coefficient",),
+    "coeficiente de correlacion": ("correlation_coefficient",),
+    "comparaciones post hoc": ("posthoc",),
+    "matriz o coeficientes de correlacion": ("correlation_coefficient",),
+    "estadistico de prueba global": ("global_test",),
+    "medias por grupo": ("group_means",),
+    "estimacion del cambio con incertidumbre": ("paired_change_interval",),
 }
 DESCRIPTIVE = {"descriptive", "exploratory"}
 
@@ -116,40 +130,175 @@ def product_coverage(plan, files=None, decisions=None):
     return descriptive, groups, measures, categories, covered
 
 
+def output_request(text):
+    """Gramática finita; una referencia libre a un componente necesita aclaración."""
+    literal = normalized(text)
+    binding = re.fullmatch(r"componente ([1-4]):\s*(.+)", literal)
+    return (int(binding[1]) - 1, binding[2]) if binding else (None, literal)
+
+
+def component_plan(plan, index):
+    if index is None:
+        return plan
+    steps = plan.components if plan.procedure == "integral" else [plan]
+    if index >= len(steps):
+        raise PlanningError("output_capability", "El producto menciona un componente inexistente.")
+    source = steps[index]
+    return plan.model_copy(update={"procedure": source.procedure, "variables": source.variables, "components": []})
+
+
+def executable_product(source, method, files, decisions, execution):
+    """Viabilidad estructural; preparación/ejecución revalidan datos y diseño reales.
+
+    Aquí no se calculan estadísticos ni se acredita una opción pendiente. Antes de
+    ejecución se acredita la capacidad del método expresamente propuesto; después
+    se exige el método seleccionado y sus opciones. No implica READY.
+    """
+    from app.services.statistics.catalog import CATALOG
+    from app.services.statistics.preparation import (
+        CATEGORICAL,
+        INDEPENDENT_GROUPS,
+        QUANTITATIVE,
+    )
+
+    if source.procedure not in CATALOG[method].families:
+        return False
+    if len({(v.file_id, v.sheet) for v in source.variables}) != 1:
+        return False
+    types = {key(d.variable): d.statistical_type for d in decisions or []}
+    if decisions is None:
+        types = {
+            (f["id"], f["metadata"].get("selected_sheet"), c["name"]): "continuous"
+            if c.get("statistical_type") == "quantitative"
+            else "nominal"
+            if c.get("statistical_type") in {"categorical", "categorical_or_ordinal"}
+            else None
+            for f in files or []
+            for c in f["metadata"].get("profile", {}).get("columns", [])
+            if not c.get("possible_identifier") and not c.get("possible_temporal")
+        }
+    measures = [v for v in source.variables if v.role not in {"group", "time", "pair_id"}]
+    outcomes = [v for v in source.variables if v.role == "outcome"]
+    groups = [v for v in source.variables if v.role == "group"]
+    if method in {"pearson", "spearman"}:
+        allowed = QUANTITATIVE | ({"ordinal"} if method == "spearman" else set())
+        valid = 2 <= len(measures) <= 8 and all(types.get(key(v)) in allowed for v in measures)
+    elif method in INDEPENDENT_GROUPS:
+        allowed = QUANTITATIVE | ({"ordinal"} if method in {"mann_whitney", "kruskal"} else set())
+        valid = len(outcomes) == len(groups) == 1 and all(types.get(key(v)) in allowed for v in outcomes)
+    elif method in {"paired_t", "wilcoxon"}:
+        valid = len(outcomes) == 2 and sum(v.role == "pair_id" for v in source.variables) == 1
+        valid = valid and all(types.get(key(v)) in QUANTITATIVE for v in outcomes)
+    elif method in {"chi_square", "fisher_exact"}:
+        valid = len(source.variables) == 2 and all(types.get(key(v)) in CATEGORICAL for v in source.variables)
+    else:
+        valid = method == "descriptive"
+    if execution and method != "descriptive":
+        valid = valid and execution.design == ("paired" if method in {"paired_t", "wilcoxon"} else "independent")
+        if method in {"student_t", "anova"}:
+            valid = valid and execution.equal_variances_confirmed
+    return valid
+
+
+def supports_inference(plan, kind, binding, files, decisions, execution_components):
+    from app.services.statistics.catalog import CATALOG
+    from app.services.statistics.methods import named_methods, supported_request
+
+    steps = plan.components if plan.procedure == "integral" else [plan]
+    selected = {c.source_index: c for c in execution_components or []}
+    for index, source in enumerate(steps):
+        if binding is not None and binding != index:
+            continue
+        if not supported_request(source):
+            continue
+        named = named_methods(source)
+        if not named and source.procedure == "correlation" and "correlacion" in normalized(source.method):
+            # La familia histórica genérica puede acreditar únicamente productos
+            # comunes a todos sus métodos; la preparación sigue exigiendo elegir.
+            named = {code for code, entry in CATALOG.items() if source.procedure in entry.families}
+        execution = selected.get(index)
+        if execution_components is not None:
+            if execution is None or not set(getattr(source, "depends_on", [])) <= selected.keys():
+                continue
+            method = execution.method
+            if named and method not in named:
+                continue
+        elif named:
+            # Una alternativa de método no impide un producto común a TODOS
+            # sus métodos. No acredita un IC u opción que solo uno produciría.
+            if all(
+                kind in CATALOG[m].output_products and executable_product(source, m, files, decisions, None)
+                for m in named
+            ):
+                if kind != "posthoc":
+                    return True
+            continue
+        else:
+            continue  # No escoger arbitrariamente un método pendiente del plan.
+        if kind not in CATALOG[method].output_products:
+            continue
+        if kind == "posthoc" and (execution is None or execution.posthoc != "welch_holm"):
+            continue  # El texto del modelo no activa una opción de ejecución.
+        if executable_product(source, method, files, decisions, execution):
+            return True
+    return False
+
+
 def validate_products(plan, files=None, decisions=None, execution_components=None):
-    descriptive, groups, measures, categories, covered = product_coverage(plan, files, decisions)
-    if not descriptive:
-        return  # Las restricciones inferenciales permanecen en sus validadores específicos.
     for index, text in enumerate(plan.expected_outputs):
-        literal = normalized(text)
+        binding, literal = output_request(text)
+        scoped = component_plan(plan, binding)
+        descriptive, groups, measures, categories, covered = product_coverage(scoped, files, decisions)
         if literal in DEFAULT_OUTPUTS:
             continue
         kinds = OUTPUTS.get(literal)
         if kinds is None:
             raise PlanningError(
                 "output_scope",
-                f"El producto esperado {index + 1} no tiene un alcance descriptivo verificable. "
+                f"El producto esperado {index + 1} no tiene un alcance verificable. "
                 "Aclara el alcance y solicita una propuesta revisada con productos del catálogo: "
                 "Resúmenes globales; Resúmenes por grupo; Frecuencias categóricas; "
-                "Frecuencias categóricas por grupo; Frecuencias de la variable de agrupación. "
+                "Frecuencias categóricas por grupo; Frecuencias de la variable de agrupación; "
+                "Valores p; Coeficientes de correlación. "
                 "El plan original se conserva y no se recortan productos automáticamente.",
             )
         for kind in kinds:
-            if kind in {"mean_interval", "no_intervals", "pearson_interval", "combined_report"}:
-                steps = plan.components if plan.procedure == "integral" else [plan]
+            if kind in {
+                "p_value",
+                "correlation_coefficient",
+                "pearson_interval",
+                "posthoc",
+                "global_test",
+                "group_means",
+                "paired_change_interval",
+            }:
+                if not supports_inference(plan, kind, binding, files, decisions, execution_components):
+                    raise PlanningError(
+                        "output_capability",
+                        f"El producto esperado {index + 1} no tiene un componente ejecutable que lo produzca "
+                        "con el método y las opciones definidos. Aclara las decisiones pendientes sin sustituir el producto.",
+                    )
+                continue
+            if kind in {"mean_interval", "no_intervals", "combined_report"}:
                 if kind == "combined_report":
-                    valid = {"correlation", "group_comparison"} <= {s.procedure for s in steps}
-                elif kind == "pearson_interval":
-                    from app.services.statistics.methods import named_methods
-
-                    valid = any(s.procedure == "correlation" and named_methods(s) == {"pearson"} for s in steps)
+                    valid = bool(descriptive) and all(
+                        supports_inference(plan, product, binding, files, decisions, execution_components)
+                        for product in ("correlation_coefficient", "group_means")
+                    )
                 elif execution_components is not None:
-                    descriptive_indexes = {i for i, s in enumerate(steps) if s.procedure in DESCRIPTIVE}
+                    all_steps = plan.components if plan.procedure == "integral" else [plan]
+                    descriptive_indexes = {
+                        i
+                        for i, s in enumerate(all_steps)
+                        if s.procedure in DESCRIPTIVE and (binding is None or binding == i)
+                    }
                     flags = [
                         c.descriptive_intervals for c in execution_components if c.source_index in descriptive_indexes
                     ]
                     # Una revisión parcial sin este descriptivo no cambia sus decisiones.
-                    valid = all(flags) if kind == "mean_interval" else not any(flags)
+                    valid = (
+                        bool(flags) and all(flags) if kind == "mean_interval" else bool(descriptive) and not any(flags)
+                    )
                 else:
                     valid = bool(descriptive)
                 if kind == "mean_interval":
@@ -163,7 +312,7 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                             for c in f["metadata"].get("profile", {}).get("columns", [])
                             if c.get("statistical_type") == "quantitative"
                         }
-                    quantitative &= {key(v) for v in plan.variables}
+                    quantitative &= {key(v) for v in scoped.variables}
                     valid = (
                         valid
                         and bool(quantitative)

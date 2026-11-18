@@ -1,7 +1,7 @@
 from app.models.analysis import ProcedureInfo
 
 
-def entry(code, name, families, types, design, groups, assumptions, statistics, effects, limitations):
+def entry(code, name, families, types, design, groups, assumptions, statistics, effects, limitations, products):
     return ProcedureInfo(
         code=code,
         name=name,
@@ -14,6 +14,7 @@ def entry(code, name, families, types, design, groups, assumptions, statistics, 
         statistics=statistics,
         effects=effects,
         limitations=limitations,
+        output_products=products,
     )
 
 
@@ -43,6 +44,7 @@ CATALOG = {
             ],
             [],
             ["Sin IC de media para ordinales ni variables constantes; máximo 100 categorías."],
+            ["global", "grouped", "frequencies", "grouped_frequencies", "mean_interval"],
         ),
         entry(
             "pearson",
@@ -55,6 +57,7 @@ CATALOG = {
             ["r", "p", "n por pareja", "IC Fisher z"],
             ["r"],
             ["IC solo con n > 3; no implica causalidad."],
+            ["p_value", "correlation_coefficient", "pearson_interval"],
         ),
         entry(
             "spearman",
@@ -67,6 +70,7 @@ CATALOG = {
             ["rho", "p asintótico", "n por pareja"],
             ["rho"],
             ["Sin IC; p asintótico poco preciso con n <= 500 y empates."],
+            ["p_value", "correlation_coefficient"],
         ),
         entry(
             "student_t",
@@ -79,6 +83,7 @@ CATALOG = {
             ["t", "gl", "p", "IC diferencia"],
             ["diferencia", "d de Cohen (SD combinada)", "g de Hedges (J exacto)"],
             ["Sin IC de d/g."],
+            ["p_value", "group_means"],
         ),
         entry(
             "welch_t",
@@ -91,6 +96,7 @@ CATALOG = {
             ["t", "gl Welch–Satterthwaite", "p", "IC diferencia"],
             ["diferencia", "d de Cohen (SD combinada)", "g de Hedges (J exacto)"],
             ["SD combinada es un estandarizador descriptivo con heterocedasticidad; sin IC de d/g."],
+            ["p_value", "group_means"],
         ),
         entry(
             "anova",
@@ -103,6 +109,7 @@ CATALOG = {
             ["F", "gl entre y dentro", "p"],
             ["eta cuadrado clásico"],
             ["Sin IC de eta cuadrado; comparaciones Welch-Holm opcionales preespecificadas."],
+            ["p_value", "posthoc", "global_test", "group_means"],
         ),
         entry(
             "welch_anova",
@@ -115,6 +122,7 @@ CATALOG = {
             ["F Welch", "gl corregidos", "p"],
             [],
             ["Efecto global e IC no implementados para Welch; comparaciones Welch-Holm opcionales preespecificadas."],
+            ["p_value", "posthoc", "global_test", "group_means"],
         ),
         entry(
             "paired_t",
@@ -127,6 +135,7 @@ CATALOG = {
             ["t", "gl n−1", "p", "IC media de diferencias"],
             ["diferencia de medias", "d_z"],
             ["Sin IC de d_z; no empareja archivos ni filas arbitrariamente."],
+            ["p_value", "paired_change_interval"],
         ),
         entry(
             "mann_whitney",
@@ -139,6 +148,7 @@ CATALOG = {
             ["U del grupo 1", "p asintótico bilateral con corrección de continuidad/empates"],
             ["Correlación biserial de rangos"],
             ["Sin IC; p aproximado poco fiable en muestras pequeñas; no es una prueba universal de medianas."],
+            ["p_value"],
         ),
         entry(
             "wilcoxon",
@@ -151,6 +161,7 @@ CATALOG = {
             ["W bilateral", "p asintótico con corrección de continuidad", "ceros excluidos del contraste"],
             [],
             ["Sin IC ni efecto estandarizado; requiere al menos 10 diferencias no nulas; zero_method=wilcox."],
+            ["p_value"],
         ),
         entry(
             "kruskal",
@@ -163,6 +174,7 @@ CATALOG = {
             ["H corregido por empates", "gl k−1", "p asintótico"],
             [],
             ["Sin efecto global, IC ni post-hoc de rangos; grupos pequeños limitan la aproximación."],
+            ["p_value"],
         ),
         entry(
             "chi_square",
@@ -175,6 +187,7 @@ CATALOG = {
             ["chi2 Pearson sin Yates", "gl", "p", "frecuencias observadas y esperadas"],
             ["V de Cramér convencional"],
             ["Sin IC de V; aproximación no fiable con esperadas pequeñas. Fisher es alternativa explícita para 2×2."],
+            ["p_value"],
         ),
         entry(
             "fisher_exact",
@@ -187,6 +200,7 @@ CATALOG = {
             ["p exacto bilateral", "odds ratio de producto cruzado si está definido"],
             [],
             ["Sin IC de odds ratio; no se extiende a tablas mayores."],
+            ["p_value"],
         ),
     ]
 }

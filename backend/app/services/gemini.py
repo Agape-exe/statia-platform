@@ -357,13 +357,13 @@ def validate_plan(plan, files, project, context=None):
     columns = [column_for(v) for v in plan.variables]
     validate_objective_columns(plan, known, context)
     validate_methodology(plan, column_for, context)
-    from app.services.plan_capabilities import validate_products
-    validate_products(plan, files)
     tables = {(v.file_id, v.sheet) for v in plan.variables}
     if len(tables) > 1 and plan.procedure not in ('descriptive', 'exploratory') and not plan.joins:
         raise PlanningError('cross_table_relation', 'El análisis conjunto de tablas requiere una relación explícita justificada y confirmada. Puedes proponer exploraciones independientes.')
     if project['project_type'] == 'thesis' and not plan.methodology_confirmed:
         raise PlanningError('essential_clarification', 'Solicita las aclaraciones metodológicas antes de proponer un plan de tesis.')
+    from app.services.plan_capabilities import validate_products
+    validate_products(plan, files)
     if plan.procedure == 'correlation' and sum(c['physical_type'] == 'numeric' and not c['possible_identifier'] for c in columns) < 2:
         raise PlanningError('variable_type', 'La correlación requiere al menos dos variables numéricas que no sean identificadores.')
     if plan.procedure in ('group_comparison', 'paired_comparison'):

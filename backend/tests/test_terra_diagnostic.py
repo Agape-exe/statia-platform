@@ -543,14 +543,12 @@ def test_saved_live_plans_preserve_evidence_and_unverified_outputs_require_scope
         fields = {key: value for key, value in item.items() if key in Plan.model_fields}
         fields["requirements"] = item["pending_assumptions"]
         source = Plan.model_validate(fields)
-        if source.procedure in {"descriptive", "integral"}:
-            # La independencia corregida no acredita productos descriptivos sin alcance.
-            # Conservar originales/hashes y comprobar el nuevo bloqueo, sin adaptar el plan.
-            with pytest.raises(PlanningError) as output_error:
-                validate_local_plan(case, source)
-            assert output_error.value.category in {"output_scope", "output_capability"}
-        else:
+        # La independencia corregida no acredita productos de texto libre, tampoco
+        # en inferenciales. No reinterpretar los condicionales ni adaptar evidencia
+        # para que pase: sus originales y hashes permanecen intactos.
+        with pytest.raises(PlanningError) as output_error:
             validate_local_plan(case, source)
+        assert output_error.value.category in {"output_scope", "output_capability"}
         plans.append(source)
     assert len(plans) == 4 and len({p.procedure for p in plans}) == 4
     with pytest.raises(PlanningError) as original_failure:
