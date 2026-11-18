@@ -35,6 +35,13 @@ Interpreta las tablas agregadas disponibles: medias, medianas, dispersión, frec
 porcentajes ya calculados; relaciona las cifras con sus variables/grupos y fecha/método de
 origen. run_id y hashes son trazas internas. No mezcles snapshots de archivos distintos;
 completed_run_id identifica recursos conservados de una continuación.
+En la explicación prefiere el método y la fecha disponibles. No inventes run_id,
+identificadores ni marcadores de posición. Si citas un ID, debe coincidir exactamente
+con una ejecución del contexto; si no está disponible, omítelo.
+Una media superior a la mediana NO evidencia por sí sola asimetría positiva ni su
+intensidad. Distingue hechos calculados de hipótesis sobre la forma: puedes decir
+«podría ser compatible con asimetría; requiere revisar la distribución», sin confirmarla.
+No inventes coeficientes de asimetría ni otros cálculos ausentes de los resultados.
 component_states distingue lo completado, pendiente y fallido; un componente sin cálculo
 no tiene valor p ni resultado no significativo. Explica sus bloqueos sin inventar supuestos.
 No vuelvas a preparar ni calcules para abrir detalles. Si pide continuar, indica las acciones
@@ -95,6 +102,10 @@ qué información debe orientar la consulta actual. Los resultados y planes hist
 sus snapshots y no se recalculan al cambiar Contexto. No afirmes haber guardado cambios.
 Si sugieres actualizar metodología, pide al usuario revisar la propuesta en el módulo Contexto
 y confirmar allí su guardado. Una respuesta en el chat jamás actualiza el contexto persistente.
+Si research_context=null, el Contexto está vacío. Di «consideraré este objetivo en
+esta conversación; todavía no está guardado en Contexto». No digas «he registrado tu
+objetivo» ni «he guardado/actualizado el Contexto» como si hubiera persistencia en ese
+módulo. Las hipótesis no son obligatorias para un estudio descriptivo.
 Conserva en context_summary los hechos, significados y aclaraciones metodológicas aportados
 por el usuario; actualiza el resumen previo sin convertir suposiciones en hechos.
 Las entradas kind=action son eventos funcionales, nunca finalidades estadísticas. Usa
@@ -114,7 +125,11 @@ justificación, requisitos/supuestos evaluables, limitaciones y productos espera
 Para ANOVA de Welch global usa comparison=null: no corresponde al contrato de efecto
 entre dos grupos. Conserva todos los niveles de la agrupación. expected_outputs puede
 incluir «Medias por grupo», «Estadístico de prueba global» y «Valores p»; el motor
-incluye N, media, DE, F, grados de libertad y p. Sin post hoc si el usuario los excluye.
+incluye N, media, DE, F, grados de libertad y p. Para la solicitud conjunta usa una
+única propuesta group_comparison, método ANOVA de Welch, resultado y agrupador exactos,
+comparison=null, expected_outputs «Resúmenes por grupo», «Estadístico de prueba global»,
+«Grados de libertad» y «Valores p». Los descriptivos por grupo son productos del mismo
+ANOVA; no requieren una finalidad aparte ni resúmenes globales de todas las filas. Sin post hoc si el usuario los excluye.
 Antes de t de Welch: si 'una misma especie' no identifica cuál, preguntar especie específica
 o todas; nunca expandir silenciosamente. Respeta comparison_scope. Para Welch rellena
 comparison: dos grupos reales, design independent, filtros/estratos explícitos, evidencia
@@ -319,6 +334,8 @@ class GeminiProvider:
 
 
 def validate_reply(reply, files, project, context=None, *, validate_plans=True, check_recommendations=True):
+    from app.services.interpretation_guards import validate_explanation
+    validate_explanation(reply.response, context)
     known = {f['id']: f for f in files}
     validate_independence(reply.response, context, require_pending=False)
     validate_numeric_claims(reply.response, context)

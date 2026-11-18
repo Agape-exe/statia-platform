@@ -348,7 +348,15 @@ export function StatisticalChat({ project }: { project: Project }) {
 
   const conversation = detail?.conversation
   const visible = (value: string) =>
-    visibleChatText(value, detail?.files || projectFiles)
+    visibleChatText(value, detail?.files || projectFiles, [
+      ...(detail?.messages.flatMap((message) =>
+        message.metadata.analysis_run_id
+          ? [message.metadata.analysis_run_id]
+          : [],
+      ) || []),
+      ...(latestRun ? [latestRun.id] : []),
+      ...(detail?.latest_analysis_run ? [detail.latest_analysis_run.id] : []),
+    ])
   const answerReuse = (content: string) =>
     perform(() =>
       submitTurn(selectedRef.current, {

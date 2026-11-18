@@ -67,6 +67,13 @@ OUTPUTS = {
     "matriz o coeficientes de correlacion": ("correlation_coefficient",),
     "estadistico de prueba global": ("global_test",),
     "medias por grupo": ("group_means",),
+    "n, media y desviacion estandar por grupo": ("grouped",),
+    "n, medias y desviaciones estandar por grupo": ("grouped",),
+    "f de welch": ("global_test",),
+    "p global": ("p_value",),
+    "valor p global": ("p_value",),
+    "grados de libertad": ("degrees_of_freedom",),
+    "grados de libertad del numerador y denominador": ("degrees_of_freedom",),
     "estimacion del cambio con incertidumbre": ("paired_change_interval",),
 }
 DESCRIPTIVE = {"descriptive", "exploratory"}
@@ -96,7 +103,7 @@ def separated_descriptives(plan):
     return len(scopes) == len(steps)
 
 
-def product_coverage(plan, files=None, decisions=None):
+def product_coverage(plan, files=None, decisions=None, execution_components=None):
     """Cobertura estructural por columna; no convierte tipos ambiguos en hechos."""
     steps = plan.components if plan.procedure == "integral" else [plan]
     descriptive = [s for s in steps if s.procedure in DESCRIPTIVE]
@@ -128,6 +135,18 @@ def product_coverage(plan, files=None, decisions=None):
             covered["grouped_frequencies" if grouped else "frequencies"].update(
                 {(v, source_groups[0]) for v in columns & categories} if grouped else columns & categories
             )
+    # Las comparaciones de medias registradas también emiten el resumen numérico
+    # por grupo. Solo acreditar sus resultados declarados y su agrupador exacto;
+    # nunca resúmenes globales, frecuencias ni columnas de otros componentes.
+    for index, source in enumerate(steps):
+        if source.procedure != "group_comparison" or not supports_inference(
+            plan, "group_means", index, files, decisions, execution_components
+        ):
+            continue
+        grouping = [v for v in source.variables if v.role == "group"]
+        outcomes = [v for v in source.variables if v.role == "outcome"]
+        if len(grouping) == len(outcomes) == 1:
+            covered["grouped"].add((key(outcomes[0]), key(grouping[0])))
     return descriptive, groups, measures, categories, covered
 
 
@@ -260,7 +279,14 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
     for index, text in enumerate(plan.expected_outputs):
         binding, literal = output_request(text)
         scoped = component_plan(plan, binding)
-        descriptive, groups, measures, categories, covered = product_coverage(scoped, files, decisions)
+        selected_components = execution_components
+        if binding is not None and execution_components is not None:
+            selected_components = [
+                c.model_copy(update={"source_index": 0}) for c in execution_components if c.source_index == binding
+            ]
+        descriptive, groups, measures, categories, covered = product_coverage(
+            scoped, files, decisions, selected_components
+        )
         if literal in DEFAULT_OUTPUTS:
             continue
         kinds = OUTPUTS.get(literal)
@@ -293,6 +319,7 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                 "posthoc",
                 "global_test",
                 "group_means",
+                "degrees_of_freedom",
                 "paired_change_interval",
             }:
                 if not supports_inference(plan, kind, binding, files, decisions, execution_components):

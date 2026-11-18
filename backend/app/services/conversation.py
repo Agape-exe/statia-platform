@@ -220,7 +220,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                     if 'Sin comparaciones post hoc' not in proposed.expected_outputs:
                         proposed.expected_outputs.append('Sin comparaciones post hoc')
             reply = bind_confirmations(reply, data.get('confirmed_variable_types', []), files)
-            reply = humanize_reply(reply, files)
+            from app.services.interpretation_guards import result_ids, validate_explanation
+            validate_explanation(reply.response, context)
+            reply = humanize_reply(reply, files, result_ids(context))
             assessment = assess_reply(reply, files, project, context)
         except (ValidationError, ValueError) as exc:
             # Conservar la corrección acotada si la normalización deja contenido inválido.
@@ -243,7 +245,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 reply, partial = retained, True
                 break
             if scope and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') for issue in assessment.issues):
-                reply = scope_question(scope)
+                reply = scope_question(scope, provider_failed=True)
                 break
             raise HTTPException(502, 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
                                 headers={'X-Statia-Error': 'planning_validation',

@@ -33,6 +33,7 @@ LABELS = {
     "no_posthoc": "Sin comparaciones post hoc",
     "global_test": "Estadístico de prueba global",
     "group_means": "Medias por grupo",
+    "degrees_of_freedom": "Grados de libertad",
     "paired_change_interval": "Estimación del cambio con incertidumbre",
 }
 USER_ALIASES = {
@@ -69,10 +70,11 @@ def parse_products(text):
         products.add("global")
     if re.search(r"resumir(?:las|los)? por grupo", text):
         products.add("grouped")
-    # Las medidas por grupo no piden además resúmenes globales.
-    if "global" in products and re.search(r"por grupo|segun [\w`]+", text) and not re.search(r"global", text):
+    # «p global»/«contraste global» no describe el alcance de las medias.
+    summary_scope = re.sub(r"\b(?:p|anova|contraste|prueba|estadistico(?: de prueba)?) global\b", "", text)
+    if "global" in products and re.search(r"por grupo|segun [\w`]+", text) and not re.search(r"global", summary_scope):
         products.remove("global")
-        products.add("grouped" if re.search(r"descriptiv", text) else "group_means")
+        products.add("grouped")
     return products, residue
 
 
@@ -132,8 +134,16 @@ def user_products(text):
 
 def requested_scope(conversation, messages, turn):
     saved = conversation.get("stage_data", {}).get("requested_scope")
+    if saved and saved.get("recognizer_version") != 2:
+        # Reparar únicamente cachés derivadas cuya evidencia completa aún está
+        # disponible. Nunca inferir que se puede recortar un historial truncado.
+        source_ids = set(saved.get("source_requests", []))
+        available = {m.get("metadata", {}).get("request_id") for m in messages if m.get("role") == "user"}
+        if source_ids and source_ids <= available and len(messages) < 30:
+            saved = None
     scope = dict(saved) if saved else {"version": 1, "products": [], "unresolved": False, "mode": "analysis"}
     scope["source_requests"] = list(scope.get("source_requests", []))
+    scope["recognizer_version"] = 2
     if saved:
         watermark = saved.get("through_position", -1)
         candidates = [
@@ -173,6 +183,15 @@ def requested_scope(conversation, messages, turn):
         if decision or natural_decision:
             scope["products"], scope["unresolved"] = [], False
             scope["excluded_products"] = []
+            if literal.startswith("cambio de alcance:"):
+                scope["required_methods"] = []
+        # Un contraste expresamente pedido no puede sustituirse por otro que
+        # entregue productos parecidos. Las exclusiones no crean compromisos.
+        positive = " ".join(
+            clause.split("sin ")[0] for clause in re.split(r"[.;!]", literal) if not NEGATION.match(clause.strip())
+        )
+        if re.search(r"\banova(?: de)? welch\b", positive) and not re.search(r"\bo\b|alternativas", positive):
+            scope["required_methods"] = sorted(set(scope.get("required_methods", [])) | {"welch_anova"})
         scope["products"] = sorted(set(scope["products"]) | products)
         scope["excluded_products"] = sorted(set(scope.get("excluded_products", [])) | excluded)
         if set(scope["products"]) & set(scope["excluded_products"]):
@@ -201,6 +220,14 @@ def validate_plan_scope(plan, scope, files):
         raise PlanningError(
             "requested_scope", "El usuario debe confirmar el alcance antes de recibir propuestas definitivas."
         )
+    from app.services.statistics.methods import named_methods
+
+    methods = set().union(*(named_methods(s) for s in (plan.components if plan.procedure == "integral" else [plan])))
+    if not set(scope.get("required_methods", [])) <= methods:
+        raise PlanningError(
+            "requested_scope",
+            "Conserva el ANOVA de Welch solicitado: no lo sustituyas por ANOVA clásico ni por otro contraste.",
+        )
     validate_products(plan, files)  # Conserva también las ligaduras a componentes.
     declared = {kind for text in plan.expected_outputs for kind in OUTPUTS.get(output_request(text)[1], ())}
     excluded = set(scope.get("excluded_products", []))
@@ -217,6 +244,11 @@ def validate_plan_scope(plan, scope, files):
 
     if "posthoc" in excluded and any(requests_posthoc(s.method) for s in steps):
         raise PlanningError("requested_scope", "El usuario excluyó comparaciones post hoc.")
+    if "group_means" in declared and "grouped" in scope["products"]:
+        # Equivalencia verificable: el método debe producir el resumen completo
+        # para las variables/agrupaciones requeridas, no basta una etiqueta.
+        validate_products(plan.model_copy(update={"expected_outputs": [LABELS["grouped"]]}), files)
+        declared.add("grouped")
     missing = set(scope["products"]) - declared
     if missing:
         raise PlanningError(
@@ -241,7 +273,17 @@ def validate_scope_reply(reply, scope, files):
         )
 
 
-def scope_question(scope):
+def scope_question(scope, *, provider_failed=False):
+    if provider_failed and not scope["unresolved"]:
+        return AssistantReply(
+            response="La solicitud tiene un alcance definido, pero el proveedor no generó un plan válido que lo cubra. No se guardó una propuesta incompleta; el alcance y sus exclusiones se conservan.",
+            suggested_stage="clarification",
+            questions=[
+                "Puedes reintentar la misma solicitud para generar otra propuesta; no necesitas redefinir sus productos."
+            ],
+            clarification_required=True,
+            confirmation_required=False,
+        )
     products = "; ".join(LABELS[k] for k in scope["products"])
     detail = (
         ("Siguen pendientes los productos solicitados: " + products + ". ")
