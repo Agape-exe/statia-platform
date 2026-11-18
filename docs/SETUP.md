@@ -1,5 +1,9 @@
 # Configuración local
 
+Sesión 6: ver [correcciones, pruebas y arranque local](SESSION6_REPORT.md). No requiere
+variables nuevas ni migraciones. Los comandos permiten sobrescribir VITE_API_URL solo
+en el proceso, sin editar secretos. No ejecutar diagnósticos con `--live` para esta validación.
+
 Sesión 5B: el [selector multiproveedor frontend](MULTIPROVIDER_FRONTEND.md) consulta
 la disponibilidad al backend y confirma el destinatario antes del cambio. No requiere
 nuevas variables frontend ni migraciones. Gemini conserva la creación rápida; Terra

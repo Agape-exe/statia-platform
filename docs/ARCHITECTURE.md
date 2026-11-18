@@ -118,3 +118,35 @@ Resultados tienen estados completed/partial/failed por ejecución y componente. 
 `analysis_context.py` aporta hasta tres ejecuciones recientes con agregados pertinentes, conteos de omisiones y límites de contexto. No envía originales ni tablas de frecuencias completas. Gemini puede explicar resultados guardados y proponer otras ejecuciones, pero nunca calcular ni sobrescribir medidas. Las afirmaciones inferenciales explícitas con símbolos se contrastan con cifras guardadas y redondeo; este control no es un verificador semántico exhaustivo de toda prosa. El texto se mantiene separado de las tablas canónicas. Sin Gemini, la interpretación determinista, persistencia y descargas siguen funcionando. Las preguntas sobre resultados conservan la finalidad y la etapa cuando no proponen otra investigación.
 
 Fórmulas, contratos de API, métodos y límites: [motor estadístico](STATISTICAL_ENGINE.md).
+
+
+## Correcciones locales de Sesión 6
+
+`requested_scope` reconoce solicitudes habituales y separa exclusiones; las
+restricciones comprobables se revalidan al proponer, aceptar, preparar y ejecutar.
+Una exclusión de post hoc se conserva como producto restrictivo del plan. ANOVA
+Welch global conserva `comparison=null` y todas las categorías observadas; el
+contrato `comparison` sigue describiendo comparaciones de dos grupos.
+
+`variable_types.py` reconoce una confirmación explícita por columna inequívoca en
+el chat y añade `Plan.type_confirmations` (opcional, backend). La validación aplica
+una vista temporal del perfil, sin reescribirlo; la preparación relee el original,
+conserva el tipo confirmado y la ejecución rechaza decisiones incompatibles. No
+se permite convertir identificadores o fechas en medidas por esta vía. Los planes
+anteriores conservan su contrato y decisiones predeterminadas.
+
+Datos consulta el catálogo privado, carga perfiles bajo demanda y descarga por los
+servicios de chat existentes. Las nuevas subidas guardan `metadata.content_sha256`;
+una carga idéntica del mismo proyecto, rol y formato reutiliza su ID y vínculo. Un
+lock serializa cargas en un proceso. No hay unicidad atómica entre procesos ni
+compactación de históricos. XLSX con perfil congelado puede crear otra referencia
+para seleccionar una hoja diferente. No se incorporan migraciones.
+
+Chat usa react-markdown y remark-gfm sin HTML, con enlaces permitidos y tablas con
+scroll propio. Los resultados nuevos pueden añadir `Assumption.origin`; distingue
+la declaración del investigador de una comprobación automática. La lectura de
+resultados previos no cambia sus cifras ni su procedencia almacenada.
+
+La cuota conserva el código público de error; solo el límite por minuto expone un
+Retry-After calculado. Cada proveedor tiene su presupuesto por proceso. No hay
+reintentos pagados adicionales ni cambios de cuotas. Ver [informe local](SESSION6_REPORT.md).
