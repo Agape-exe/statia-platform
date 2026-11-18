@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = [
+    "tests/test_inferential_products.py",
+    "tests/test_requested_scope.py",
+    "app/services/requested_scope.py",
     "tests/test_plan_capabilities.py",
     "tests/test_provider_rollback.py",
     "tests/helpers",

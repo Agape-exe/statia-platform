@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 
 CATEGORIES = frozenset({
-    'output_scope', 'output_capability',
+    'output_scope', 'output_capability', 'requested_scope',
     'column_reference', 'objective_variables', 'component_variables', 'variable_type',
     'comparison_design', 'comparison_scope', 'effect_definition', 'independence',
     'essential_clarification', 'recommendation_coverage', 'cross_table_relation',

@@ -195,11 +195,14 @@ async def decide(project_id: UUID, conversation_id: UUID, proposal_id: UUID, bod
     if body.status == 'accepted':
         try:
             plan = Plan.model_validate(proposal['analysis_plan'])
+            files = await linked_files(user.store, conversation)
             validate_reply(AssistantReply(response='Validación del plan', suggested_stage='proposal', proposals=[plan]),
-                           await linked_files(user.store, conversation), await project_for(user, project_id), conversation.get('stage_data', {}))
+                           files, await project_for(user, project_id), conversation.get('stage_data', {}))
+            from app.services.requested_scope import validate_plan_scope
+            validate_plan_scope(plan, conversation.get('stage_data', {}).get('requested_scope'), files)
         except (ValidationError, ValueError) as exc:
             from app.services.planning_errors import PlanningError
-            if isinstance(exc, PlanningError) and exc.category in ('output_scope', 'output_capability'):
+            if isinstance(exc, PlanningError) and exc.category in ('output_scope', 'output_capability', 'requested_scope'):
                 raise HTTPException(422, str(exc), headers={'X-Statia-Error': exc.category}) from None
             raise HTTPException(422, 'El plan ya no es válido para los archivos actuales. Solicita una propuesta nueva.') from None
     if proposal['status'] != body.status:
