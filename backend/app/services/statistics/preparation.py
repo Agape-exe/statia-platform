@@ -105,6 +105,12 @@ def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True,
             not (set(d.missing_markers) & set(d.retained_markers)),
             "Un marcador no puede conservarse y excluirse a la vez.",
         )
+    for confirmation in plan.type_confirmations:
+        decision = next((d for d in spec.decisions if key(d.variable) == key(confirmation.variable)), None)
+        require(
+            decision is not None and decision.statistical_type == confirmation.statistical_type,
+            "Conserva el tipo cuantitativo confirmado en el plan aceptado.",
+        )
     comparison = plan.comparison
     required_filters = plan_filters(plan)
     require(

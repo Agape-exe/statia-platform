@@ -38,6 +38,11 @@ const ThesisContext = lazy(() =>
     default: module.ThesisContext,
   })),
 )
+const ProjectData = lazy(() =>
+  import('../components/ProjectData').then((module) => ({
+    default: module.ProjectData,
+  })),
+)
 const modules = [
   // Los módulos de chat y resultados se cargan bajo demanda.
   {
@@ -219,6 +224,10 @@ export function Workspace() {
           ) : module === 'contexto' ? (
             <Suspense fallback={<Loading />}>
               <ThesisContext key={project.id} projectId={project.id} />
+            </Suspense>
+          ) : module === 'datos' ? (
+            <Suspense fallback={<Loading />}>
+              <ProjectData key={project.id} projectId={project.id} />
             </Suspense>
           ) : module === 'resultados' ? (
             <Suspense fallback={<Loading />}>

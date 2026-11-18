@@ -18,6 +18,13 @@ export function AnalysisResults({ projectId }: { projectId: string }) {
   const [attempt, setAttempt] = useState(0)
   const [paging, setPaging] = useState(false)
   const selected = params.get('run')
+  const selectRun = (id?: string) =>
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      if (id) next.set('run', id)
+      else next.delete('run')
+      return next
+    })
   useEffect(() => {
     let active = true
     Promise.all([analysisService.list(projectId), chatService.list(projectId)])
@@ -101,7 +108,7 @@ export function AnalysisResults({ projectId }: { projectId: string }) {
       )}
       {selected && (
         <div>
-          <button className="btn secondary" onClick={() => setParams({})}>
+          <button className="btn secondary" onClick={() => selectRun()}>
             Cerrar detalle
           </button>
           <AnalysisResultCard
@@ -109,6 +116,7 @@ export function AnalysisResults({ projectId }: { projectId: string }) {
             projectId={projectId}
             runId={selected}
             expanded
+            inResults
           />
         </div>
       )}
@@ -128,12 +136,14 @@ export function AnalysisResults({ projectId }: { projectId: string }) {
                 </p>
                 {item.error && <p>{item.error}</p>}
               </div>
-              <button
-                className="btn secondary"
-                onClick={() => setParams({ run: item.id })}
-              >
-                Consultar y descargar
-              </button>
+              {selected !== item.id && (
+                <button
+                  className="btn secondary"
+                  onClick={() => selectRun(item.id)}
+                >
+                  Consultar y descargar
+                </button>
+              )}
             </article>
           ))}
         </section>

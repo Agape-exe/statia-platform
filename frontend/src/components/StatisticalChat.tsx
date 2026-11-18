@@ -29,6 +29,7 @@ import {
 } from '../types/chat'
 import { Alert, Loading } from './ui'
 import { Modal } from './Modal'
+import { ChatMarkdown } from './ChatMarkdown'
 import { DatasetCard } from './DatasetCard'
 import { ComponentStates } from './ComponentStates'
 import { ProposalCard } from './ProposalCard'
@@ -347,7 +348,15 @@ export function StatisticalChat({ project }: { project: Project }) {
 
   const conversation = detail?.conversation
   const visible = (value: string) =>
-    visibleChatText(value, detail?.files || projectFiles)
+    visibleChatText(value, detail?.files || projectFiles, [
+      ...(detail?.messages.flatMap((message) =>
+        message.metadata.analysis_run_id
+          ? [message.metadata.analysis_run_id]
+          : [],
+      ) || []),
+      ...(latestRun ? [latestRun.id] : []),
+      ...(detail?.latest_analysis_run ? [detail.latest_analysis_run.id] : []),
+    ])
   const answerReuse = (content: string) =>
     perform(() =>
       submitTurn(selectedRef.current, {
@@ -360,6 +369,22 @@ export function StatisticalChat({ project }: { project: Project }) {
       }),
     )
   const disabled = busy || opening || providerUncertain
+  const headingRun = latestRun || detail?.latest_analysis_run
+  const lastAcceptance = [...(detail?.messages || [])]
+    .reverse()
+    .find((message) => message.metadata.status === 'accepted')
+  const preparationPending =
+    !!conversation?.stage_data.execution_preparation &&
+    ['NEEDS_CLARIFICATION', 'BLOCKED_UNCERTAINTY', 'PARTIALLY_READY'].includes(
+      conversation.stage_data.execution_preparation.result.status,
+    )
+  const showRunStatus =
+    headingRun?.status === 'running' ||
+    (conversation?.current_stage === 'ready' &&
+      !!headingRun &&
+      !preparationPending &&
+      (!lastAcceptance ||
+        lastAcceptance.metadata.proposal_id === headingRun.proposal_id))
   const selectedProvider = conversation?.assistant_provider ?? 'gemini'
   const providerBlocked =
     disabled ||
@@ -711,7 +736,7 @@ export function StatisticalChat({ project }: { project: Project }) {
               <div>
                 <h2>{visible(conversation.title)}</h2>
                 <small>
-                  {latestRun || detail.latest_analysis_run
+                  {showRunStatus
                     ? {
                         running: 'Calculando',
                         partial: 'Análisis parcialmente completado',
@@ -898,7 +923,13 @@ export function StatisticalChat({ project }: { project: Project }) {
                             {messageProvenance(message)}
                           </small>
                         )}
-                        <p>{visible(message.content)}</p>
+                        {message.role === 'assistant' ? (
+                          <ChatMarkdown>
+                            {visible(message.content)}
+                          </ChatMarkdown>
+                        ) : (
+                          <p>{visible(message.content)}</p>
+                        )}
                         {!!message.metadata.questions?.length && (
                           <ul>
                             {message.metadata.questions.map((question, i) => (
@@ -1001,10 +1032,37 @@ export function StatisticalChat({ project }: { project: Project }) {
                     </button>
                   </div>
                 )}
+                {detail.files
+                  .filter(
+                    (file) =>
+                      file.file_type === 'xlsx' && file.metadata.profile,
+                  )
+                  .map((file) => (
+                    <p className="muted" key={`xlsx-profile-${file.id}`}>
+                      {file.original_name} · Hoja:{' '}
+                      {file.metadata.selected_sheet} ·{' '}
+                      {file.metadata.profile!.row_count} filas ·{' '}
+                      {file.metadata.profile!.column_count} columnas
+                    </p>
+                  ))}
+                {detail.files.some(
+                  (file) => file.metadata.needs_sheet_selection,
+                ) && (
+                  <p className="notice" role="status">
+                    Selecciona una hoja de cada Excel pendiente en los archivos
+                    relacionados que se muestran abajo. Después continuaremos
+                    con la comprensión. No se combinan hojas.
+                  </p>
+                )}
                 {detail.files.length > 0 && (
                   <details
                     className="historical-card"
                     aria-label="Archivos relacionados"
+                    open={
+                      detail.files.some(
+                        (file) => file.metadata.needs_sheet_selection,
+                      ) || undefined
+                    }
                   >
                     <summary>
                       Archivos relacionados ({detail.files.length})
@@ -1015,6 +1073,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                         key={file.id}
                         file={file}
                         busy={disabled}
+                        expanded={file.metadata.needs_sheet_selection}
                         onSheet={(sheet) =>
                           perform(async () => {
                             await chatService.sheet(project.id, file.id, sheet)
@@ -1087,7 +1146,10 @@ export function StatisticalChat({ project }: { project: Project }) {
                       }
                       onClick={() => send('files_ready')}
                     >
-                      Comprender archivos con {providerName(selectedProvider)}
+                      {conversation.stage_data.context_summary
+                        ? 'Volver a comprender archivos con '
+                        : 'Comprender archivos con '}
+                      {providerName(selectedProvider)}
                     </button>
                   )}
                 {conversation.stage_data.awaiting_reuse_update && (

@@ -42,21 +42,21 @@ def recommendations_requested(text):
     return bool(explicit or re.search(r'no .*conozco|desconozco', text) and not re.search(r'describ|descrip|comprend|identific', text))
 
 
-def friendly_text(text, files):
+def friendly_text(text, files, run_ids=()):
     for file in files:
         text = text.replace(file['id'], file.get('original_name', 'archivo de datos'))
-    return UUID_TEXT.sub('archivo del proyecto', text)
+    return UUID_TEXT.sub(lambda match: match[0] if match[0] in run_ids else 'archivo del proyecto', text)
 
 
-def humanize_reply(reply, files):
+def humanize_reply(reply, files, run_ids=()):
     human_fields = {'response', 'detected_goal', 'suggested_title', 'goal_change_reason', 'context_summary',
                     'questions', 'warnings', 'title', 'objective', 'method', 'justification', 'requirements',
                     'limitations', 'expected_outputs', 'independence', 'valid_observations', 'missing_data',
                     'outliers', 'normality', 'definition', 'correction', 'confidence_interval', 'multiplicity_reason'}
     def visit(value):
         if isinstance(value, dict):
-            return {key: friendly_text(item, files) if key in human_fields and isinstance(item, str)
-                    else [friendly_text(t, files) for t in item] if key in human_fields and isinstance(item, list)
+            return {key: friendly_text(item, files, run_ids) if key in human_fields and isinstance(item, str)
+                    else [friendly_text(t, files, run_ids) for t in item] if key in human_fields and isinstance(item, list)
                     else visit(item) for key, item in value.items()}
         if isinstance(value, list):
             return [visit(item) for item in value]

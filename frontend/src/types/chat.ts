@@ -39,6 +39,11 @@ export interface Conversation {
   current_stage: Stage
   updated_at: string
   stage_data: {
+    context_summary?: string
+    confirmed_variable_types?: {
+      variable: Variable
+      statistical_type: 'continuous' | 'discrete'
+    }[]
     execution_preparation?: {
       proposal_id: string
       result: ExecutionPreparation
@@ -74,6 +79,7 @@ export interface Message {
     analysis_run_id?: string
     execution_preparation?: import('./analysis').ExecutionPreparation | null
     file_ids?: string[]
+    status?: 'accepted' | 'rejected'
     proposal_id?: string
     execution_request_id?: string
     execution_status?: string
@@ -108,6 +114,7 @@ export interface ProjectFile {
     sheets: string[]
     selected_sheet?: string
     needs_sheet_selection?: boolean
+    text_excerpt?: string
     pages?: number
     warnings?: string[]
     profile?: {
@@ -141,6 +148,10 @@ export interface Plan {
   joins: { left: Variable; right: Variable; justification: string }[]
   components?: { procedure: string; method: string; variables: Variable[] }[]
   filters?: { variable: Variable; values: string[] }[]
+  type_confirmations?: {
+    variable: Variable
+    statistical_type: 'continuous' | 'discrete'
+  }[]
   comparison?: {
     design: 'independent' | 'paired' | 'unknown'
     groups: string[]
@@ -221,4 +232,14 @@ export const stageLabel: Record<Stage, string> = {
   goal: 'Finalidad',
   proposal: 'Confirmación de propuestas',
   ready: 'Plan aceptado',
+}
+
+export interface DataPage {
+  columns: string[]
+  rows: (string | null)[][]
+  offset: number
+  limit: number
+  total_rows: number
+  has_more: boolean
+  sheet: string | null
 }

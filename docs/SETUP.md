@@ -1,5 +1,12 @@
 # Configuración local
 
+Sesión 6B: ver [Welch, vista de registros y validación final](SESSION6B_REPORT.md).
+Sin variables nuevas, migraciones ni cambios de configuración remota.
+
+Sesión 6: ver [correcciones, pruebas y arranque local](SESSION6_REPORT.md). No requiere
+variables nuevas ni migraciones. Los comandos permiten sobrescribir VITE_API_URL solo
+en el proceso, sin editar secretos. No ejecutar diagnósticos con `--live` para esta validación.
+
 Sesión 5B: el [selector multiproveedor frontend](MULTIPROVIDER_FRONTEND.md) consulta
 la disponibilidad al backend y confirma el destinatario antes del cambio. No requiere
 nuevas variables frontend ni migraciones. Gemini conserva la creación rápida; Terra
@@ -97,6 +104,9 @@ Aplicar `202611150003_chat_titles.sql` después de las dos migraciones existente
 El historial se puede plegar; en móvil/tablet abre un diálogo temporal. Enter envía, Shift + Enter inserta una línea y la composición IME no envía. Probar conversaciones nuevas: solicitar exploración sin `suggested_title`, elegir un plan integral y comprobar título/estado tras recargar. Revisar que independencia figure pendiente sin evidencia de diseño y que g con SD combinada use ν_H=n1+n2−2, separado de los gl de Welch. La aceptación no calcula; para ello usar «Ejecutar análisis» y confirmar las decisiones finales.
 
 ### Diagnóstico general
+
+Para la última validación de Excel y planes descriptivos, consultar
+[hotfix final local](HOTFIX_FINAL_REPORT.md), con pruebas, límites y comandos de localhost.
 
 - Pantalla «Conecta tu espacio»: revisar nombres y ubicación de `frontend/.env.local`, URL y clave; reiniciar Vite.
 - Registro sin acceso inmediato: revisar correo, spam, requisitos de confirmación y Redirect URLs. Supabase limita envíos; esperar o configurar SMTP propio si hace falta.

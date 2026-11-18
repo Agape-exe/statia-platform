@@ -4,6 +4,7 @@ import type {
   AssistantProviderId,
   Conversation,
   ConversationDetail,
+  DataPage,
   Message,
   ProjectFile,
   Turn,
@@ -58,6 +59,14 @@ export const chatService = {
       body: JSON.stringify(turn),
     }),
   files: (projectId: string) => api<ProjectFile[]>(`${base(projectId)}/files`),
+  rows: (projectId: string, id: string, offset = 0) =>
+    api<DataPage>(
+      `${base(projectId)}/files/${encodeURIComponent(id)}/rows?offset=${offset}&limit=50`,
+    ),
+  profile: (projectId: string, id: string) =>
+    api<ProjectFile['metadata']>(
+      `${base(projectId)}/files/${encodeURIComponent(id)}/profile`,
+    ),
   upload: (projectId: string, id: string, file: File, role: string) => {
     const form = new FormData()
     form.append('file', file)

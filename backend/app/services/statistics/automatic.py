@@ -184,6 +184,18 @@ def assess(job):
                 "inferred",
                 "Se usará como categoría por su rol de agrupación o filtro aceptado, sin interpretar sus códigos como magnitudes.",
             )
+        elif any(key(d.variable) == key(v) for d in plan.type_confirmations):
+            from app.services.variable_types import confirmed_files
+
+            confirmed_files(
+                plan,
+                [
+                    {**f, "metadata": {**f["metadata"], "profile": {"columns": list(cols.values())}}}
+                    for f, _, cols, _ in tables.values()
+                ],
+            )
+            kind = next(d.statistical_type for d in plan.type_confirmations if key(d.variable) == key(v))
+            note(v.column, "user", "Tipo cuantitativo confirmado expresamente por el investigador: " + kind)
         elif column["statistical_type"] == "quantitative":
             kind = "continuous"
             note(
@@ -449,6 +461,7 @@ def assess(job):
         not plan.comparison
         and (
             len(components) > 1
+            and any(c.method != "descriptive" for c in components)
             or any(
                 c.method in {"pearson", "spearman"} and len(sources(plan)[c.source_index].variables) > 2
                 for c in components

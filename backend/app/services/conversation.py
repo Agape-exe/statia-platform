@@ -160,6 +160,13 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                     if m.get('metadata', {}).get('request_id') in actions else m for m in messages]
     data = dict(conversation.get('stage_data', {}))
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
+    from app.services.variable_types import bind_confirmations, capture_confirmations
+    try:
+        confirmations = capture_confirmations(turn.content if turn.action == 'message' else '', files, data.get('confirmed_variable_types', []))
+        if confirmations or 'confirmed_variable_types' in data:
+            data['confirmed_variable_types'] = confirmations
+    except ValueError as exc:
+        return static_result(conversation, 'clarification', str(exc))
     analysis_results = await saved_results_context(store, conversation, turn.content)
     discussion = bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
     scope = None if alternative or discussion or result_discussion(turn.content) else requested_scope(conversation, messages, turn)
@@ -208,7 +215,14 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 reply = bind_descriptive_scope(reply, alternative)
             if discussion and (reply.proposals or reply.goal_change):
                 raise ValueError('Esta consulta interpreta resultados guardados o revisa metodología del mismo análisis. Responde sin propuestas nuevas ni cambio de finalidad y sin exigir resolver aclaraciones pendientes.')
-            reply = humanize_reply(reply, files)
+            if scope and 'posthoc' in scope.get('excluded_products', []):
+                for proposed in reply.proposals:
+                    if 'Sin comparaciones post hoc' not in proposed.expected_outputs:
+                        proposed.expected_outputs.append('Sin comparaciones post hoc')
+            reply = bind_confirmations(reply, data.get('confirmed_variable_types', []), files)
+            from app.services.interpretation_guards import result_ids, validate_explanation
+            validate_explanation(reply.response, context)
+            reply = humanize_reply(reply, files, result_ids(context))
             assessment = assess_reply(reply, files, project, context)
         except (ValidationError, ValueError) as exc:
             # Conservar la corrección acotada si la normalización deja contenido inválido.
@@ -218,7 +232,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             break
         log_issues(assessment.issues, attempt + 1)
         validation_history.append({'attempt': attempt + 1, 'issues': [issue.safe_metadata() for issue in assessment.issues]})
-        if not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
+        if attempt and not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
             # No convertir sugerencias del modelo en requisitos del usuario.
             # Sin alcance verificable tampoco se puede aprobar una sustitución.
             scope = {'version': 1, 'products': [], 'unresolved': True, 'mode': 'analysis', 'source_requests': [str(turn.request_id)]}
@@ -231,9 +245,12 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 reply, partial = retained, True
                 break
             if scope and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') for issue in assessment.issues):
-                reply = scope_question(scope)
+                reply = scope_question(scope, provider_failed=True)
                 break
-            raise HTTPException(502, 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
+            type_problems = list(dict.fromkeys(issue.message for issue in assessment.issues if issue.category == 'variable_type'))
+            detail = ('El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000]
+                      + ' No se guardó una propuesta inválida; solicita una reformulación compatible.') if type_problems else 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.'
+            raise HTTPException(502, detail,
                                 headers={'X-Statia-Error': 'planning_validation',
                                          'X-Statia-Validation': ','.join(sorted({issue.category for issue in assessment.issues}))}) from None
         failures = '\n'.join(f'Propuesta {issue.plan_index + 1 if issue.plan_index is not None else "respuesta"} [{issue.category}]: {issue.message}'

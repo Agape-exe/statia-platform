@@ -41,6 +41,16 @@ class Decision(StrictModel):
     status: Literal['accepted', 'rejected']
 
 
+class FileRows(StrictModel):
+    columns: list[str]
+    rows: list[list[str | None]]
+    offset: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    total_rows: int = Field(ge=0)
+    has_more: bool
+    sheet: str | None
+
+
 class Variable(StrictModel):
     file_id: str = Field(min_length=1, max_length=36)
     sheet: str = Field(min_length=1, max_length=120)
@@ -95,6 +105,11 @@ class AnalysisComponent(StrictModel):
     depends_on: list[int] = Field(default_factory=list, max_length=4)
 
 
+class TypeConfirmation(StrictModel):
+    variable: Variable
+    statistical_type: Literal['continuous', 'discrete']
+
+
 class Plan(StrictModel):
     # Versión interna exacta; no forma parte del contrato enviado al proveedor.
     schema_version: int = Field(default=1, ge=1, le=1, strict=True)
@@ -113,6 +128,8 @@ class Plan(StrictModel):
     comparison: Comparison | None = None
     components: list[AnalysisComponent] = Field(default_factory=list, max_length=4)
     filters: list[Selection] = Field(default_factory=list, max_length=6)
+    # Decisiones explícitas del usuario, añadidas por el servidor; sin alterar perfiles.
+    type_confirmations: list[TypeConfirmation] = Field(default_factory=list, max_length=40)
 
 
 class AssistantReply(StrictModel):

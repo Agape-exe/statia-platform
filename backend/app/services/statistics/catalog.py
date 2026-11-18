@@ -109,7 +109,7 @@ CATALOG = {
             ["F", "gl entre y dentro", "p"],
             ["eta cuadrado clásico"],
             ["Sin IC de eta cuadrado; comparaciones Welch-Holm opcionales preespecificadas."],
-            ["p_value", "posthoc", "global_test", "group_means"],
+            ["p_value", "posthoc", "global_test", "group_means", "degrees_of_freedom"],
         ),
         entry(
             "welch_anova",
@@ -122,7 +122,7 @@ CATALOG = {
             ["F Welch", "gl corregidos", "p"],
             [],
             ["Efecto global e IC no implementados para Welch; comparaciones Welch-Holm opcionales preespecificadas."],
-            ["p_value", "posthoc", "global_test", "group_means"],
+            ["p_value", "posthoc", "global_test", "group_means", "degrees_of_freedom"],
         ),
         entry(
             "paired_t",

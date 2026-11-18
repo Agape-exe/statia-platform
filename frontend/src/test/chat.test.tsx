@@ -606,7 +606,6 @@ describe('chat persistente y acciones', () => {
     await user.click(screen.getByText('mediciones.csv'))
     expect(screen.getByRole('table')).toHaveTextContent('nota')
     expect(screen.getByText(/1 celdas ausentes/)).toBeInTheDocument()
-    await user.click(screen.getByText('libro.xlsx'))
     await user.selectOptions(
       screen.getByLabelText('Hoja de libro.xlsx'),
       'Postest',
@@ -930,3 +929,144 @@ describe('compositor y navegación accesibles', () => {
     ).toBeInTheDocument()
   })
 })
+
+it('muestra la etapa actual de aclaración en presencia de una ejecución histórica completada', async () => {
+  detail.conversation.current_stage = 'clarification'
+  detail.latest_analysis_run = {
+    id: 'historico',
+    proposal_id: 'anterior',
+    status: 'completed',
+  }
+  chat()
+  expect((await screen.findAllByText('Aclaraciones')).length).toBeGreaterThan(0)
+  expect(screen.queryByText('Análisis completado')).not.toBeInTheDocument()
+})
+
+it('un plan recién aceptado conserva su estado aunque exista una ejecución anterior de otro plan', async () => {
+  detail.conversation.current_stage = 'ready'
+  detail.latest_analysis_run = {
+    id: 'historico',
+    proposal_id: 'anterior',
+    status: 'completed',
+  }
+  detail.messages.push({
+    id: 'decision',
+    position: 2,
+    role: 'system',
+    content: 'Plan aceptado.',
+    message_type: 'event',
+    metadata: { proposal_id: 'nuevo', status: 'accepted' },
+  })
+  chat()
+  expect((await screen.findAllByText('Plan aceptado')).length).toBeGreaterThan(
+    0,
+  )
+  expect(screen.queryByText('Análisis completado')).not.toBeInTheDocument()
+})
+
+it.each(['general', 'thesis'] as const)(
+  'continúa Excel de una hoja en %s sin seleccionar ni duplicar comprensión',
+  async (mode) => {
+    detail.conversation.current_stage = 'upload_dataset'
+    const excel: ProjectFile = {
+      ...dataset,
+      id: 'excel',
+      original_name: 'Notas.xlsx',
+      file_type: 'xlsx',
+      metadata: {
+        ...dataset.metadata,
+        sheets: ['Notas'],
+        selected_sheet: 'Notas',
+      },
+    }
+    vi.mocked(chatService.upload).mockImplementation(async () => {
+      detail.files = [excel]
+      return excel
+    })
+    render(
+      <MemoryRouter>
+        <StatisticalChat project={{ ...project, project_type: mode }} />
+      </MemoryRouter>,
+    )
+    await userEvent.upload(
+      await screen.findByLabelText('Archivos para adjuntar'),
+      new File(['xlsx sintético'], 'Notas.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+    )
+    await waitFor(() => expect(chatService.turn).toHaveBeenCalledOnce())
+    expect(chatService.sheet).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/Notas.xlsx · Hoja: Notas · 3 filas · 1 columnas/),
+    ).toBeVisible()
+    expect(chatService.turn).toHaveBeenCalledWith(
+      'p1',
+      'c1',
+      expect.objectContaining({ action: 'files_ready' }),
+    )
+  },
+)
+
+it.each(['general', 'thesis'] as const)(
+  'muestra las hojas pendientes y comprende solo tras seleccionar en %s',
+  async (mode) => {
+    detail.conversation.current_stage = 'upload_dataset'
+    const excel: ProjectFile = {
+      ...dataset,
+      id: 'excel',
+      original_name: 'Notas.xlsx',
+      file_type: 'xlsx',
+      metadata: {
+        sheets: ['Notas', 'Otra'],
+        selected_sheet: undefined,
+        needs_sheet_selection: true,
+      },
+    }
+    vi.mocked(chatService.upload).mockImplementation(async () => {
+      detail.files = [excel]
+      return excel
+    })
+    vi.mocked(chatService.sheet).mockImplementation(async (_p, _id, sheet) => {
+      const selected = {
+        ...excel,
+        metadata: {
+          ...dataset.metadata,
+          sheets: ['Notas', 'Otra'],
+          selected_sheet: sheet,
+          needs_sheet_selection: false,
+        },
+      }
+      detail.files = [selected]
+      return selected
+    })
+    render(
+      <MemoryRouter>
+        <StatisticalChat project={{ ...project, project_type: mode }} />
+      </MemoryRouter>,
+    )
+    const user = userEvent.setup()
+    await user.upload(
+      await screen.findByLabelText('Archivos para adjuntar'),
+      new File(['xlsx sintético'], 'Notas.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }),
+    )
+    const select = await screen.findByRole('combobox', {
+      name: 'Hoja de Notas.xlsx',
+    })
+    expect(select).toBeVisible()
+    expect(
+      screen.getByText(/Selecciona una hoja de cada Excel pendiente/),
+    ).toBeVisible()
+    expect(
+      within(select).getByRole('option', { name: 'Otra' }),
+    ).toBeInTheDocument()
+    expect(chatService.turn).not.toHaveBeenCalled()
+    await user.selectOptions(select, 'Notas')
+    await waitFor(() => expect(chatService.turn).toHaveBeenCalledOnce())
+    expect(chatService.sheet).toHaveBeenCalledOnce()
+    expect(
+      screen.queryByRole('combobox', { name: 'Hoja de Notas.xlsx' }),
+    ).not.toBeInTheDocument()
+  },
+)

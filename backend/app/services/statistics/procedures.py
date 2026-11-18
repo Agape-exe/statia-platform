@@ -223,8 +223,9 @@ def correlate(result, source, prepared, component, spec, charts):
         [
             Assumption(
                 name="Independencia",
+                origin="user",
                 status="pending",
-                detail="Debe respaldarse en el diseño; las filas no demuestran independencia.",
+                detail="Confirmada por el investigador en las decisiones de ejecución. El dataset no verifica empíricamente el diseño de recolección.",
             ),
             Assumption(
                 name="Forma de asociación",
@@ -418,6 +419,7 @@ def compare(result, source, prepared, component, spec, charts):
     result.assumptions = assumptions + [
         Assumption(
             name="Independencia",
+            origin="user",
             status="pending",
             detail="Diseño independiente declarado por el usuario; no verificable solo con el dataset. Revisa muestreo, conglomerados y mediciones repetidas.",
         )
@@ -426,6 +428,7 @@ def compare(result, source, prepared, component, spec, charts):
         result.assumptions.append(
             Assumption(
                 name="Igualdad de varianzas",
+                origin="user",
                 status="pending",
                 detail="Requisito confirmado por el usuario; el diagnóstico de Levene no demuestra igualdad.",
             )

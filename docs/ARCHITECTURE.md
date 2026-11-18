@@ -118,3 +118,68 @@ Resultados tienen estados completed/partial/failed por ejecución y componente. 
 `analysis_context.py` aporta hasta tres ejecuciones recientes con agregados pertinentes, conteos de omisiones y límites de contexto. No envía originales ni tablas de frecuencias completas. Gemini puede explicar resultados guardados y proponer otras ejecuciones, pero nunca calcular ni sobrescribir medidas. Las afirmaciones inferenciales explícitas con símbolos se contrastan con cifras guardadas y redondeo; este control no es un verificador semántico exhaustivo de toda prosa. El texto se mantiene separado de las tablas canónicas. Sin Gemini, la interpretación determinista, persistencia y descargas siguen funcionando. Las preguntas sobre resultados conservan la finalidad y la etapa cuando no proponen otra investigación.
 
 Fórmulas, contratos de API, métodos y límites: [motor estadístico](STATISTICAL_ENGINE.md).
+
+
+## Correcciones locales de Sesión 6
+
+`requested_scope` reconoce solicitudes habituales y separa exclusiones; las
+restricciones comprobables se revalidan al proponer, aceptar, preparar y ejecutar.
+Una exclusión de post hoc se conserva como producto restrictivo del plan. ANOVA
+Welch global conserva `comparison=null` y todas las categorías observadas; el
+contrato `comparison` sigue describiendo comparaciones de dos grupos.
+
+`variable_types.py` reconoce una confirmación explícita por columna inequívoca en
+el chat y añade `Plan.type_confirmations` (opcional, backend). La validación aplica
+una vista temporal del perfil, sin reescribirlo; la preparación relee el original,
+conserva el tipo confirmado y la ejecución rechaza decisiones incompatibles. No
+se permite convertir identificadores o fechas en medidas por esta vía. Los planes
+anteriores conservan su contrato y decisiones predeterminadas.
+
+Datos consulta el catálogo privado, carga perfiles bajo demanda y descarga por los
+servicios de chat existentes. Las nuevas subidas guardan `metadata.content_sha256`;
+una carga idéntica del mismo proyecto, rol y formato reutiliza su ID y vínculo. Un
+lock serializa cargas en un proceso. No hay unicidad atómica entre procesos ni
+compactación de históricos. XLSX con perfil congelado puede crear otra referencia
+para seleccionar una hoja diferente. No se incorporan migraciones.
+
+Chat usa react-markdown y remark-gfm sin HTML, con enlaces permitidos y tablas con
+scroll propio. Los resultados nuevos pueden añadir `Assumption.origin`; distingue
+la declaración del investigador de una comprobación automática. La lectura de
+resultados previos no cambia sus cifras ni su procedencia almacenada.
+
+La cuota conserva el código público de error; solo el límite por minuto expone un
+Retry-After calculado. Cada proveedor tiene su presupuesto por proceso. No hay
+reintentos pagados adicionales ni cambios de cuotas. Ver [informe local](SESSION6_REPORT.md).
+
+
+## Corrección final de Sesión 6B
+
+La cobertura de resúmenes agrupados reconoce los productos que las comparaciones
+registradas ya calculan, para su resultado y agrupador exactos. No acredita globales,
+frecuencias ni variables de otros componentes. El alcance diferencia «p global» del
+alcance descriptivo; conserva Welch cuando se pide inequívocamente y reconoce sus gl.
+Una corrección fallida del proveedor conserva alcance/exclusiones sin pedir redefinir
+una solicitud clara. Solo se reconstruyen cachés antiguas si toda su evidencia de
+usuario está en el historial completo disponible; no se recortan historiales truncados.
+
+`GET /projects/{project_id}/files/{file_id}/rows?offset=0&limit=50` autentica, comprueba
+propiedad/proyecto y usa REST/Storage con JWT y clave publicable. Contrato `FileRows`.
+`data_preview.py` lee el original acotado y devuelve hasta 100 filas por solicitud;
+el navegador pide 50, únicamente al abrir «Ver datos» o cambiar de página. Relee el
+objeto original por página; no hay índice persistente, caché nueva ni migración.
+CSV conserva texto, espacios, ceros y marcadores; JSON conserva números sin pérdida
+de precisión; XLSX utiliza la hoja seleccionada, fórmulas literales y fechas ISO.
+No modifica archivos ni perfiles y no envía registros a IA. PDF sigue en metadatos.
+
+`interpretation_guards.py` cubre patrones observados de asimetría no acreditada,
+procedencia inventada y guardado ambiguo en Contexto. Usa la misma corrección
+semántica acotada existente, no nuevos reintentos. No es un verificador científico
+exhaustivo de prosa. Los UUID de ejecución validados se distinguen de IDs de archivo;
+la presentación de un marcador legado no reescribe su mensaje histórico.
+
+El hotfix final muestra la selección pendiente de Excel directamente en el chat;
+conserva el único disparo existente de comprensión tras carga/selección.
+`descriptive_feasibility.py` anticipa en `validate_plan` los bloqueos descriptivos
+conocidos del perfil, tanto al generar como al aceptar. La cardinalidad de subconjuntos
+filtrados sigue validándose con datos reales durante preparación. No cambia el motor
+ni los planes históricos. Ver [validación y límites](HOTFIX_FINAL_REPORT.md).

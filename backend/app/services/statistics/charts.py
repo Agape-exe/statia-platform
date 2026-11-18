@@ -66,7 +66,7 @@ class Charts:
                 loc="best",
             )
 
-        return self.make(f"Comparación de {label}", "Grupo", label, draw)
+        return self.make(f"Diagrama de caja de {label}", "Grupo" if len(arrays) > 1 else "Observaciones", label, draw)
 
     def scatter(self, x, y, xlabel, ylabel):
         indexes = np.linspace(0, len(x) - 1, min(2000, len(x)), dtype=int)

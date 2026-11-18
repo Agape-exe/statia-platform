@@ -137,6 +137,7 @@ class ResultTable(StrictModel):
 
 
 class Assumption(StrictModel):
+    origin: Literal["user", "verified", "pending"] | None = None
     name: str
     status: Literal["evaluated", "pending", "violated", "not_applicable"]
     detail: str

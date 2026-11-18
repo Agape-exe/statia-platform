@@ -27,6 +27,7 @@ export function ThesisContext({ projectId }: { projectId: string }) {
   const [loaded, setLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [importNotice, setImportNotice] = useState('')
   const [notice, setNotice] = useState('')
   const [retry, setRetry] = useState(0)
 
@@ -63,9 +64,10 @@ export function ThesisContext({ projectId }: { projectId: string }) {
       setExtras(JSON.stringify(document.additional_fields, null, 2))
       setReview(null)
       setError(null)
-      setNotice(
-        'Importación cargada para revisión. Todavía no se guardó: revisa y edita cada campo antes de confirmar.',
+      setImportNotice(
+        'Contexto importado correctamente. Revisa los campos antes de guardar.',
       )
+      setNotice('Borrador importado; todavía no se ha guardado.')
     } catch (err) {
       setError(contextError(err))
     }
@@ -106,6 +108,7 @@ export function ThesisContext({ projectId }: { projectId: string }) {
         saved?.revision ?? 0,
       )
       setSaved(context)
+      setImportNotice('')
       setDraft(context.document)
       setExtras(JSON.stringify(context.document.additional_fields, null, 2))
       setReview(null)
@@ -162,6 +165,11 @@ export function ThesisContext({ projectId }: { projectId: string }) {
         contraseñas o información confidencial.
       </p>
       <details className="context-import">
+        {importNotice && (
+          <div className="notice" role="status">
+            {importNotice}
+          </div>
+        )}
         <summary>Importar contexto desde JSON</summary>
         <p>
           Usa el prompt maestro con tu información metodológica. Importar

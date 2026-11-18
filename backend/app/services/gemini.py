@@ -35,6 +35,13 @@ Interpreta las tablas agregadas disponibles: medias, medianas, dispersión, frec
 porcentajes ya calculados; relaciona las cifras con sus variables/grupos y fecha/método de
 origen. run_id y hashes son trazas internas. No mezcles snapshots de archivos distintos;
 completed_run_id identifica recursos conservados de una continuación.
+En la explicación prefiere el método y la fecha disponibles. No inventes run_id,
+identificadores ni marcadores de posición. Si citas un ID, debe coincidir exactamente
+con una ejecución del contexto; si no está disponible, omítelo.
+Una media superior a la mediana NO evidencia por sí sola asimetría positiva ni su
+intensidad. Distingue hechos calculados de hipótesis sobre la forma: puedes decir
+«podría ser compatible con asimetría; requiere revisar la distribución», sin confirmarla.
+No inventes coeficientes de asimetría ni otros cálculos ausentes de los resultados.
 component_states distingue lo completado, pendiente y fallido; un componente sin cálculo
 no tiene valor p ni resultado no significativo. Explica sus bloqueos sin inventar supuestos.
 No vuelvas a preparar ni calcules para abrir detalles. Si pide continuar, indica las acciones
@@ -64,6 +71,13 @@ cardinalidad y diseño. No afirmar que una relación fue confirmada sin evidenci
 Tesis: preguntar solo aclaraciones metodológicas imprescindibles aún desconocidas (diseño,
 objetivo vs hipótesis, pareamiento, instrumentos y significado). No proponer métodos definitivos
 sin metodología confirmada; methodology_confirmed debe reflejar las respuestas del usuario.
+Antes de una propuesta descriptiva revisa las capacidades del perfil: identificadores y
+variables temporales (por ejemplo un año) no son medidas descriptivas admitidas por este
+motor; las frecuencias admiten hasta 100 categorías y una agrupación hasta 20 niveles.
+No propongas un plan ya incompatible con esos límites. Explica las columnas no analizables
+y ofrece reformulación sin eliminar silenciosamente productos solicitados expresamente.
+En proyectos generales no existe el módulo Contexto. Las propuestas se revisan y aceptan
+mediante sus acciones en esta conversación; no envíes al usuario a Contexto para confirmarlas.
 General: preguntar si conoce los datos; si no, continuar con exploración sin bloquearlo.
 Después de comprender los archivos, preguntar finalidad; si no la conoce, proponer opciones
 viables y explicar límites. Una propuesta debe tener variables, método, justificación,
@@ -95,6 +109,10 @@ qué información debe orientar la consulta actual. Los resultados y planes hist
 sus snapshots y no se recalculan al cambiar Contexto. No afirmes haber guardado cambios.
 Si sugieres actualizar metodología, pide al usuario revisar la propuesta en el módulo Contexto
 y confirmar allí su guardado. Una respuesta en el chat jamás actualiza el contexto persistente.
+Si research_context=null, el Contexto está vacío. Di «consideraré este objetivo en
+esta conversación; todavía no está guardado en Contexto». No digas «he registrado tu
+objetivo» ni «he guardado/actualizado el Contexto» como si hubiera persistencia en ese
+módulo. Las hipótesis no son obligatorias para un estudio descriptivo.
 Conserva en context_summary los hechos, significados y aclaraciones metodológicas aportados
 por el usuario; actualiza el resumen previo sin convertir suposiciones en hechos.
 Las entradas kind=action son eventos funcionales, nunca finalidades estadísticas. Usa
@@ -111,6 +129,14 @@ No bloquees exploración general porque no conozca el dataset. Un integral debe 
 components con al menos dos procedimientos distintos, sus métodos y variables reales.
 No inventar opciones para completar una cuota. Cada propuesta explica objetivo, método,
 justificación, requisitos/supuestos evaluables, limitaciones y productos esperados.
+Para ANOVA de Welch global usa comparison=null: no corresponde al contrato de efecto
+entre dos grupos. Conserva todos los niveles de la agrupación. expected_outputs puede
+incluir «Medias por grupo», «Estadístico de prueba global» y «Valores p»; el motor
+incluye N, media, DE, F, grados de libertad y p. Para la solicitud conjunta usa una
+única propuesta group_comparison, método ANOVA de Welch, resultado y agrupador exactos,
+comparison=null, expected_outputs «Resúmenes por grupo», «Estadístico de prueba global»,
+«Grados de libertad» y «Valores p». Los descriptivos por grupo son productos del mismo
+ANOVA; no requieren una finalidad aparte ni resúmenes globales de todas las filas. Sin post hoc si el usuario los excluye.
 Antes de t de Welch: si 'una misma especie' no identifica cuál, preguntar especie específica
 o todas; nunca expandir silenciosamente. Respeta comparison_scope. Para Welch rellena
 comparison: dos grupos reales, design independent, filtros/estratos explícitos, evidencia
@@ -164,6 +190,9 @@ perfiles marginales no prueban equivalencia entre columnas. No eliminar ni susti
 Los códigos numéricos categóricos/ordinales no son automáticamente medidas continuas. Para
 correlaciones de medidas o ANOVA, usa medidas cuantitativas; si su significado es ambiguo,
 describe frecuencias o solicita aclaración, sin bloquear otras alternativas viables.
+confirmed_variable_types contiene decisiones explícitas por archivo/hoja/columna del investigador.
+Úsalas al planificar como medidas cuantitativas, sin inventar unidades. Para confirmar una
+columna ambigua pide escribir «Confirmo que `columna` es cuantitativa discreta» o «continua».
 Para las medidas de procedure=correlation selecciona columnas statistical_type=quantitative;
 declara aparte los grupos con role=group. No conviertas categorical_or_ordinal en ordinal
 confirmado solo por sus valores numéricos.
@@ -201,6 +230,8 @@ def build_context(project, conversation, messages, files, turn, settings, analys
                             'content': redact(m['content'][:6000])} for m in messages[-18:]],
                'files': [], 'analysis_results': analysis_results or [],
                'execution_methods': [{'code': p.code, 'name': p.name, 'families': p.families, 'variables': p.variable_types} for p in CATALOG.values()]}
+    if conversation.get('stage_data', {}).get('confirmed_variable_types'):
+        context['confirmed_variable_types'] = conversation['stage_data']['confirmed_variable_types']
     for file in files:
         metadata = file['metadata']
         item = {'file_id': file['id'], 'file_name': redact(file.get('original_name', 'archivo de datos')), 'role': file['file_role'], 'sheets': metadata.get('sheets', []),
@@ -310,6 +341,8 @@ class GeminiProvider:
 
 
 def validate_reply(reply, files, project, context=None, *, validate_plans=True, check_recommendations=True):
+    from app.services.interpretation_guards import validate_explanation
+    validate_explanation(reply.response, context)
     known = {f['id']: f for f in files}
     validate_independence(reply.response, context, require_pending=False)
     validate_numeric_claims(reply.response, context)
@@ -322,8 +355,7 @@ def validate_reply(reply, files, project, context=None, *, validate_plans=True, 
         column_for(variable)
     if reply.goal_change and not reply.goal_change_reason:
         raise PlanningError('response_content', 'Debes explicar el cambio de finalidad.')
-    if (reply.clarification_required and (reply.proposals or not reply.questions)
-            or reply.questions and reply.proposals and project['project_type'] == 'thesis'):
+    if reply.clarification_required and (reply.proposals or not reply.questions):
         raise PlanningError('essential_clarification', 'Resuelve las preguntas esenciales antes de generar propuestas definitivas.')
     if validate_plans:
         for plan in reply.proposals:
@@ -352,11 +384,15 @@ def reference_validator(known):
 
 
 def validate_plan(plan, files, project, context=None):
+    from app.services.variable_types import confirmed_files
+    files = confirmed_files(plan, files)
     known = {f['id']: f for f in files}
     column_for = reference_validator(known)
     columns = [column_for(v) for v in plan.variables]
     validate_objective_columns(plan, known, context)
     validate_methodology(plan, column_for, context)
+    from app.services.descriptive_feasibility import validate_descriptive_feasibility
+    validate_descriptive_feasibility(plan, column_for)
     tables = {(v.file_id, v.sheet) for v in plan.variables}
     if len(tables) > 1 and plan.procedure not in ('descriptive', 'exploratory') and not plan.joins:
         raise PlanningError('cross_table_relation', 'El análisis conjunto de tablas requiere una relación explícita justificada y confirmada. Puedes proponer exploraciones independientes.')

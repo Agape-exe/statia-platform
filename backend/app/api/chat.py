@@ -1,3 +1,4 @@
+import hashlib
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -8,7 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Respon
 from pydantic import ValidationError
 
 from app.core.auth import CurrentUser
-from app.models.chat import AssistantReply, ConversationCreate, Decision, Plan, ProviderChange, Rename, Turn
+from app.models.chat import AssistantReply, ConversationCreate, Decision, FileRows, Plan, ProviderChange, Rename, Turn
 from app.services.providers import catalog, check_available, require_rollback_safety, session_for
 from app.services.plan_capabilities import descriptive_warnings
 from app.services.gemini import validate_reply
@@ -202,7 +203,7 @@ async def decide(project_id: UUID, conversation_id: UUID, proposal_id: UUID, bod
             validate_plan_scope(plan, conversation.get('stage_data', {}).get('requested_scope'), files)
         except (ValidationError, ValueError) as exc:
             from app.services.planning_errors import PlanningError
-            if isinstance(exc, PlanningError) and exc.category in ('output_scope', 'output_capability', 'requested_scope'):
+            if isinstance(exc, PlanningError) and exc.category in ('output_scope', 'output_capability', 'requested_scope', 'variable_type'):
                 raise HTTPException(422, str(exc), headers={'X-Statia-Error': exc.category}) from None
             raise HTTPException(422, 'El plan ya no es válido para los archivos actuales. Solicita una propuesta nueva.') from None
     if proposal['status'] != body.status:
@@ -221,6 +222,11 @@ async def list_files(project_id: UUID, user: CurrentUser):
 @router.post('/conversations/{conversation_id}/files', status_code=201, summary='Inspeccionar, subir a bucket privado y asociar archivo')
 async def upload_file(project_id: UUID, conversation_id: UUID, request: Request, user: CurrentUser,
                       file: Annotated[UploadFile, File()], file_role: Annotated[str, Form()] = 'dataset'):
+    async with request.app.state.file_upload_lock:
+        return await upload_project_file(project_id, conversation_id, request, user, file, file_role)
+
+
+async def upload_project_file(project_id, conversation_id, request, user, file, file_role):
     conversation = await conversation_for(user, project_id, conversation_id)
     if file_role not in ('dataset', 'instrument'):
         raise HTTPException(422, 'El rol debe ser dataset o instrument.')
@@ -228,13 +234,26 @@ async def upload_file(project_id: UUID, conversation_id: UUID, request: Request,
         raise HTTPException(409, 'Espera a que termine la respuesta antes de adjuntar archivos.')
     settings = request.app.state.settings
     files = await linked_files(user.store, conversation)
-    if len(files) >= settings.max_conversation_files:
-        raise HTTPException(422, 'Se alcanzó el límite de archivos de la conversación.')
     name = (file.filename or 'archivo')[:240]
     async with request.app.state.profile_lock:
         data = await file.read(settings.max_file_bytes + 1)
         await file.close()
         metadata = await asyncio.to_thread(inspect_file, name, data, file_role, settings)
+    digest = hashlib.sha256(data).hexdigest()
+    existing = await user.store.rows('project_files', {'project_id': str(project_id)})
+    match = next((f for f in existing if f['file_role'] == file_role and f['file_type'] == metadata['file_type']
+                  and f.get('metadata', {}).get('content_sha256') == digest
+                  # Un libro perfilado puede necesitar otra hoja: conservar la posibilidad de nueva referencia.
+                  and not (f['file_type'] == 'xlsx' and f.get('metadata', {}).get('profile'))), None)
+    linked = {f['id'] for f in files}
+    if match and match['id'] in linked:
+        return match
+    if len(files) >= settings.max_conversation_files:
+        raise HTTPException(422, 'Se alcanzó el límite de archivos de la conversación.')
+    if match:
+        await user.store.insert('conversation_files', {'conversation_id': str(conversation_id), 'file_id': match['id'], 'project_id': str(project_id)})
+        return match
+    metadata['content_sha256'] = digest
     fid = str(uuid4())
     path = f'{user.user_id}/{project_id}/{fid}/{safe_name(name)}'
     await user.store.upload(path, data, MIMES[metadata['file_type']])
@@ -266,6 +285,8 @@ async def select_sheet(project_id: UUID, file_id: UUID, body: Rename, request: R
     data = await user.store.download(file['storage_path'])
     async with request.app.state.profile_lock:
         metadata = await asyncio.to_thread(inspect_file, file['original_name'], data, 'dataset', request.app.state.settings, body.title)
+    if file['metadata'].get('content_sha256'):
+        metadata['content_sha256'] = file['metadata']['content_sha256']
     return (await user.store.update('project_files', {'id': str(file_id)}, {'metadata': metadata}))[0]
 
 
@@ -273,6 +294,22 @@ async def select_sheet(project_id: UUID, file_id: UUID, body: Rename, request: R
 async def get_profile(project_id: UUID, file_id: UUID, user: CurrentUser):
     await project_for(user, project_id)
     return (await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)}))['metadata']
+
+
+@router.get('/files/{file_id}/rows', response_model=FileRows, summary='Consultar una página de registros originales, sin enviar datos a IA')
+async def get_rows(project_id: UUID, file_id: UUID, request: Request, user: CurrentUser, response: Response,
+                   offset: int = Query(default=0, ge=0, le=20000), limit: int = Query(default=50, ge=1, le=100)):
+    from app.services.data_preview import preview_rows
+    await project_for(user, project_id)
+    file = await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)})
+    if file['file_role'] != 'dataset':
+        raise HTTPException(422, 'Los instrumentos PDF se consultan desde sus metadatos.')
+    settings = request.app.state.settings
+    async with request.app.state.profile_lock:
+        data = await user.store.download(file['storage_path'], max_bytes=settings.max_file_bytes)
+        page = await asyncio.to_thread(preview_rows, file, data, settings, offset, limit)
+    response.headers['Cache-Control'] = 'no-store'
+    return page
 
 
 @router.get('/files/{file_id}/download', summary='Descargar original con autorización del propietario y RLS')

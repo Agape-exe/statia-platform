@@ -11,3 +11,8 @@ backend/tests/fixtures/titanic.csv -text
 docs/TERRA_*_2026-11-16.json -text whitespace=cr-at-eol
 docs/TERRA_*_2026-11-16.md -text whitespace=cr-at-eol
 docs/TERRA_MI_PREPARATION.md -text whitespace=cr-at-eol
+
+# Fixtures sintéticas: el PDF y CSV conservan sus originales; prompt histórico estable.
+backend/tests/fixtures/instrumento_sesion6.pdf binary
+backend/tests/fixtures/regresion_sesion6.csv -text
+backend/tests/fixtures/session5_system.txt text eol=lf
