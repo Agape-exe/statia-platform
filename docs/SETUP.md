@@ -1,5 +1,8 @@
 # Configuración local
 
+Sesión 6B: ver [Welch, vista de registros y validación final](SESSION6B_REPORT.md).
+Sin variables nuevas, migraciones ni cambios de configuración remota.
+
 Sesión 6: ver [correcciones, pruebas y arranque local](SESSION6_REPORT.md). No requiere
 variables nuevas ni migraciones. Los comandos permiten sobrescribir VITE_API_URL solo
 en el proceso, sin editar secretos. No ejecutar diagnósticos con `--live` para esta validación.

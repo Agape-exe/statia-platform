@@ -150,3 +150,29 @@ resultados previos no cambia sus cifras ni su procedencia almacenada.
 La cuota conserva el código público de error; solo el límite por minuto expone un
 Retry-After calculado. Cada proveedor tiene su presupuesto por proceso. No hay
 reintentos pagados adicionales ni cambios de cuotas. Ver [informe local](SESSION6_REPORT.md).
+
+
+## Corrección final de Sesión 6B
+
+La cobertura de resúmenes agrupados reconoce los productos que las comparaciones
+registradas ya calculan, para su resultado y agrupador exactos. No acredita globales,
+frecuencias ni variables de otros componentes. El alcance diferencia «p global» del
+alcance descriptivo; conserva Welch cuando se pide inequívocamente y reconoce sus gl.
+Una corrección fallida del proveedor conserva alcance/exclusiones sin pedir redefinir
+una solicitud clara. Solo se reconstruyen cachés antiguas si toda su evidencia de
+usuario está en el historial completo disponible; no se recortan historiales truncados.
+
+`GET /projects/{project_id}/files/{file_id}/rows?offset=0&limit=50` autentica, comprueba
+propiedad/proyecto y usa REST/Storage con JWT y clave publicable. Contrato `FileRows`.
+`data_preview.py` lee el original acotado y devuelve hasta 100 filas por solicitud;
+el navegador pide 50, únicamente al abrir «Ver datos» o cambiar de página. Relee el
+objeto original por página; no hay índice persistente, caché nueva ni migración.
+CSV conserva texto, espacios, ceros y marcadores; JSON conserva números sin pérdida
+de precisión; XLSX utiliza la hoja seleccionada, fórmulas literales y fechas ISO.
+No modifica archivos ni perfiles y no envía registros a IA. PDF sigue en metadatos.
+
+`interpretation_guards.py` cubre patrones observados de asimetría no acreditada,
+procedencia inventada y guardado ambiguo en Contexto. Usa la misma corrección
+semántica acotada existente, no nuevos reintentos. No es un verificador científico
+exhaustivo de prosa. Los UUID de ejecución validados se distinguen de IDs de archivo;
+la presentación de un marcador legado no reescribe su mensaje histórico.
