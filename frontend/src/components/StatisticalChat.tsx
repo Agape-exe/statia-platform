@@ -1032,10 +1032,37 @@ export function StatisticalChat({ project }: { project: Project }) {
                     </button>
                   </div>
                 )}
+                {detail.files
+                  .filter(
+                    (file) =>
+                      file.file_type === 'xlsx' && file.metadata.profile,
+                  )
+                  .map((file) => (
+                    <p className="muted" key={`xlsx-profile-${file.id}`}>
+                      {file.original_name} · Hoja:{' '}
+                      {file.metadata.selected_sheet} ·{' '}
+                      {file.metadata.profile!.row_count} filas ·{' '}
+                      {file.metadata.profile!.column_count} columnas
+                    </p>
+                  ))}
+                {detail.files.some(
+                  (file) => file.metadata.needs_sheet_selection,
+                ) && (
+                  <p className="notice" role="status">
+                    Selecciona una hoja de cada Excel pendiente en los archivos
+                    relacionados que se muestran abajo. Después continuaremos
+                    con la comprensión. No se combinan hojas.
+                  </p>
+                )}
                 {detail.files.length > 0 && (
                   <details
                     className="historical-card"
                     aria-label="Archivos relacionados"
+                    open={
+                      detail.files.some(
+                        (file) => file.metadata.needs_sheet_selection,
+                      ) || undefined
+                    }
                   >
                     <summary>
                       Archivos relacionados ({detail.files.length})
@@ -1046,6 +1073,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                         key={file.id}
                         file={file}
                         busy={disabled}
+                        expanded={file.metadata.needs_sheet_selection}
                         onSheet={(sheet) =>
                           perform(async () => {
                             await chatService.sheet(project.id, file.id, sheet)

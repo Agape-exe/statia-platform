@@ -50,7 +50,7 @@ export function DatasetCard({
             : profile
               ? `${profile.row_count} filas · ${profile.column_count} columnas`
               : file.metadata.needs_sheet_selection
-                ? 'Hoja pendiente de selección en el asistente'
+                ? `Selecciona una de sus ${file.metadata.sheets.length} hojas para continuar`
                 : 'Perfil no disponible'}
         </span>
       </summary>
