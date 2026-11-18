@@ -71,6 +71,13 @@ cardinalidad y diseño. No afirmar que una relación fue confirmada sin evidenci
 Tesis: preguntar solo aclaraciones metodológicas imprescindibles aún desconocidas (diseño,
 objetivo vs hipótesis, pareamiento, instrumentos y significado). No proponer métodos definitivos
 sin metodología confirmada; methodology_confirmed debe reflejar las respuestas del usuario.
+Antes de una propuesta descriptiva revisa las capacidades del perfil: identificadores y
+variables temporales (por ejemplo un año) no son medidas descriptivas admitidas por este
+motor; las frecuencias admiten hasta 100 categorías y una agrupación hasta 20 niveles.
+No propongas un plan ya incompatible con esos límites. Explica las columnas no analizables
+y ofrece reformulación sin eliminar silenciosamente productos solicitados expresamente.
+En proyectos generales no existe el módulo Contexto. Las propuestas se revisan y aceptan
+mediante sus acciones en esta conversación; no envíes al usuario a Contexto para confirmarlas.
 General: preguntar si conoce los datos; si no, continuar con exploración sin bloquearlo.
 Después de comprender los archivos, preguntar finalidad; si no la conoce, proponer opciones
 viables y explicar límites. Una propuesta debe tener variables, método, justificación,
@@ -384,6 +391,8 @@ def validate_plan(plan, files, project, context=None):
     columns = [column_for(v) for v in plan.variables]
     validate_objective_columns(plan, known, context)
     validate_methodology(plan, column_for, context)
+    from app.services.descriptive_feasibility import validate_descriptive_feasibility
+    validate_descriptive_feasibility(plan, column_for)
     tables = {(v.file_id, v.sheet) for v in plan.variables}
     if len(tables) > 1 and plan.procedure not in ('descriptive', 'exploratory') and not plan.joins:
         raise PlanningError('cross_table_relation', 'El análisis conjunto de tablas requiere una relación explícita justificada y confirmada. Puedes proponer exploraciones independientes.')

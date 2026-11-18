@@ -30,6 +30,17 @@ def validate_explanation(text, context):
         r"run_id`?\s*[:=]?\s*`?(?:archivo del proyecto|\[valor omitido\]|<[^>]+>|pendiente|desconocido)", literal
     ):
         raise PlanningError("response_content", "Omite marcadores de posición: no identifican una ejecución real.")
+    if context.get("project_mode") == "general":
+        for sentence in re.split(r"[.!?\n]", literal):
+            if (
+                re.search(r"(?:revis|confirm|acept|guard)\w*", sentence)
+                and re.search(r"(?:en|desde) el modulo contexto", sentence)
+                and not re.search(r"\bno\b", sentence)
+            ):
+                raise PlanningError(
+                    "response_content",
+                    "Los proyectos generales no tienen módulo Contexto. Indica revisar y aceptar la propuesta en esta conversación.",
+                )
     if context.get("project_mode") == "thesis" and not context.get("research_context"):
         for sentence in re.split(r"[.!?\n]", literal):
             if (

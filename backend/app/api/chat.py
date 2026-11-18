@@ -203,7 +203,7 @@ async def decide(project_id: UUID, conversation_id: UUID, proposal_id: UUID, bod
             validate_plan_scope(plan, conversation.get('stage_data', {}).get('requested_scope'), files)
         except (ValidationError, ValueError) as exc:
             from app.services.planning_errors import PlanningError
-            if isinstance(exc, PlanningError) and exc.category in ('output_scope', 'output_capability', 'requested_scope'):
+            if isinstance(exc, PlanningError) and exc.category in ('output_scope', 'output_capability', 'requested_scope', 'variable_type'):
                 raise HTTPException(422, str(exc), headers={'X-Statia-Error': exc.category}) from None
             raise HTTPException(422, 'El plan ya no es válido para los archivos actuales. Solicita una propuesta nueva.') from None
     if proposal['status'] != body.status:

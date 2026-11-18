@@ -247,7 +247,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             if scope and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') for issue in assessment.issues):
                 reply = scope_question(scope, provider_failed=True)
                 break
-            raise HTTPException(502, 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
+            type_problems = list(dict.fromkeys(issue.message for issue in assessment.issues if issue.category == 'variable_type'))
+            detail = ('El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000]
+                      + ' No se guardó una propuesta inválida; solicita una reformulación compatible.') if type_problems else 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.'
+            raise HTTPException(502, detail,
                                 headers={'X-Statia-Error': 'planning_validation',
                                          'X-Statia-Validation': ','.join(sorted({issue.category for issue in assessment.issues}))}) from None
         failures = '\n'.join(f'Propuesta {issue.plan_index + 1 if issue.plan_index is not None else "respuesta"} [{issue.category}]: {issue.message}'
