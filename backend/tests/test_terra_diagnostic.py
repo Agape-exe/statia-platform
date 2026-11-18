@@ -535,6 +535,9 @@ def test_saved_live_plans_preserve_evidence_and_unverified_outputs_require_scope
     metrics = saved["metrics"][0]
     assert metrics["result"] == "failed" and metrics["category"] == "independence"
     assert diagnostic.digest(case.context) == metrics["context_sha256"]
+    # Auditoría de una llamada histórica: usar su prompt congelado, nunca el
+    # prompt actual ni cambiar los hashes/planes realmente observados.
+    case.system = (Path(__file__).parent / "fixtures/session5_system.txt").read_text(encoding="utf-8")
     assert diagnostic.digest(diagnostic.payload(case, metrics["model"])) == metrics["payload_sha256"]
     # Solo adaptar nombres de campos persistidos a Plan. No fabricar los campos
     # raíz ausentes de AssistantReply ni sustituirlos por una respuesta simulada.

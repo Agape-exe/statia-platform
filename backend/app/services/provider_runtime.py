@@ -1,6 +1,7 @@
 """Presupuestos locales y trazas por turno; nunca guardar prompts ni respuestas."""
 
 import logging
+import math
 import re
 import time
 from collections import deque
@@ -31,13 +32,18 @@ class RequestBudget:
         while self.requests and self.requests[0] <= now - 60:
             self.requests.popleft()
         trace = current_trace.get()
-        if len(self.requests) >= self.settings.ai_requests_per_minute or (
-            trace is not None and trace["requests"] >= self.settings.ai_max_requests_per_turn
-        ):
+        if trace is not None and trace["requests"] >= self.settings.ai_max_requests_per_turn:
             raise HTTPException(
                 429,
-                "Se alcanzó el límite local de solicitudes del proveedor. Reintenta más tarde.",
+                "Se alcanzó el máximo local de solicitudes de este turno. Revisa la solicitud antes de reintentar.",
                 headers={"X-Statia-Error": "provider_request_limit"},
+            )
+        if len(self.requests) >= self.settings.ai_requests_per_minute:
+            retry_after = max(1, math.ceil(self.requests[0] + 60 - now))
+            raise HTTPException(
+                429,
+                f"Se alcanzó el límite local de solicitudes del proveedor. Puedes reintentar en {retry_after} segundos.",
+                headers={"X-Statia-Error": "provider_request_limit", "Retry-After": str(retry_after)},
             )
         self.requests.append(now)
         if trace is not None:

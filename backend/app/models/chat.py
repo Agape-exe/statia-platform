@@ -95,6 +95,11 @@ class AnalysisComponent(StrictModel):
     depends_on: list[int] = Field(default_factory=list, max_length=4)
 
 
+class TypeConfirmation(StrictModel):
+    variable: Variable
+    statistical_type: Literal['continuous', 'discrete']
+
+
 class Plan(StrictModel):
     # Versión interna exacta; no forma parte del contrato enviado al proveedor.
     schema_version: int = Field(default=1, ge=1, le=1, strict=True)
@@ -113,6 +118,8 @@ class Plan(StrictModel):
     comparison: Comparison | None = None
     components: list[AnalysisComponent] = Field(default_factory=list, max_length=4)
     filters: list[Selection] = Field(default_factory=list, max_length=6)
+    # Decisiones explícitas del usuario, añadidas por el servidor; sin alterar perfiles.
+    type_confirmations: list[TypeConfirmation] = Field(default_factory=list, max_length=40)
 
 
 class AssistantReply(StrictModel):

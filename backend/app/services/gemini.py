@@ -111,6 +111,10 @@ No bloquees exploración general porque no conozca el dataset. Un integral debe 
 components con al menos dos procedimientos distintos, sus métodos y variables reales.
 No inventar opciones para completar una cuota. Cada propuesta explica objetivo, método,
 justificación, requisitos/supuestos evaluables, limitaciones y productos esperados.
+Para ANOVA de Welch global usa comparison=null: no corresponde al contrato de efecto
+entre dos grupos. Conserva todos los niveles de la agrupación. expected_outputs puede
+incluir «Medias por grupo», «Estadístico de prueba global» y «Valores p»; el motor
+incluye N, media, DE, F, grados de libertad y p. Sin post hoc si el usuario los excluye.
 Antes de t de Welch: si 'una misma especie' no identifica cuál, preguntar especie específica
 o todas; nunca expandir silenciosamente. Respeta comparison_scope. Para Welch rellena
 comparison: dos grupos reales, design independent, filtros/estratos explícitos, evidencia
@@ -164,6 +168,9 @@ perfiles marginales no prueban equivalencia entre columnas. No eliminar ni susti
 Los códigos numéricos categóricos/ordinales no son automáticamente medidas continuas. Para
 correlaciones de medidas o ANOVA, usa medidas cuantitativas; si su significado es ambiguo,
 describe frecuencias o solicita aclaración, sin bloquear otras alternativas viables.
+confirmed_variable_types contiene decisiones explícitas por archivo/hoja/columna del investigador.
+Úsalas al planificar como medidas cuantitativas, sin inventar unidades. Para confirmar una
+columna ambigua pide escribir «Confirmo que `columna` es cuantitativa discreta» o «continua».
 Para las medidas de procedure=correlation selecciona columnas statistical_type=quantitative;
 declara aparte los grupos con role=group. No conviertas categorical_or_ordinal en ordinal
 confirmado solo por sus valores numéricos.
@@ -322,8 +329,7 @@ def validate_reply(reply, files, project, context=None, *, validate_plans=True, 
         column_for(variable)
     if reply.goal_change and not reply.goal_change_reason:
         raise PlanningError('response_content', 'Debes explicar el cambio de finalidad.')
-    if (reply.clarification_required and (reply.proposals or not reply.questions)
-            or reply.questions and reply.proposals and project['project_type'] == 'thesis'):
+    if reply.clarification_required and (reply.proposals or not reply.questions):
         raise PlanningError('essential_clarification', 'Resuelve las preguntas esenciales antes de generar propuestas definitivas.')
     if validate_plans:
         for plan in reply.proposals:
@@ -352,6 +358,8 @@ def reference_validator(known):
 
 
 def validate_plan(plan, files, project, context=None):
+    from app.services.variable_types import confirmed_files
+    files = confirmed_files(plan, files)
     known = {f['id']: f for f in files}
     column_for = reference_validator(known)
     columns = [column_for(v) for v in plan.variables]

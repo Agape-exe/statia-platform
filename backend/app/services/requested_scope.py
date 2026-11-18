@@ -1,7 +1,7 @@
 """Compromisos de productos derivados del usuario, nunca de una respuesta del modelo.
 
 Reconocimiento finito de nombres públicos, no interpretación universal de prosa.
-Una mención de productos no reconocida o una exclusión necesita confirmación.
+Los productos no reconocidos requieren aclaración; las exclusiones claras se conservan.
 Se guarda en stage_data JSONB v1; no modifica planes, resultados ni RPC históricos.
 """
 
@@ -30,6 +30,7 @@ LABELS = {
     "p_value": "Valores p",
     "correlation_coefficient": "Coeficientes de correlación",
     "posthoc": "Comparaciones post hoc",
+    "no_posthoc": "Sin comparaciones post hoc",
     "global_test": "Estadístico de prueba global",
     "group_means": "Medias por grupo",
     "paired_change_interval": "Estimación del cambio con incertidumbre",
@@ -44,46 +45,88 @@ PRODUCT_WORDS = re.compile(
 )
 
 
-def user_products(text):
-    """Solo acredita nombres del catálogo; los modificadores no se descartan.
+NATURAL_PRODUCTS = (
+    (r"\b(?:descriptiva|descriptivo|descripcion|estadistica descriptiva)(?: global)?\b", "global"),
+    (r"\b(?:media|mediana|promedio|desviacion estandar|minimo|maximo)\b", "global"),
+    (r"\b(?:pearson|correlacion de pearson)\b", "correlation_coefficient"),
+    (r"\b(?:anova(?: de welch)?|f de welch)\b", "global_test"),
+)
+NEGATION = re.compile(r"\b(?:no (?:quiero|incluir|incluyas|solicito|necesito)|sin|excepto|excluir|excluye)\s+")
 
-    Las frases desconocidas, negaciones o ligaduras libres a componentes no se
-    convierten en requisitos cubiertos. Se pide una lista explícita al usuario.
-    """
-    literal = normalized(text)
-    if re.match(
-        r"(?:que (?:es|son|significa)|como (?:funciona|se interpreta)|explica(?:me)?\b)", literal.lstrip("¿?¡! ")
-    ):
-        return set(), False, False  # Una consulta conceptual no pide productos nuevos.
-    products = set()
-    residue = literal
+
+def parse_products(text):
+    products, residue = set(), text
     for alias in sorted(USER_ALIASES, key=len, reverse=True):
         pattern = r"(?<!\w)" + re.escape(alias) + r"(?!\w)"
         if re.search(pattern, residue):
             products.update(USER_ALIASES[alias])
             residue = re.sub(pattern, " ", residue)
-    mentioned = bool(products or PRODUCT_WORDS.search(literal))
-    # Estos contenedores no describen productos adicionales.
-    residue = re.sub(r"\b(?:productos|resultados)\s*:", " ", residue)
-    uncertain = bool(PRODUCT_WORDS.search(residue))
-    if products:
-        # La lista explícita debe poder consumirse íntegramente. Un calificativo
-        # o producto desconocido no se elimina por encontrar otro nombre conocido.
-        remainder = re.sub(r"^(?:confirmo alcance:|cambio de alcance:)", "", residue).strip()
-        remainder = re.sub(r"^(?:solicito|quiero|necesito|deseo|incluye|incluir|me gustaria)\b", "", remainder).strip()
-        remainder = re.sub(
-            r"\b(?:en un mismo analisis|en el mismo analisis|alternativas independientes|productos|resultados)\b",
-            "",
-            remainder,
+    for pattern, product in NATURAL_PRODUCTS:
+        if re.search(pattern, residue):
+            products.add(product)
+            residue = re.sub(pattern, " ", residue)
+    if re.search(r"describir todas las observaciones|describir los datos globalmente", text):
+        products.add("global")
+    if re.search(r"resumir(?:las|los)? por grupo", text):
+        products.add("grouped")
+    # Las medidas por grupo no piden además resúmenes globales.
+    if "global" in products and re.search(r"por grupo|segun [\w`]+", text) and not re.search(r"global", text):
+        products.remove("global")
+        products.add("grouped" if re.search(r"descriptiv", text) else "group_means")
+    return products, residue
+
+
+def product_request(text):
+    literal = normalized(text)
+    if re.match(
+        r"(?:que (?:es|son|significa)|como (?:funciona|se interpreta)|explica(?:me)?\b)", literal.lstrip("¿?¡! ")
+    ):
+        return set(), set(), False, False
+    if re.match(r"(?:es un estudio|es una investigacion)", literal):
+        return set(), set(), False, False
+    literal = re.sub(r"confirmo que `[^`]+` es cuantitativa (?:discreta|continua)[.;]?", "", literal).strip()
+    # Separar exclusiones antes de reconocer productos; nunca acreditarlas como solicitudes.
+    positive, negative = [], []
+    for clause in re.split(r"[,;.!]|\b(?:pero|solo|unicamente)\b", literal):
+        match = NEGATION.search(clause)
+        if match:
+            positive.append(clause[: match.start()])
+            negative.append(clause[match.end() :])
+        else:
+            positive.append(clause)
+    products, residue = parse_products(" ".join(positive))
+    excluded, excluded_residue = parse_products(" ".join(negative))
+    # Sin IC es una restricción ejecutable del descriptivo, no una solicitud de IC.
+    if re.search(r"sin intervalos(?: de confianza)?", literal):
+        products.add("no_intervals")
+        excluded.discard("mean_interval")
+        excluded_residue = re.sub(r"intervalos(?: de confianza)?", "", excluded_residue)
+    if re.search(r"(?:sin|no (?:quiero|incluir|incluyas)) (?:comparaciones )?post[ -]?hoc", literal):
+        excluded.add("posthoc")
+    if re.search(r"sin inferencia|exclusivamente descriptiv|solo descriptiv", literal):
+        excluded.update(
+            {
+                "p_value",
+                "correlation_coefficient",
+                "pearson_interval",
+                "posthoc",
+                "global_test",
+                "paired_change_interval",
+            }
         )
-        remainder = re.sub(r"\b(?:cuatro|tres|dos|una)\b", "", remainder)
-        # Forma imperativa de descripción con objetivo anterior a la lista;
-        # una conjunción o producto adicional en ese objetivo exige aclaración.
-        remainder = re.sub(r"^describe [^:;,\n]+?(?=\s{2,}|[;,:])", "", remainder)
-        remainder = re.sub(r"\b(?:y|e)\b|[\s;,:.!\-]+", "", remainder)
-        uncertain = uncertain or bool(remainder)
-    if mentioned and re.search(r"\b(?:no|excepto|quita|elimina|sustituye|reemplaza|componente)\b", residue):
-        uncertain = True
+    mentioned = bool(products or excluded or PRODUCT_WORDS.search(literal))
+    residue = re.sub(r"\b(?:productos|resultados)\s*:", "", residue)
+    # Nombres de columnas/finalidad en prosa son válidos; productos desconocidos,
+    # calificativos no ejecutables y ligaduras libres sí necesitan aclaración.
+    uncertain = bool(
+        PRODUCT_WORDS.search(residue)
+        or re.search(r"\b(?:predicciones|avanzados|completos|componente|sustituye|reemplaza|quita|elimina)\b", literal)
+    )
+    return products, excluded, uncertain, mentioned
+
+
+def user_products(text):
+    products, _, uncertain, mentioned = product_request(text)
     return products, uncertain, mentioned
 
 
@@ -116,12 +159,24 @@ def requested_scope(conversation, messages, turn):
     for message in candidates:
         literal = normalized(message["content"])
         decision = literal.startswith(("confirmo alcance:", "cambio de alcance:"))
-        products, uncertain, mentioned = user_products(message["content"])
+        products, excluded, uncertain, mentioned = product_request(message["content"])
         if not mentioned:
             continue
-        if decision:
+        natural_decision = (
+            scope["unresolved"]
+            and products
+            and not uncertain
+            and bool(
+                re.search(r"\b(?:solo|unicamente)\b|^confirmo (?:que quiero|la descripcion|la descriptiva)", literal)
+            )
+        )
+        if decision or natural_decision:
             scope["products"], scope["unresolved"] = [], False
+            scope["excluded_products"] = []
         scope["products"] = sorted(set(scope["products"]) | products)
+        scope["excluded_products"] = sorted(set(scope.get("excluded_products", [])) | excluded)
+        if set(scope["products"]) & set(scope["excluded_products"]):
+            uncertain = True
         scope["unresolved"] = scope["unresolved"] or uncertain
         if "alternativas independientes" in literal:
             scope["mode"] = "alternatives"
@@ -136,7 +191,7 @@ def requested_scope(conversation, messages, turn):
     scope["through_position"] = max(
         [scope.get("through_position", -1), *[m["position"] for m in candidates if isinstance(m.get("position"), int)]]
     )
-    return scope if scope["products"] or scope["unresolved"] else None
+    return scope if scope["products"] or scope.get("excluded_products") or scope["unresolved"] else None
 
 
 def validate_plan_scope(plan, scope, files):
@@ -148,6 +203,20 @@ def validate_plan_scope(plan, scope, files):
         )
     validate_products(plan, files)  # Conserva también las ligaduras a componentes.
     declared = {kind for text in plan.expected_outputs for kind in OUTPUTS.get(output_request(text)[1], ())}
+    excluded = set(scope.get("excluded_products", []))
+    steps = plan.components if plan.procedure == "integral" else [plan]
+    if {"global_test", "correlation_coefficient", "p_value"} <= excluded and any(
+        s.procedure not in {"descriptive", "exploratory"} for s in steps
+    ):
+        raise PlanningError(
+            "requested_scope", "El usuario solicitó un alcance exclusivamente descriptivo, sin inferencia."
+        )
+    if excluded & declared:
+        raise PlanningError("requested_scope", "La propuesta incluye productos excluidos expresamente por el usuario.")
+    from app.services.plan_capabilities import requests_posthoc
+
+    if "posthoc" in excluded and any(requests_posthoc(s.method) for s in steps):
+        raise PlanningError("requested_scope", "El usuario excluyó comparaciones post hoc.")
     missing = set(scope["products"]) - declared
     if missing:
         raise PlanningError(
@@ -184,7 +253,7 @@ def scope_question(scope):
         + "No se guardó una propuesta que reduzca ese alcance. Necesitamos aclararlo o generar componentes que lo cubran.",
         suggested_stage="clarification",
         questions=[
-            "¿Qué productos deben conservarse juntos? Para decidir el alcance escribe «Confirmo alcance:» seguido de los productos del catálogo, por ejemplo «Resúmenes globales; Resúmenes por grupo; Frecuencias de la variable de agrupación». Puedes pedir otra combinación; si no es verificable, la revisaremos antes de proponer."
+            "¿Deseas describir todas las observaciones, resumirlas por grupo o combinar ambos alcances? Indica también cualquier producto adicional o exclusión que debamos conservar."
         ],
         clarification_required=True,
         confirmation_required=False,

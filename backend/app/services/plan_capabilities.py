@@ -58,6 +58,7 @@ OUTPUTS = {
     "tablas descriptivas sin intervalos de confianza": ("no_intervals",),
     "intervalo de confianza para pearson": ("pearson_interval",),
     "informes consolidados de descriptivos, correlacion y comparacion": ("combined_report",),
+    "sin comparaciones post hoc": ("no_posthoc",),
     "valores p": ("p_value",),
     "valor p": ("p_value",),
     "coeficientes de correlacion": ("correlation_coefficient",),
@@ -244,7 +245,18 @@ def supports_inference(plan, kind, binding, files, decisions, execution_componen
     return False
 
 
+def requests_posthoc(text):
+    literal = re.sub(
+        r"\b(?:sin|no (?:incluir|realizar|hacer|quiero)) (?:comparaciones )?post[ -]?hoc\b", "", normalized(text)
+    )
+    return bool(re.search(r"post[ -]?hoc", literal))
+
+
 def validate_products(plan, files=None, decisions=None, execution_components=None):
+    from app.services.variable_types import confirmed_files
+
+    if files is not None:
+        files = confirmed_files(plan, files)
     for index, text in enumerate(plan.expected_outputs):
         binding, literal = output_request(text)
         scoped = component_plan(plan, binding)
@@ -263,6 +275,17 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                 "El plan original se conserva y no se recortan productos automáticamente.",
             )
         for kind in kinds:
+            if kind == "no_posthoc":
+                steps = plan.components if plan.procedure == "integral" else [plan]
+                if any(requests_posthoc(s.method) for s in steps):
+                    raise PlanningError(
+                        "output_capability", "El plan excluye comparaciones post hoc pero su método las solicita."
+                    )
+                if execution_components and any(c.posthoc != "none" for c in execution_components):
+                    raise PlanningError(
+                        "output_capability", "Conserva la exclusión de comparaciones post hoc del plan aceptado."
+                    )
+                continue
             if kind in {
                 "p_value",
                 "correlation_coefficient",

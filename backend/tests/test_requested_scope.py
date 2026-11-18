@@ -224,7 +224,6 @@ def test_essential_questions_are_never_removed_from_independent_alternatives(api
     [
         "Quiero resúmenes globales avanzados.",
         "Solicito productos: Resúmenes globales; Predicciones de ventas.",
-        "No quiero resúmenes globales, solo resúmenes por grupo.",
         "Quiero valores p del componente 1 y coeficientes de correlación del componente 2.",
     ],
 )
@@ -275,7 +274,7 @@ def test_existing_narrow_proposal_cannot_be_newly_accepted_against_current_scope
 
 
 @pytest.mark.parametrize("provider_id", ["gemini", "openai"])
-def test_unknown_product_is_not_silently_replaced_or_assumed_to_be_a_user_requirement(api, provider_id):
+def test_provider_unknown_output_gets_one_semantic_correction_without_inventing_user_requirements(api, provider_id):
     def answers(fid):
         ambiguous = plan(fid)
         ambiguous["expected_outputs"] = ["Balance detallado de las mediciones"]
@@ -284,10 +283,10 @@ def test_unknown_product_is_not_silently_replaced_or_assumed_to_be_a_user_requir
     client, _, path, _, calls = setup(api, provider_id, answers)
     assert turn(client, path, content="Quiero un balance detallado de las notas").status_code == 200
     detail = client.get(path).json()
-    assert not detail["proposals"] and detail["conversation"]["current_stage"] == "clarification"
-    scope = detail["conversation"]["stage_data"]["requested_scope"]
-    assert scope["unresolved"] and scope["products"] == []
-    assert len(calls) == 1
+    assert len(detail["proposals"]) == 1
+    assert "requested_scope" not in detail["conversation"]["stage_data"]
+    assert len(calls) == 2
+    assert detail["messages"][-1]["metadata"]["planning_validation"]["attempts"][0]["issues"]
 
 
 def test_truncated_historical_scope_is_not_assumed_complete_and_model_text_is_not_evidence():

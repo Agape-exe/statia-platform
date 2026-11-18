@@ -160,6 +160,13 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                     if m.get('metadata', {}).get('request_id') in actions else m for m in messages]
     data = dict(conversation.get('stage_data', {}))
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
+    from app.services.variable_types import bind_confirmations, capture_confirmations
+    try:
+        confirmations = capture_confirmations(turn.content if turn.action == 'message' else '', files, data.get('confirmed_variable_types', []))
+        if confirmations or 'confirmed_variable_types' in data:
+            data['confirmed_variable_types'] = confirmations
+    except ValueError as exc:
+        return static_result(conversation, 'clarification', str(exc))
     analysis_results = await saved_results_context(store, conversation, turn.content)
     discussion = bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
     scope = None if alternative or discussion or result_discussion(turn.content) else requested_scope(conversation, messages, turn)
@@ -170,6 +177,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         return reply_result(scope_question(scope), conversation, files=files, scope=scope)
     research = await current_context(store, project)
     context = build_context(project, conversation, messages, files, turn, settings, analysis_results, research)
+    context['confirmed_variable_types'] = data.get('confirmed_variable_types', [])
     if scope:
         # Compromisos del usuario, separados del texto generado por el proveedor.
         context['requested_scope'] = scope
@@ -208,6 +216,11 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 reply = bind_descriptive_scope(reply, alternative)
             if discussion and (reply.proposals or reply.goal_change):
                 raise ValueError('Esta consulta interpreta resultados guardados o revisa metodología del mismo análisis. Responde sin propuestas nuevas ni cambio de finalidad y sin exigir resolver aclaraciones pendientes.')
+            if scope and 'posthoc' in scope.get('excluded_products', []):
+                for proposed in reply.proposals:
+                    if 'Sin comparaciones post hoc' not in proposed.expected_outputs:
+                        proposed.expected_outputs.append('Sin comparaciones post hoc')
+            reply = bind_confirmations(reply, data.get('confirmed_variable_types', []), files)
             reply = humanize_reply(reply, files)
             assessment = assess_reply(reply, files, project, context)
         except (ValidationError, ValueError) as exc:
@@ -218,7 +231,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             break
         log_issues(assessment.issues, attempt + 1)
         validation_history.append({'attempt': attempt + 1, 'issues': [issue.safe_metadata() for issue in assessment.issues]})
-        if not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
+        if attempt and not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
             # No convertir sugerencias del modelo en requisitos del usuario.
             # Sin alcance verificable tampoco se puede aprobar una sustitución.
             scope = {'version': 1, 'products': [], 'unresolved': True, 'mode': 'analysis', 'source_requests': [str(turn.request_id)]}
