@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
 from app.services.gemini import build_context
-from app.services.conversation_text import ACTION_LABELS, normalize, statistical_request, humanize_reply
+from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply
 from app.services.methodology import levels
 from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
@@ -12,6 +12,7 @@ from app.services.planning_errors import PlanningIssue, log_issues
 from app.services.planning_validation import Assessment, assess_reply, retain_valid_plans
 from app.services.analysis_context import saved_results_context
 from app.services.research_context import current_context
+from app.services.requested_scope import requested_scope, scope_question, validate_scope_reply
 
 
 async def linked_files(store, conversation):
@@ -159,11 +160,22 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                     if m.get('metadata', {}).get('request_id') in actions else m for m in messages]
     data = dict(conversation.get('stage_data', {}))
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
-    conversation = {**conversation, 'stage_data': data}
     analysis_results = await saved_results_context(store, conversation, turn.content)
+    discussion = bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
+    scope = None if alternative or discussion or result_discussion(turn.content) else requested_scope(conversation, messages, turn)
+    if scope:
+        data['requested_scope'] = scope
+    conversation = {**conversation, 'stage_data': data}
+    if scope and scope['unresolved']:
+        return reply_result(scope_question(scope), conversation, files=files, scope=scope)
     research = await current_context(store, project)
     context = build_context(project, conversation, messages, files, turn, settings, analysis_results, research)
-    discussion = bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
+    if scope:
+        # Compromisos del usuario, separados del texto generado por el proveedor.
+        context['requested_scope'] = scope
+        import json
+        if len(json.dumps(context, ensure_ascii=False)) > settings.gemini_context_chars:
+            raise HTTPException(413, 'El contexto con los productos solicitados supera el límite del proveedor. El alcance se conserva; reduce el contexto antes de reintentar.')
     if discussion:
         from app.services.analysis_context import safe_text
         context['files'] = [{k: f[k] for k in ('file_id', 'file_name', 'role', 'sheets', 'selected_sheet') if k in f} | {'columns': [{k: c[k] for k in ('name', 'physical_type', 'statistical_type') if k in c} for c in f.get('columns', [])]} for f in context['files']]
@@ -206,12 +218,22 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             break
         log_issues(assessment.issues, attempt + 1)
         validation_history.append({'attempt': attempt + 1, 'issues': [issue.safe_metadata() for issue in assessment.issues]})
+        if not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
+            # No convertir sugerencias del modelo en requisitos del usuario.
+            # Sin alcance verificable tampoco se puede aprobar una sustitución.
+            scope = {'version': 1, 'products': [], 'unresolved': True, 'mode': 'analysis', 'source_requests': [str(turn.request_id)]}
+            conversation = {**conversation, 'stage_data': {**conversation.get('stage_data', {}), 'requested_scope': scope}}
+            reply = scope_question(scope)
+            break
         if attempt:
             retained = retain_valid_plans(reply, assessment, files, project, context)
             if retained:
                 reply, partial = retained, True
                 break
-            raise HTTPException(502, 'Gemini propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
+            if scope and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') for issue in assessment.issues):
+                reply = scope_question(scope)
+                break
+            raise HTTPException(502, 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.',
                                 headers={'X-Statia-Error': 'planning_validation',
                                          'X-Statia-Validation': ','.join(sorted({issue.category for issue in assessment.issues}))}) from None
         failures = '\n'.join(f'Propuesta {issue.plan_index + 1 if issue.plan_index is not None else "respuesta"} [{issue.category}]: {issue.message}'
@@ -231,7 +253,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         reply.detected_goal = context['goal_evidence'][-1][:2000]
     if turn.action != 'message' or not statistical_request(turn.content):
         reply.goal_change = False
-    result = reply_result(reply, conversation)
+    from app.services.plan_capabilities import warn_capabilities
+    reply = warn_capabilities(reply)
+    result = reply_result(reply, conversation, files=files, scope=scope)
     if research:
         result['metadata']['research_context_revision'] = research['revision']
     if discussion:
@@ -250,7 +274,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     return result
 
 
-def reply_result(reply: AssistantReply, conversation):
+def reply_result(reply: AssistantReply, conversation, *, files=None, scope=...):
+    validate_scope_reply(reply, conversation.get('stage_data', {}).get('requested_scope') if scope is ... else scope, files)
     data = {**conversation.get('stage_data', {})}
     if reply.context_summary:
         data['context_summary'] = reply.context_summary

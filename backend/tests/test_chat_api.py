@@ -67,7 +67,37 @@ class MemoryStore:
         return self.objects[path]
 
     async def rpc(self, name, data):
+        if name == 'provider_rollback_safety':
+            return 1
         cid = data.get('p_conversation')
+        if name == 'create_provider_conversation':
+            created = await self.rpc('create_conversation', data)
+            await self.update('conversations', {'id': created}, {'assistant_provider': data['p_provider']})
+            return created
+        if name == 'select_conversation_provider':
+            c = next(row for row in self.data['conversations'] if row['id'] == cid)
+            if c.get('active_request_id') or c.get('assistant_provider', 'gemini') != data['p_expected']:
+                raise HTTPException(409, 'Conversación ocupada o selección cambiada.')
+            if c.get('assistant_provider', 'gemini') != data['p_provider']:
+                await self.insert('messages', {'conversation_id': cid, 'role': 'system', 'content': 'Proveedor seleccionado.',
+                    'message_type': 'event', 'metadata': {'event': 'provider_selected', 'provider': data['p_provider']}})
+            c['assistant_provider'] = data['p_provider']
+            return
+        if name == 'begin_provider_chat_turn':
+            c = next(row for row in self.data['conversations'] if row['id'] == cid)
+            previous = next((r for r in self.data['chat_requests'] if r['request_id'] == data['p_request'] and r['conversation_id'] == cid), None)
+            if previous and previous['payload'] != data['p_payload']:
+                return 'mismatch'
+            if previous and previous['status'] == 'completed':
+                return 'completed'
+            if c.get('assistant_provider', 'gemini') != data['p_provider'] or previous and (
+                previous.get('provider', 'gemini') != data['p_provider'] or previous.get('model') not in (None, data['p_model'])):
+                return 'provider_changed'
+            status = await self.rpc('begin_chat_turn', data)
+            if status == 'started':
+                await self.update('chat_requests', {'conversation_id': cid, 'request_id': data['p_request']},
+                                  {'provider': data['p_provider'], 'model': data['p_model']})
+            return status
         if name == 'create_conversation':
             prior = [c for c in self.data['conversations'] if c['project_id'] == data['p_project']]
             links = [f['file_id'] for f in self.data['conversation_files'] if prior and f['conversation_id'] == prior[-1]['id']]

@@ -216,3 +216,4 @@ class ProcedureInfo(StrictModel):
     statistics: list[str]
     effects: list[str]
     limitations: list[str]
+    output_products: list[str] = Field(default_factory=list)

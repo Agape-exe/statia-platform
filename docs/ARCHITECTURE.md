@@ -1,5 +1,16 @@
 # Arquitectura
 
+La [integración multiproveedor de Sesión 5A](MULTIPROVIDER_BACKEND.md) añade
+`OpenAIProvider` (Responses API, Terra fijo, experimental y deshabilitado por defecto).
+`provider_runtime` conserva el protocolo, cuotas locales y métricas por turno;
+`providers` selecciona explícitamente el cliente y exige la protección SQL 008 para
+Terra. `plan_capabilities` bloquea productos descriptivos sin cobertura o alcance verificable
+en generación, aceptación, preparación y ejecución. Gemini conserva su configuración y el valor predeterminado.
+La migración aditiva 007 persiste selección por conversación e instantánea por solicitud,
+con RPC invoker y eventos bajo RLS. La corrección aditiva 008 separa adquisición legacy
+y multiproveedor y protege finalización/procedencia ante rollback; ver [secuencia manual](PR07_SAFE_ROLLOUT.md). Los contratos, validadores compartidos y motor Python
+siguen siendo la barrera de planificación/ejecución; ningún fallo cambia de proveedor.
+
 La [ejecución integral por componentes](INTEGRAL_EXECUTION.md) amplía JSONB/contratos existentes y añade la migración 005 para asociar propuestas nuevas a mensajes de la misma conversación. Las ejecuciones parciales y sus continuaciones conservan runs y artefactos inmutables.
 
 La corrección de UX de Sesión 03 incorpora preparación determinista y aclaraciones en el mismo chat. `execution_preparation.py` orquesta la relectura privada compartida con ejecución; `statistics/automatic.py` comprueba originales y catálogo en el proceso acotado existente. `methods.py` reconoce conservadoramente nombres/códigos de planes v1 y preserva alternativas ambiguas. No hay otro motor ni ejecución de código generado.
@@ -76,7 +87,9 @@ La independencia se conserva como supuesto pendiente salvo evidencia metodológi
 
 `validate_reply` conserva la validación estricta por defecto y se reutiliza al aceptar. Se separan las referencias/afirmaciones de la respuesta, la viabilidad de cada `Plan` y la cobertura de las recomendaciones. Una descripción sin propuestas no tiene cuota de planes; una aclaración imprescindible puede devolverse sin propuestas. Códigos numéricos ambiguos no se convierten en medidas continuas por su representación física.
 
-`assess_reply` reúne incumplimientos por alternativa y todas las columnas explícitas omitidas de su objetivo/método. Hay una sola corrección semántica. Si la segunda respuesta conserva planes válidos y no tiene un impedimento global, `retain_valid_plans` revalida y persiste únicamente ese subconjunto, con aviso de respuesta parcial. Descarta prosa/resumen/preguntas que podrían prometer opciones omitidas; no mezcla planes de distintos intentos ni inventa alternativas. La cuota de cobertura no se presenta como cumplida. Un error global, ausencia de planes válidos, contrato JSON inválido o fallo del proveedor mantiene el fallo y el reintento idempotente. El JSON interno y el transporte Gemini no cambian.
+`assess_reply` reúne incumplimientos por alternativa y todas las columnas explícitas omitidas de su objetivo/método. Hay una sola corrección semántica. `requested_scope.py` deriva compromisos de productos de los mensajes del usuario y los guarda en `stage_data.requested_scope` JSONB v1; no los deriva del proveedor. Si el alcance es ambiguo, histórico truncado o incompleto tras la corrección, se pide una decisión sin propuestas listas para aceptar. Si la segunda respuesta conserva alternativas independientes válidas y no tiene un impedimento global, `retain_valid_plans` revalida ese subconjunto con aviso de respuesta parcial y conserva preguntas; nunca elimina una aclaración esencial para rescatar planes. Una finalidad con varios productos exige cubrirlos juntos, también en `reply_result()` y aceptación nueva. No mezcla planes de distintos intentos ni inventa alternativas. La cuota de cobertura no se presenta como cumplida. Errores de contrato o proveedor conservan el reintento idempotente. Plan v1 y el transporte de los proveedores no cambian; no hay migración SQL nueva. Ver [informe focalizado P1](PR07_P1_REPORT.md).
+
+`statistics/catalog.py` declara productos estructurados junto a sus métodos reales. `plan_capabilities.py` contrasta descriptivos por columna/agrupación e inferenciales por método, familia, variables y opciones de ejecución. Una salida `Componente N: producto` solo puede cubrirla ese componente. Productos comunes a métodos alternativos no eligen el método; IC y opciones pendientes no se acreditan por esa vía. La preparación verifica cada componente localmente y el conjunto antes de informar todo listo; ejecución conserva la revisión completa. Ninguna de estas validaciones modifica fórmulas ni amplía el catálogo de cálculos.
 
 `PlanningError` aporta categorías internas en el punto de validación. Logs: solo intento, índice y categoría permitida; nunca mensajes de excepción, nombres de archivo/columna, prompts, respuestas, credenciales ni registros. `metadata.planning_validation` guarda el diagnóstico seguro de los intentos completados; un fallo terminal incluye `X-Statia-Error: planning_validation` y categorías en `X-Statia-Validation`. La g combinada se valida conjuntamente en definición/corrección: exige una asignación explícita de los gl de J a n1+n2−2 y rechaza usar los de Welch; encontrar el denominador de la SD combinada no basta.
 

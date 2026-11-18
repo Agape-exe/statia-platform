@@ -14,12 +14,20 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Reproducción del backend histórico real para verificar rollback.
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: supabase/package-lock.json
+      - run: npm ci --prefix ../supabase
       - run: python scripts/check_analysis_quality.py
       # La barrera RSS incluye el proceso pytest. Aislar cada módulo evita
       # acumular objetos/importaciones de otros escenarios en esa medición.

@@ -68,7 +68,15 @@ def active_spec(plan, spec):
     return spec.model_copy(update={"decisions": [d for d in spec.decisions if key(d.variable) in active]})
 
 
-def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True):
+def validate_spec(plan: Plan, spec: ExecutionSpec, *, require_confirmation=True, check_products=True):
+    from app.services.plan_capabilities import validate_products
+    from app.services.planning_errors import PlanningError
+
+    try:
+        if check_products:
+            validate_products(plan, decisions=spec.decisions, execution_components=spec.components)
+    except PlanningError as exc:
+        raise AnalysisError(str(exc)) from None
     if require_confirmation:
         require(spec.decisions_confirmed, "Confirma las decisiones de ejecución antes de calcular.")
     require(not plan.joins, "Las uniones entre tablas no están implementadas. Solicita análisis separados.")

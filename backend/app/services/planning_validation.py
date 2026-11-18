@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from app.models.chat import Plan
 from app.services.gemini import validate_plan, validate_reply, validate_recommendations
 from app.services.planning_errors import PlanningIssue
+from app.services.requested_scope import validate_plan_scope, validate_scope_reply
 
 
 @dataclass
@@ -20,14 +21,20 @@ def assess_reply(reply, files, project, context):
     except ValueError as exc:
         issues.append(PlanningIssue.from_error(exc))
     envelope_valid = not issues
+    scope = (context or {}).get('requested_scope')
     for index, plan in enumerate(reply.proposals):
         try:
             validate_plan(plan, files, project, context)
+            validate_plan_scope(plan, scope, files)
             valid.append(plan)
         except ValueError as exc:
             issues.append(PlanningIssue.from_error(exc, index))
     try:
         validate_recommendations(reply.model_copy(update={'proposals': valid}), project, context)
+    except ValueError as exc:
+        issues.append(PlanningIssue.from_error(exc))
+    try:
+        validate_scope_reply(reply, scope, files)
     except ValueError as exc:
         issues.append(PlanningIssue.from_error(exc))
     return Assessment(valid, issues, envelope_valid)
@@ -36,6 +43,9 @@ def assess_reply(reply, files, project, context):
 def retain_valid_plans(reply, assessment, files, project, context):
     """Aviso operativo explícito; no recicla prosa que pueda prometer planes descartados."""
     if not assessment.envelope_valid or not assessment.valid_plans or reply.goal_change:
+        return None
+    scope = (context or {}).get('requested_scope')
+    if scope and (scope['unresolved'] or scope.get('mode') != 'alternatives'):
         return None
     count = len(assessment.valid_plans)
     count_text = 'Se validó una alternativa.' if count == 1 else f'Se validaron {count} alternativas.'
@@ -47,11 +57,12 @@ def retain_valid_plans(reply, assessment, files, project, context):
         # Resumen acotado; las listas completas permanecen intactas en cada plan.
         'selected_variables': list(variables.values())[:60],
         'involved_file_ids': sorted({v.file_id for v in variables.values()}),
-        'questions': [], 'warnings': ['Respuesta parcial: se muestran únicamente las alternativas validadas disponibles.'], 'clarification_required': False,
+        'questions': reply.questions, 'warnings': ['Respuesta parcial: se muestran únicamente las alternativas validadas disponibles.'], 'clarification_required': False,
         'context_summary': None, 'suggested_title': None, 'detected_goal': None,
         'goal_change_reason': None, 'suggested_stage': 'proposal', 'confirmation_required': True,
     })
     # Revalidar el contrato interno completo y todos los planes antes de persistir el subconjunto.
     retained = type(reply).model_validate(retained.model_dump())
     validate_reply(retained, files, project, context, check_recommendations=False)
+    validate_scope_reply(retained, scope, files)
     return retained

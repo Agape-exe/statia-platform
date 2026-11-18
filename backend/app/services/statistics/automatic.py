@@ -23,7 +23,7 @@ from app.models.analysis import (
 from app.models.chat import Plan
 from app.services.profiling import numeric
 from app.services.statistics.catalog import CATALOG
-from app.services.statistics.methods import named_methods, normalized
+from app.services.statistics.methods import named_methods, supported_request
 from app.services.statistics.preparation import (
     CATEGORICAL,
     INDEPENDENT_GROUPS,
@@ -65,6 +65,27 @@ def assess(job):
         )
     provenance.sort(key=lambda f: f["id"])
     scope = digest({"plan": job["plan"], "files": provenance})
+    from app.services.plan_capabilities import validate_products
+    from app.services.planning_errors import PlanningError
+
+    try:
+        validate_products(
+            plan,
+            files=[
+                {**f, "metadata": {**f["metadata"], "profile": {"columns": list(columns.values())}}}
+                for f, _, columns, _ in tables.values()
+            ],
+        )
+    except PlanningError as exc:
+        # El plan histórico no se altera; resolver alcance requiere otra propuesta.
+        return ExecutionPreparation(
+            request_id=uuid5(NAMESPACE_URL, f"statia:output-scope:{scope}"),
+            status="UNSUPPORTED",
+            reasons=[str(exc)],
+            blockers=[str(exc)],
+            files=provenance,
+            fingerprint=scope,
+        ).model_dump(mode="json")
     questions, clarifications, evidence, blockers, warnings, reasons = [], [], [], [], [], []
     reviewing = job.get("review_question_id")
     owners = set(range(len(sources(plan))))
@@ -248,20 +269,7 @@ def assess(job):
         }
         compatible = [code for code, entry in CATALOG.items() if source.procedure in entry.families]
         named = named_methods(source)
-        if not compatible or any(
-            word in normalized(source.method)
-            for word in (
-                "regresion",
-                "logistica",
-                "games-howell",
-                "tukey",
-                "medidas repetidas",
-                "ancova",
-                "manova",
-                "permutacion",
-                "bootstrap",
-            )
-        ):
+        if not compatible or not supported_request(source):
             block(
                 f"Componente {index + 1}: el método solicitado no está implementado en este catálogo. Solicita otra propuesta."
             )
@@ -497,7 +505,9 @@ def assess(job):
             )
             if state == "READY":
                 try:
-                    validate_spec(plan, selected, require_confirmation=False)
+                    # Este control examina un componente, no le atribuye todos
+                    # los productos raíz de los otros componentes de la integral.
+                    validate_spec(plan, selected, require_confirmation=False, check_products=False)
                     prepared = {fid: prepare(file, data, local, settings) for fid, (file, data, _, _) in tables.items()}
                     check_conditions(plan, selected, prepared)
                 except AnalysisError as exc:
@@ -572,6 +582,13 @@ def assess(job):
         for state in states:
             state.status = "UNSUPPORTED"
             state.blockers.append(str(exc))
+    if spec and states and all(s.status in {"READY", "COMPLETED"} for s in states):
+        try:
+            validate_products(plan, decisions=spec.decisions, execution_components=spec.components)
+        except PlanningError as exc:
+            for state in states:
+                state.status = "UNSUPPORTED"
+                state.blockers.append(str(exc))
     available = {s.source_index for s in states if s.status == "READY"}
     if spec:
         if available:

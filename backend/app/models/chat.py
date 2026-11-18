@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 Stage = Literal['reuse', 'instrument', 'upload_instrument', 'upload_dataset', 'understanding', 'clarification', 'goal', 'proposal', 'ready']
+ProviderId = Literal['gemini', 'openai']
 
 
 class StrictModel(BaseModel):
@@ -12,6 +13,12 @@ class StrictModel(BaseModel):
 
 class ConversationCreate(StrictModel):
     source_conversation_id: UUID | None = None
+    provider: ProviderId = 'gemini'
+
+
+class ProviderChange(StrictModel):
+    provider: ProviderId
+    expected_provider: ProviderId
 
 
 class Rename(StrictModel):

@@ -24,14 +24,17 @@ def run(awaitable):
 
 
 def files():
+    data = 'estudiante_id,correo,nota_pretest,nota_postest,grupo\n' + ''.join(
+        f'{i+1},persona{i}@example.org,{i % 25 + 0.15},{(i * 7) % 29 + 0.25},{"AB"[i % 2]}\n' for i in range(90)
+    )
     return [{'id': 'archivo-1', 'file_role': 'dataset', 'metadata': inspect_file('datos.csv',
-        b'estudiante_id,correo,nota_pretest,nota_postest,grupo\n1,ana@example.org,10,15,A\n2,bea@example.org,12,16,B', 'dataset', Settings())}]
+        data.encode(), 'dataset', Settings())}]
 
 
 def plan(**kwargs):
     return {'title': 'Comparación pareada', 'objective': 'Evaluar el cambio',
-        'variables': [{'file_id': 'archivo-1', 'sheet': 'tabla', 'column': column, 'role': 'outcome'} for column in ('nota_pretest', 'nota_postest')],
-        'procedure': 'paired_comparison', 'method': 'Prueba pareada condicionada a supuestos', 'justification': 'Dos mediciones por participante',
+        'variables': [{'file_id': 'archivo-1', 'sheet': 'tabla', 'column': column, 'role': role} for column, role in [('nota_pretest', 'outcome'), ('nota_postest', 'outcome'), ('estudiante_id', 'pair_id')]],
+        'procedure': 'paired_comparison', 'method': 't pareada condicionada a supuestos', 'justification': 'Dos mediciones por participante',
         'requirements': ['Confirmar pareamiento y distribución de diferencias'], 'limitations': ['No inferir causalidad'],
         'expected_outputs': ['Estimación del cambio con incertidumbre'], **kwargs}
 

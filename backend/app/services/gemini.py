@@ -2,7 +2,6 @@ import asyncio
 import json
 import random
 import re
-from typing import Protocol
 
 import httpx
 from fastapi import HTTPException
@@ -21,6 +20,8 @@ from app.services.independence import validate_independence
 from app.services.planning_errors import PlanningError
 from app.services.analysis_context import validate_numeric_claims
 from app.services.statistics.catalog import CATALOG
+from app.services.provider_runtime import Provider as Provider, RequestBudget, record_generation
+from app.services.plan_capabilities import PRODUCT_INSTRUCTIONS
 
 # Dos generaciones (original y corrección) <= 130 s dentro del turno de 150 s.
 # Incluye cliente, espera y reintento; el timeout configurable sigue siendo por intento.
@@ -169,10 +170,6 @@ confirmado solo por sus valores numéricos.
 """
 
 
-class Provider(Protocol):
-    async def generate(self, context: dict, correction: str | None = None) -> AssistantReply: ...
-
-
 def redact(text):
     text = re.sub(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', '[correo omitido]', text)
     text = re.sub(r'(?<!\w)\+?\d[\d ()-]{7,}\d(?!\w)', '[identificador omitido]', text)
@@ -247,6 +244,7 @@ def build_context(project, conversation, messages, files, turn, settings, analys
 class GeminiProvider:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.budget = RequestBudget(settings)
 
     async def generate(self, context, correction=None):
         if not self.settings.gemini_api_key.get_secret_value():
@@ -268,30 +266,47 @@ class GeminiProvider:
                                            retry_options=types.HttpRetryOptions(attempts=1)),
         ).aio as client:
             for attempt in range(2):
+                self.budget.reserve()
+                category, usage, response_id, response_model = 'failed', {}, None, None
                 try:
                     async with asyncio.timeout(self.settings.gemini_timeout_seconds):
                         response = await client.models.generate_content(
                             model=self.settings.gemini_model, contents=prompt,
-                            config=types.GenerateContentConfig(system_instruction=SYSTEM, response_mime_type='application/json',
-                                                               response_schema=reply_schema(), max_output_tokens=7000,
+                            config=types.GenerateContentConfig(system_instruction=SYSTEM + PRODUCT_INSTRUCTIONS, response_mime_type='application/json',
+                                                               response_schema=reply_schema(), max_output_tokens=self.settings.gemini_max_output_tokens,
                                                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)),
                         )
-                    return AssistantReply.model_validate_json(response.text or '')
+                    raw = getattr(response, 'usage_metadata', None)
+                    usage = {key: getattr(raw, attr, None) for key, attr in (
+                        ('input_tokens', 'prompt_token_count'), ('output_tokens', 'candidates_token_count'),
+                        ('reasoning_tokens', 'thoughts_token_count'), ('cached_input_tokens', 'cached_content_token_count'))}
+                    response_id = getattr(response, 'response_id', None)
+                    response_model = getattr(response, 'model_version', None)
+                    reply = AssistantReply.model_validate_json(response.text or '')
+                    category = 'completed'
+                    return reply
                 except errors.APIError as exc:
                     status = int(exc.code or 500)
+                    category = f'http_{status}'
                     if status in (429, 500, 503) and attempt == 0:
                         # Solo un escalón de backoff: jitter acotado sin aumentar intentos.
                         await asyncio.sleep(random.uniform(1.0, 2.0))
                         continue
                     raise api_diagnostic(exc) from None
                 except (TimeoutError, httpx.TimeoutException):
+                    category = 'timeout'
                     raise diagnostic('timeout', 504) from None
                 except ValidationError:
+                    category = 'invalid_response'
                     raise diagnostic('invalid_response') from None
                 except ValueError:
                     raise diagnostic('sdk_contract') from None
                 except httpx.HTTPError:
+                    category = 'connectivity'
                     raise diagnostic('connectivity') from None
+                finally:
+                    record_generation('gemini', self.settings.gemini_model, category=category, usage=usage,
+                                      response_id=response_id, response_model=response_model)
 
 
 def validate_reply(reply, files, project, context=None, *, validate_plans=True, check_recommendations=True):
@@ -347,6 +362,8 @@ def validate_plan(plan, files, project, context=None):
         raise PlanningError('cross_table_relation', 'El análisis conjunto de tablas requiere una relación explícita justificada y confirmada. Puedes proponer exploraciones independientes.')
     if project['project_type'] == 'thesis' and not plan.methodology_confirmed:
         raise PlanningError('essential_clarification', 'Solicita las aclaraciones metodológicas antes de proponer un plan de tesis.')
+    from app.services.plan_capabilities import validate_products
+    validate_products(plan, files)
     if plan.procedure == 'correlation' and sum(c['physical_type'] == 'numeric' and not c['possible_identifier'] for c in columns) < 2:
         raise PlanningError('variable_type', 'La correlación requiere al menos dos variables numéricas que no sean identificadores.')
     if plan.procedure in ('group_comparison', 'paired_comparison'):

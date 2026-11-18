@@ -21,6 +21,21 @@ ALIASES = {
     "chi_square": r"\bchi[–\s_-]*(?:cuadrado|square)\b|\bchi2\b",
     "fisher_exact": r"\bfisher\b",
 }
+UNSUPPORTED_TERMS = (
+    "regresion",
+    "logistica",
+    "games-howell",
+    "tukey",
+    "medidas repetidas",
+    "ancova",
+    "manova",
+    "permutacion",
+    "bootstrap",
+)
+
+
+def supported_request(source):
+    return not any(term in normalized(source.method) for term in UNSUPPORTED_TERMS)
 
 
 def normalized(value):
