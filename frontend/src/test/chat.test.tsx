@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -30,6 +31,8 @@ vi.mock('../services/analysis', () => ({
 
 vi.mock('../services/chat', () => ({
   chatService: {
+    providers: vi.fn(),
+    changeProvider: vi.fn(),
     list: vi.fn(),
     files: vi.fn(),
     create: vi.fn(),
@@ -102,6 +105,7 @@ beforeEach(() => {
   detail = {
     conversation: {
       id: 'c1',
+      assistant_provider: 'gemini',
       project_id: 'p1',
       title: 'Nueva conversación',
       primary_goal: null,
@@ -126,6 +130,19 @@ beforeEach(() => {
     detail.conversation,
   ])
   vi.mocked(chatService.files).mockResolvedValue([])
+  vi.mocked(chatService.providers).mockResolvedValue({
+    default: 'gemini',
+    providers: [
+      {
+        id: 'gemini',
+        name: 'Gemini',
+        model: 'gemini-test',
+        experimental: false,
+        enabled: true,
+        configured: true,
+      },
+    ],
+  })
   vi.mocked(chatService.get).mockImplementation(async () =>
     structuredClone(detail),
   )
@@ -250,6 +267,93 @@ describe('chat persistente y acciones', () => {
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /Mensaje/ })).toBeInTheDocument()
+  })
+  it('bloquea el selector mientras prepara un análisis y lo recupera al terminar', async () => {
+    detail.conversation.current_stage = 'ready'
+    detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]
+    let finish!: (value: unknown) => void
+    vi.mocked(chatService.turn).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    chat()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Ejecutar análisis' }),
+    )
+    expect(
+      screen.getByRole('combobox', { name: 'Proveedor del asistente' }),
+    ).toBeDisabled()
+    expect(vi.mocked(chatService.turn).mock.calls[0][2].action).toBe(
+      'prepare_execution',
+    )
+    await act(async () => finish({ status: 'completed' }))
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeEnabled())
+  })
+  it('bloquea el selector durante el cálculo Python y conserva la preparación tras un error', async () => {
+    detail.conversation.current_stage = 'ready'
+    detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]
+    detail.conversation.stage_data.execution_preparation = {
+      proposal_id: 'pr1',
+      result: {
+        request_id: 'calculo-sintetico',
+        status: 'READY',
+        fingerprint: 'huella-sintetica',
+        methods: ['Descriptivos'],
+        reasons: [],
+        evidence: [],
+        warnings: [],
+        blockers: [],
+        questions: [],
+        files: [],
+        specification: {
+          schema_version: 1,
+          decisions: [],
+          filters: [],
+          confidence_level: 0.95,
+          alternative: 'two-sided',
+          missing_policy: 'available_cases_per_procedure',
+          multiplicity: 'none',
+          decisions_confirmed: false,
+          components: [
+            {
+              source_index: 0,
+              method: 'descriptive',
+              design: 'not_applicable',
+              equal_variances_confirmed: false,
+              group_values: [],
+              posthoc: 'none',
+              descriptive_intervals: false,
+            },
+          ],
+        },
+      },
+    }
+    let fail!: (error: Error) => void
+    vi.mocked(analysisService.execute).mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject
+        }),
+    )
+    chat()
+    const preparation = await screen.findByRole('article', {
+      name: 'Preparación del análisis',
+    })
+    await userEvent.click(
+      within(preparation).getByRole('button', { name: 'Ejecutar análisis' }),
+    )
+    expect(screen.getByRole('combobox')).toBeDisabled()
+    expect(screen.getByText(/Python está calculando/)).toBeInTheDocument()
+    await act(async () =>
+      fail(new Error('Cálculo interrumpido para la prueba')),
+    )
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeEnabled())
+    expect(
+      screen.getByRole('article', { name: 'Preparación del análisis' }),
+    ).toHaveTextContent('Cálculo interrumpido para la prueba')
+    expect(analysisService.execute).toHaveBeenCalledOnce()
   })
   it('distingue texto CSV de números inferidos y avisa sobre NA ambiguos', async () => {
     detail.files = [structuredClone(dataset)]

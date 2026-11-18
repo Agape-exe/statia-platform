@@ -917,6 +917,60 @@ fieldset {
   font-size: 11px;
   padding: 8px;
 }
+.chat-heading {
+  flex-wrap: wrap;
+}
+.chat-heading > div:first-child {
+  flex: 1 1 180px;
+}
+.provider-selector {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  width: 250px;
+  max-width: 100%;
+  font-size: 12px;
+}
+.provider-selector label {
+  font-weight: 600;
+  font-size: inherit;
+  margin: 0;
+}
+.provider-selector select {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid #cbdcd3;
+  border-radius: 8px;
+  color: #203b36;
+  background: #f8faf9;
+  font: inherit;
+  text-overflow: ellipsis;
+}
+.provider-selector small {
+  overflow-wrap: anywhere;
+}
+.provider-reload {
+  justify-self: start;
+  text-decoration: underline;
+}
+.message-provenance {
+  display: block;
+  color: #5a7069;
+  font-size: 11px;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.provider-disclosure {
+  margin-top: 16px;
+}
+@media (max-width: 600px) {
+  .chat-heading .provider-selector {
+    width: 100%;
+    order: 3;
+  }
+}
 .chat-actions {
   display: flex;
   flex-wrap: wrap;

@@ -1,9 +1,23 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MessageSquarePlus, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import {
+  ChevronDown,
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from 'lucide-react'
 import { chatService } from '../services/chat'
 import { ApiError } from '../lib/api'
 import { visibleChatText } from '../lib/chat-text'
+import { messageProvenance, providerName } from '../lib/assistant-provider'
+import {
+  AssistantProviderSelector,
+  ProviderDisclosure,
+} from './AssistantProviderSelector'
+import type {
+  AssistantProviderCatalog,
+  AssistantProviderId,
+} from '../types/chat'
 import type { Project } from '../types/project'
 import {
   stageLabel,
@@ -41,6 +55,17 @@ export function StatisticalChat({ project }: { project: Project }) {
   const [error, setError] = useState<Error | null>(null)
   const [text, setText] = useState('')
   const [pending, setPending] = useState<Turn | null>(null)
+  const [retryConflict, setRetryConflict] = useState(false)
+  const [providerCatalog, setProviderCatalog] =
+    useState<AssistantProviderCatalog | null>(null)
+  const [providersLoading, setProvidersLoading] = useState(true)
+  const [providersError, setProvidersError] = useState<string | null>(null)
+  const [catalogRevision, setCatalogRevision] = useState(0)
+  const [providerChange, setProviderChange] =
+    useState<AssistantProviderId | null>(null)
+  const [providerUncertain, setProviderUncertain] = useState(false)
+  const [creatingWithProvider, setCreatingWithProvider] = useState(false)
+  const [newProvider, setNewProvider] = useState<AssistantProviderId>('gemini')
   const [rename, setRename] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
   const [reuseIds, setReuseIds] = useState<string[]>([])
@@ -54,6 +79,22 @@ export function StatisticalChat({ project }: { project: Project }) {
   )
   const [busyLabel, setBusyLabel] = useState('Procesando la solicitud…')
   const historyButton = useRef<HTMLButtonElement>(null)
+  const providerSelect = useRef<HTMLSelectElement>(null)
+  const createProviderButton = useRef<HTMLButtonElement>(null)
+  const providerDialogOpen = useRef(false)
+  const creationDialogOpen = useRef(false)
+  useEffect(() => {
+    if (providerChange) providerDialogOpen.current = true
+    else if (providerDialogOpen.current && !busy && !opening) {
+      providerDialogOpen.current = false
+      providerSelect.current?.focus({ preventScroll: true })
+    }
+    if (creatingWithProvider) creationDialogOpen.current = true
+    else if (creationDialogOpen.current && !busy && !opening) {
+      creationDialogOpen.current = false
+      createProviderButton.current?.focus({ preventScroll: true })
+    }
+  }, [providerChange, creatingWithProvider, busy, opening])
   const temporaryHistory = useRef(false)
   useEffect(() => {
     if (temporaryHistory.current && !historyOpen)
@@ -98,11 +139,35 @@ export function StatisticalChat({ project }: { project: Project }) {
     setConversations(list)
     setProjectFiles(files)
     setDetail(current)
+    setProviderUncertain(false)
     setSelected(id)
     selectedRef.current = id
     if (current?.retry_turn) setPending(current.retry_turn)
     return current
   }
+
+  useEffect(() => {
+    let active = true
+    chatService
+      .providers(project.id)
+      .then((catalog) => {
+        if (active) setProviderCatalog(catalog)
+      })
+      .catch(() => {
+        if (active) {
+          setProviderCatalog(null)
+          setProvidersError(
+            'No se pudo consultar la disponibilidad de proveedores.',
+          )
+        }
+      })
+      .finally(() => {
+        if (active) setProvidersLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [project.id, catalogRevision])
 
   useEffect(() => {
     let active = true
@@ -165,6 +230,7 @@ export function StatisticalChat({ project }: { project: Project }) {
     announcedResults.current.clear()
     setError(null)
     setPending(null)
+    setRetryConflict(false)
     setText('')
     setReuseIds([])
     try {
@@ -176,10 +242,16 @@ export function StatisticalChat({ project }: { project: Project }) {
     }
   }
 
-  const create = (source?: string) =>
+  const create = (source?: string, provider: AssistantProviderId = 'gemini') =>
     perform(async () => {
-      const conversation = await chatService.create(project.id, source)
+      const conversation = await chatService.create(
+        project.id,
+        source,
+        provider,
+      )
+      setCreatingWithProvider(false)
       setPending(null)
+      setRetryConflict(false)
       setText('')
       setReuseIds([])
       await refresh(conversation.id)
@@ -191,7 +263,7 @@ export function StatisticalChat({ project }: { project: Project }) {
     retry?: Turn,
   ) {
     const id = selectedRef.current
-    if (!id) return
+    if (!id || providerUncertain) return
     const turn: Turn = retry || {
       request_id: crypto.randomUUID(),
       action,
@@ -208,6 +280,7 @@ export function StatisticalChat({ project }: { project: Project }) {
     requestFollow()
     setBusyLabel('Statia está preparando una respuesta…')
     setPending(turn)
+    setRetryConflict(false)
     try {
       await chatService.turn(project.id, id, turn)
       setPending(null)
@@ -220,6 +293,9 @@ export function StatisticalChat({ project }: { project: Project }) {
       } catch {
         /* Conservar la vista y el reintento original. */
       }
+      setPending(turn)
+      if (caught instanceof ApiError && caught.status === 409)
+        setRetryConflict(true)
       throw caught
     }
   }
@@ -283,7 +359,81 @@ export function StatisticalChat({ project }: { project: Project }) {
         share_instrument_text: instrumentText,
       }),
     )
-  const disabled = busy || opening
+  const disabled = busy || opening || providerUncertain
+  const selectedProvider = conversation?.assistant_provider ?? 'gemini'
+  const providerBlocked =
+    disabled ||
+    !!pending ||
+    !!reviewProposal ||
+    providerUncertain ||
+    !!conversation?.active_request_id ||
+    detail?.latest_analysis_run?.status === 'running'
+  const canChooseProvider = (id: AssistantProviderId) =>
+    !providersLoading &&
+    !providersError &&
+    !!providerCatalog?.providers.some(
+      (item) => item.id === id && item.enabled && item.configured,
+    )
+  const reloadProviders = () => {
+    setProvidersLoading(true)
+    setProvidersError(null)
+    setCatalogRevision((value) => value + 1)
+  }
+  const providerSelectorProps = {
+    catalog: providerCatalog,
+    loading: providersLoading,
+    error: providersError,
+    onReload: reloadProviders,
+  }
+  const changeProvider = () =>
+    perform(async () => {
+      if (
+        !conversation ||
+        !providerChange ||
+        providerBlocked ||
+        !canChooseProvider(providerChange)
+      )
+        return
+      try {
+        const updated = await chatService.changeProvider(
+          project.id,
+          conversation.id,
+          providerChange,
+          selectedProvider,
+        )
+        setDetail((current) =>
+          current ? { ...current, conversation: updated } : current,
+        )
+        setConversations((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        )
+        setProviderChange(null)
+        await refresh(updated.id)
+      } catch (caught) {
+        if (caught instanceof ApiError && caught.status === 0) {
+          setProviderChange(null)
+          setProviderUncertain(true)
+          throw new Error(
+            'No se pudo confirmar el cambio de proveedor. Recarga la conversación antes de continuar para comprobar qué selección guardó el servidor.',
+          )
+        }
+        if (caught instanceof ApiError && caught.status === 409) {
+          setProviderChange(null)
+          setProviderUncertain(true)
+          try {
+            await refresh(conversation.id)
+          } catch {
+            throw new Error(
+              'La selección cambió o hay una operación en curso. No se pudo recuperar el estado; recarga antes de continuar.',
+            )
+          }
+          throw new Error(
+            'La selección cambió o hay una operación en curso. Se recargó la conversación; revisa el proveedor confirmado antes de continuar.',
+          )
+        }
+        throw caught
+      }
+    })
   async function executeAnalysis(body: ExecuteRequest, proposalId: string) {
     if (mutation.current)
       throw new Error('Espera a que termine la operación actual.')
@@ -496,6 +646,20 @@ export function StatisticalChat({ project }: { project: Project }) {
           </button>
           <span>{project.name}</span>
           <button
+            className="icon-btn"
+            ref={createProviderButton}
+            aria-label="Elegir proveedor para nuevo chat"
+            title="Elegir proveedor para nuevo chat"
+            disabled={disabled}
+            onClick={() => {
+              setError(null)
+              setNewProvider('gemini')
+              setCreatingWithProvider(true)
+            }}
+          >
+            <ChevronDown size={17} />
+          </button>
+          <button
             className="btn secondary"
             disabled={disabled}
             onClick={() => create()}
@@ -504,14 +668,14 @@ export function StatisticalChat({ project }: { project: Project }) {
             Nuevo chat
           </button>
         </div>
-        {error && (
+        {error && !providerChange && !creatingWithProvider && (
           <Alert>
             {error.message}
             {error instanceof ApiError && error.status === 401 && (
               <Link to="/login"> Recuperar acceso</Link>
             )}
             <button
-              disabled={disabled}
+              disabled={busy || opening}
               onClick={() =>
                 perform(async () => {
                   await refresh()
@@ -567,6 +731,22 @@ export function StatisticalChat({ project }: { project: Project }) {
                       : stageLabel[conversation.current_stage]}
                 </small>
               </div>
+              <AssistantProviderSelector
+                {...providerSelectorProps}
+                selectRef={providerSelect}
+                value={selectedProvider}
+                disabled={providerBlocked}
+                onSelect={(provider) => {
+                  if (
+                    !providerBlocked &&
+                    provider !== selectedProvider &&
+                    canChooseProvider(provider)
+                  ) {
+                    setError(null)
+                    setProviderChange(provider)
+                  }
+                }}
+              />
               <div className="chat-actions">
                 <button
                   className="btn secondary"
@@ -709,8 +889,15 @@ export function StatisticalChat({ project }: { project: Project }) {
                             ? 'Tú'
                             : message.role === 'assistant'
                               ? 'Statia'
-                              : 'Estado del plan'}
+                              : message.metadata.event === 'provider_selected'
+                                ? 'Statia'
+                                : 'Estado del plan'}
                         </strong>
+                        {messageProvenance(message) && (
+                          <small className="message-provenance">
+                            {messageProvenance(message)}
+                          </small>
+                        )}
                         <p>{visible(message.content)}</p>
                         {!!message.metadata.questions?.length && (
                           <ul>
@@ -900,7 +1087,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                       }
                       onClick={() => send('files_ready')}
                     >
-                      Comprender archivos con Gemini
+                      Comprender archivos con {providerName(selectedProvider)}
                     </button>
                   )}
                 {conversation.stage_data.awaiting_reuse_update && (
@@ -992,6 +1179,8 @@ export function StatisticalChat({ project }: { project: Project }) {
               busy={busy}
               busyLabel={busyLabel}
               pending={pending}
+              provider={selectedProvider}
+              retryConflict={retryConflict}
               samples={samples}
               instrumentText={instrumentText}
               onText={setText}
@@ -1005,13 +1194,94 @@ export function StatisticalChat({ project }: { project: Project }) {
                 if (pending)
                   void send(pending.action, pending.file_ids, pending)
               }}
-              onDiscard={() => setPending(null)}
+              onDiscard={() => {
+                setPending(null)
+                setRetryConflict(false)
+              }}
               onSamples={setSamples}
               onInstrumentText={setInstrumentText}
             />
           </>
         )}
       </section>
+      {providerChange && (
+        <Modal
+          title="Cambiar proveedor del asistente"
+          busy={busy}
+          onClose={() => setProviderChange(null)}
+        >
+          <ProviderDisclosure provider={providerChange} />
+          {error && <Alert>{error.message}</Alert>}
+          <p>
+            El cambio conserva el historial, archivos, planes, resultados y
+            decisiones.
+          </p>
+          <div className="chat-actions">
+            <button
+              className="btn secondary"
+              disabled={busy}
+              onClick={() => setProviderChange(null)}
+            >
+              Cancelar cambio
+            </button>
+            <button
+              className="btn primary"
+              disabled={providerBlocked || !canChooseProvider(providerChange)}
+              onClick={() => void changeProvider()}
+            >
+              Confirmar cambio a {providerName(providerChange)}
+            </button>
+          </div>
+        </Modal>
+      )}
+      {creatingWithProvider && (
+        <Modal
+          title="Nueva conversación · proveedor"
+          busy={busy}
+          onClose={() => setCreatingWithProvider(false)}
+        >
+          {error && <Alert>{error.message}</Alert>}
+          <AssistantProviderSelector
+            {...providerSelectorProps}
+            label="Proveedor de la nueva conversación"
+            value={newProvider}
+            disabled={busy}
+            onSelect={(provider) => {
+              if (canChooseProvider(provider)) setNewProvider(provider)
+            }}
+          />
+          {newProvider === 'openai' ? (
+            <ProviderDisclosure provider={newProvider} />
+          ) : (
+            <p>
+              Gemini es el proveedor predeterminado. También puedes crear un
+              chat directamente con «Nuevo chat».
+            </p>
+          )}
+          <p>Crear la conversación no envía mensajes al proveedor.</p>
+          <div className="chat-actions">
+            <button
+              className="btn secondary"
+              disabled={busy}
+              onClick={() => setCreatingWithProvider(false)}
+            >
+              Cancelar creación
+            </button>
+            <button
+              className="btn primary"
+              disabled={
+                busy ||
+                (newProvider !== 'gemini' && !canChooseProvider(newProvider))
+              }
+              onClick={() => void create(undefined, newProvider)}
+            >
+              {newProvider === 'openai'
+                ? 'Confirmar y crear con Terra (OpenAI)'
+                : 'Crear con Gemini'}
+            </button>
+          </div>
+        </Modal>
+      )}
       {rename !== null && (
         <Modal
           title="Renombrar conversación"
