@@ -110,6 +110,7 @@ export function AnalysisResultCard({
   runId,
   initialRun,
   expanded = false,
+  inResults = false,
   onPrepare,
   onAnswer,
   preparation,
@@ -120,6 +121,7 @@ export function AnalysisResultCard({
   runId: string
   initialRun?: AnalysisRun
   expanded?: boolean
+  inResults?: boolean
   onPrepare?: (proposalId: string) => void
   onAnswer?: (
     proposalId: string,
@@ -249,19 +251,23 @@ export function AnalysisResultCard({
                 Revisar componentes pendientes
               </button>
             )}
-            <button
-              className="btn secondary"
-              onClick={() => setOpen((value) => !value)}
-              aria-expanded={open}
-            >
-              {open ? 'Ocultar detalle' : 'Ver tablas y gráficos'}
-            </button>
-            <Link
-              className="btn secondary"
-              to={`/proyectos/${projectId}/resultados?run=${runId}`}
-            >
-              Abrir en Resultados
-            </Link>
+            {!inResults && (
+              <>
+                <button
+                  className="btn secondary"
+                  onClick={() => setOpen((value) => !value)}
+                  aria-expanded={open}
+                >
+                  {open ? 'Ocultar detalle' : 'Ver tablas y gráficos'}
+                </button>
+                <Link
+                  className="btn secondary"
+                  to={`/proyectos/${projectId}/resultados?run=${runId}`}
+                >
+                  Abrir en Resultados
+                </Link>
+              </>
+            )}
             {!!run.result && (
               <button
                 className="btn primary"
