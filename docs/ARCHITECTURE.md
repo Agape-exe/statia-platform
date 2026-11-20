@@ -46,7 +46,7 @@ Etapas: `reuse → instrument → upload_instrument → upload_dataset → under
 
 Tesis requiere aclaraciones metodológicas; general permite explorar sin conocimientos previos. Finalidad y resumen de entendimiento persisten además del historial. `current_context` relee el documento confirmado de tesis antes de contextualizar Gemini y `build_context` añade su revisión y fecha; general recibe null. La migración aditiva 006 protege `research_contexts` con RLS y un RPC invoker con revisión esperada. Editar/importar requiere revisar y confirmar; el chat no tiene una operación de escritura de Contexto. Los mensajes nuevos registran la revisión usada sin modificar snapshots históricos. Ver [THESIS_CONTEXT](THESIS_CONTEXT.md). Un cambio de finalidad queda pendiente en `stage_data.goal_change`; solo la acción del usuario crea otro chat, conservando el anterior y ofreciendo reutilización. Renombrar manualmente desactiva títulos automáticos.
 
-`profiling.py` lee CSV/JSON/XLSX/PDF sin modificar ni combinar originales. Limita bytes, filas, columnas, celdas, hojas, páginas y expansión; un perfilado por proceso. XLSX comprueba ZIP y usa lectura incremental. pypdf limita streams y decodificación; sin texto conserva el PDF y comunica que no hay OCR. Varias hojas requieren elección; después el perfil queda congelado para no alterar referencias de planes.
+`profiling.py` lee CSV/JSON/XLSX/PDF sin modificar ni combinar originales. Limita bytes, filas, columnas, celdas, hojas, páginas y expansión; un perfilado por proceso. XLSX comprueba ZIP y usa lectura incremental. pypdf limita streams y decodificación; sin texto conserva el PDF y comunica que no hay OCR. El libro se comprende globalmente antes de elegir una hoja para planes; esa elección queda congelada para no alterar referencias históricas.
 
 El perfil calcula tipos físicos, tipos estadísticos tentativos, faltantes, duplicados, cardinalidades, distribuciones, min/max/media y pequeñas muestras. El significado es una hipótesis: un número puede ser identificador o escala.
 
@@ -183,3 +183,44 @@ conserva el único disparo existente de comprensión tras carga/selección.
 conocidos del perfil, tanto al generar como al aceptar. La cardinalidad de subconjuntos
 filtrados sigue validándose con datos reales durante preparación. No cambia el motor
 ni los planes históricos. Ver [validación y límites](HOTFIX_FINAL_REPORT.md).
+
+## Excel multihoja (Sesión 07)
+
+`workbook.py` abre cada subida una vez con `read_only=True`, procesa hojas
+secuencialmente y conserva `workbook_profile_version=1` / `sheet_profiles` en
+JSONB existente. Cada entrada registra hoja, estado, advertencias y un perfil
+v2 independiente si es examinable. No exige esquemas comunes. Una hoja vacía,
+sin encabezados tabulares o fuera de límites no inventa conteos ni impide
+examinar otras dentro del presupuesto. Conserva 30 hojas, límites configurados
+de bytes/expansión/filas/columnas/celdas y añade un máximo agregado de
+`min(400000, MAX_ROWS * MAX_COLUMNS)` celdas de registros por inspección global.
+La revalidación de una hoja explícita solo perfila esa hoja.
+
+La comprensión envía `workbook_sheets` al proveedor compartido por Gemini y
+Terra: estructura, tipos tentativos, ausencias y avisos, sin muestras ni valores
+de otras hojas. Si el contexto no alcanza, conserva todas las hojas y conteos,
+reduce detalles de columnas y declara `columns_omitted`; la hoja ejecutable no
+se recorta. Si aún no cabe, responde 413. No presupone relaciones ni combina
+hojas. Generar/aceptar/ejecutar mantiene la validación de `selected_sheet`.
+
+`GET files/{id}/rows?sheet=...` y `GET files/{id}/profile?sheet=...` son consultas
+privadas sin mutaciones. Sin parámetro mantienen la hoja histórica. Datos
+conserva una selección local por archivo, reutiliza perfiles disponibles y
+remonta la tabla al cambiar de hoja para reiniciar paginación y descartar
+respuestas tardías. El original sigue descargándose íntegro. `PUT .../sheet`
+conserva el rechazo 409 una vez fijado el perfil y revalida ese estado dentro
+del semáforo antes de escribir (un worker por proceso, como en SETUP).
+
+Los libros antiguos se amplían de forma efímera al consultar perfiles o
+comprender archivos; no se persisten ni reemplazan su perfil, selección, hashes
+u otros metadatos históricos. El navegador reutiliza esa respuesta durante la
+vista; una nueva consulta de un libro antiguo puede requerir otra lectura. La
+interpretación de resultados históricos no exige volver a descargar el libro.
+No hay nueva tabla, migración, caché global de originales ni credenciales nuevas.
+
+El catálogo de productos reconoce N válido, media, mediana, DE muestral, mínimo
+y máximo y comprueba que exista cobertura cuantitativa descriptiva global. No
+convierte N/media/DE por grupo en una solicitud global adicional. La caché de
+alcance usa recognizer_version=3 y solo se reconstruye con evidencia completa
+del usuario. Se conserva el límite de solicitudes y la única corrección existente;
+no se cambian fórmulas ni el motor. Ver [informe de validación](SESSION7_REPORT.md).

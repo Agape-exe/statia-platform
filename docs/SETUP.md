@@ -89,6 +89,19 @@ Requiere migración remota, sesiones de usuario y credenciales Gemini autorizada
 
 ## Problemas frecuentes
 
+### Excel multihoja — Sesión 07
+
+Reiniciar backend y frontend; no requiere migraciones, dependencias ni variables
+nuevas. El asistente recibe la estructura global del libro antes de seleccionar
+una hoja para planes. En Datos, abrir «Ver datos» o «Consultar metadatos y perfil»
+para cargar el selector «Hoja visible». Cambiarlo solo actualiza la vista; la
+hoja del asistente conserva su protección histórica. Los perfiles de archivos
+antiguos se amplían temporalmente al consultar, sin reescribirlos.
+
+Validaciones locales, límites y comprobaciones externas pendientes:
+[informe de Sesión 07](SESSION7_REPORT.md). Medición sintética de memoria:
+desde backend ejecutar `./.venv/Scripts/python scripts/measure_workbook_memory.py`.
+
 ### Comprobar perfilado y continuidad corregidos
 
 No se requiere otra migración. Reiniciar API/Vite y crear conversaciones nuevas para validar. Volver a cargar el CSV original para obtener `profile_version=2`; los perfiles previos y las propuestas aceptadas no se recalculan ni sobrescriben. Después se puede reutilizar ese archivo sin duplicarlo físicamente.
