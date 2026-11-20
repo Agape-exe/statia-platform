@@ -308,8 +308,9 @@ export function StatisticalChat({ project }: { project: Project }) {
       !current ||
       pending ||
       ['instrument', 'reuse'].includes(current.conversation.current_stage) ||
-      !current.files.some((file) => file.metadata.profile) ||
-      current.files.some((file) => file.metadata.needs_sheet_selection)
+      !current.files.some(
+        (file) => file.metadata.profile || file.metadata.sheet_profiles,
+      )
     )
       return
     await submitTurn(current.conversation.id, {
@@ -1050,8 +1051,8 @@ export function StatisticalChat({ project }: { project: Project }) {
                 ) && (
                   <p className="notice" role="status">
                     Selecciona una hoja de cada Excel pendiente en los archivos
-                    relacionados que se muestran abajo. Después continuaremos
-                    con la comprensión. No se combinan hojas.
+                    relacionados para preparar planes sobre ella. La comprensión
+                    considera el libro completo. No se combinan hojas.
                   </p>
                 )}
                 {detail.files.length > 0 && (
@@ -1129,7 +1130,10 @@ export function StatisticalChat({ project }: { project: Project }) {
                     Continuar con los datasets
                   </button>
                 )}
-                {detail.files.some((file) => file.metadata.profile) &&
+                {detail.files.some(
+                  (file) =>
+                    file.metadata.profile || file.metadata.sheet_profiles,
+                ) &&
                   [
                     'upload_dataset',
                     'understanding',
@@ -1137,13 +1141,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                   ].includes(conversation.current_stage) && (
                     <button
                       className="btn primary"
-                      disabled={
-                        disabled ||
-                        !!pending ||
-                        detail.files.some(
-                          (file) => file.metadata.needs_sheet_selection,
-                        )
-                      }
+                      disabled={disabled || !!pending}
                       onClick={() => send('files_ready')}
                     >
                       {conversation.stage_data.context_summary

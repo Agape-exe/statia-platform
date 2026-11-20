@@ -112,7 +112,14 @@ export interface ProjectFile {
   file_size: number
   metadata: {
     sheets: string[]
-    selected_sheet?: string
+    selected_sheet?: string | null
+    workbook_profile_version?: number
+    sheet_profiles?: {
+      sheet: string
+      status: 'available' | 'unavailable'
+      warnings: string[]
+      profile?: NonNullable<ProjectFile['metadata']['profile']>
+    }[]
     needs_sheet_selection?: boolean
     text_excerpt?: string
     pages?: number

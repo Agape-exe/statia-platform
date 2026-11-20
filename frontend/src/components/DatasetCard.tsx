@@ -66,6 +66,40 @@ export function DatasetCard({
               ? `${file.metadata.pages} ${file.metadata.pages === 1 ? 'página' : 'páginas'}`
               : ''}
         </p>
+        {file.metadata.sheet_profiles && (
+          <div className="table-scroll">
+            <table>
+              <caption>
+                Estructura del libro: hojas independientes, sin combinar
+              </caption>
+              <thead>
+                <tr>
+                  <th>Hoja</th>
+                  <th>Registros</th>
+                  <th>Columnas</th>
+                  <th>Ausentes</th>
+                  <th>Advertencias</th>
+                </tr>
+              </thead>
+              <tbody>
+                {file.metadata.sheet_profiles.map((entry) => (
+                  <tr key={entry.sheet}>
+                    <th scope="row">{entry.sheet}</th>
+                    <td>{entry.profile?.row_count ?? 'No disponible'}</td>
+                    <td>{entry.profile?.column_count ?? '—'}</td>
+                    <td>{entry.profile?.missing_count ?? '—'}</td>
+                    <td>
+                      {entry.warnings.join(' ') ||
+                        (entry.status === 'available'
+                          ? 'Tipos tentativos'
+                          : 'No examinable')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         {file.metadata.needs_sheet_selection && onSheet && (
           <label>
             Hoja de {file.original_name}
@@ -80,7 +114,15 @@ export function DatasetCard({
                 Elige una hoja
               </option>
               {file.metadata.sheets.map((sheet) => (
-                <option key={sheet}>{sheet}</option>
+                <option
+                  key={sheet}
+                  disabled={file.metadata.sheet_profiles?.some(
+                    (entry) =>
+                      entry.sheet === sheet && entry.status !== 'available',
+                  )}
+                >
+                  {sheet}
+                </option>
               ))}
             </select>
           </label>

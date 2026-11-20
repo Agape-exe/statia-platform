@@ -14,6 +14,7 @@ export function ProjectData({ projectId }: { projectId: string }) {
   const [rowsId, setRowsId] = useState<string | null>(null)
   const [opened, setOpened] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<Set<string>>(new Set())
+  const [visualSheets, setVisualSheets] = useState<Record<string, string>>({})
   useEffect(() => {
     let active = true
     chatService
@@ -24,6 +25,7 @@ export function ProjectData({ projectId }: { projectId: string }) {
         setLoaded(new Set())
         setOpened(null)
         setRowsId(null)
+        setVisualSheets({})
         setError('')
       })
       .catch((err: unknown) => {
@@ -42,13 +44,18 @@ export function ProjectData({ projectId }: { projectId: string }) {
     }
   }, [projectId, retry])
 
-  async function inspect(file: ProjectFile) {
-    if (opened === file.id) {
+  async function inspect(file: ProjectFile, rows = false) {
+    if (rows && rowsId === file.id) {
+      setRowsId(null)
+      return
+    }
+    if (!rows && opened === file.id) {
       setOpened(null)
       return
     }
     if (loaded.has(file.id)) {
-      setOpened(file.id)
+      if (rows) setRowsId(file.id)
+      else setOpened(file.id)
       return
     }
     setBusy(file.id)
@@ -61,13 +68,46 @@ export function ProjectData({ projectId }: { projectId: string }) {
         ),
       )
       setLoaded((ids) => new Set([...ids, file.id]))
-      setOpened(file.id)
+      const initial =
+        metadata.selected_sheet ||
+        metadata.sheet_profiles?.find((entry) => entry.status === 'available')
+          ?.sheet ||
+        metadata.sheets[0]
+      if (initial)
+        setVisualSheets((sheets) => ({ ...sheets, [file.id]: initial }))
+      if (rows) setRowsId(file.id)
+      else setOpened(file.id)
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'No se pudo consultar el perfil.',
       )
     } finally {
       setBusy(null)
+    }
+  }
+  function visualFile(file: ProjectFile): ProjectFile {
+    const sheet = visualSheets[file.id]
+    const entry = file.metadata.sheet_profiles?.find(
+      (item) => item.sheet === sheet,
+    )
+    if (!entry) return file
+    const sheetWarnings = new Set(
+      file.metadata.sheet_profiles?.flatMap((item) => item.warnings),
+    )
+    return {
+      ...file,
+      metadata: {
+        ...file.metadata,
+        selected_sheet: sheet,
+        profile: entry.profile,
+        needs_sheet_selection: false,
+        warnings: [
+          ...(file.metadata.warnings || []).filter(
+            (warning) => !sheetWarnings.has(warning),
+          ),
+          ...entry.warnings,
+        ],
+      },
     }
   }
   async function download(file: ProjectFile) {
@@ -136,7 +176,9 @@ export function ProjectData({ projectId }: { projectId: string }) {
                 disabled={!!busy}
                 aria-expanded={rowsId === file.id}
                 onClick={() =>
-                  setRowsId((id) => (id === file.id ? null : file.id))
+                  file.file_type === 'xlsx'
+                    ? void inspect(file, true)
+                    : setRowsId((id) => (id === file.id ? null : file.id))
                 }
               >
                 {rowsId === file.id ? 'Ocultar datos' : 'Ver datos'}
@@ -152,12 +194,39 @@ export function ProjectData({ projectId }: { projectId: string }) {
               </button>
             )}
           </div>
+          {file.file_type === 'xlsx' && loaded.has(file.id) && (
+            <label>
+              Hoja visible de {file.original_name}
+              <select
+                value={visualSheets[file.id] || ''}
+                onChange={(event) =>
+                  setVisualSheets((sheets) => ({
+                    ...sheets,
+                    [file.id]: event.target.value,
+                  }))
+                }
+              >
+                {file.metadata.sheets.map((sheet) => (
+                  <option key={sheet}>{sheet}</option>
+                ))}
+              </select>
+              <span className="muted">
+                Esta selección solo cambia la vista de Datos; conserva las hojas
+                de conversaciones y planes.
+              </span>
+            </label>
+          )}
           {rowsId === file.id && (
-            <DatasetRows key={file.id} projectId={projectId} file={file} />
+            <DatasetRows
+              key={`${file.id}:${visualSheets[file.id] || ''}`}
+              projectId={projectId}
+              file={visualFile(file)}
+              sheet={visualSheets[file.id]}
+            />
           )}
           {opened === file.id && (
             <DatasetCard
-              file={file}
+              file={visualFile(file)}
               busy={!!busy}
               expanded
               onDownload={() => void download(file)}

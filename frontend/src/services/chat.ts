@@ -59,13 +59,13 @@ export const chatService = {
       body: JSON.stringify(turn),
     }),
   files: (projectId: string) => api<ProjectFile[]>(`${base(projectId)}/files`),
-  rows: (projectId: string, id: string, offset = 0) =>
+  rows: (projectId: string, id: string, offset = 0, sheet?: string) =>
     api<DataPage>(
-      `${base(projectId)}/files/${encodeURIComponent(id)}/rows?offset=${offset}&limit=50`,
+      `${base(projectId)}/files/${encodeURIComponent(id)}/rows?offset=${offset}&limit=50${sheet === undefined ? '' : `&sheet=${encodeURIComponent(sheet)}`}`,
     ),
-  profile: (projectId: string, id: string) =>
+  profile: (projectId: string, id: string, sheet?: string) =>
     api<ProjectFile['metadata']>(
-      `${base(projectId)}/files/${encodeURIComponent(id)}/profile`,
+      `${base(projectId)}/files/${encodeURIComponent(id)}/profile${sheet === undefined ? '' : `?sheet=${encodeURIComponent(sheet)}`}`,
     ),
   upload: (projectId: string, id: string, file: File, role: string) => {
     const form = new FormData()

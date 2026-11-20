@@ -158,6 +158,10 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
     try:
         conversation = await conversation_for(user, project_id, conversation_id)
         files = await linked_files(user.store, conversation)
+        # La interpretación de resultados históricos no depende de volver a
+        # descargar originales. Ampliar perfiles legados solo al comprender.
+        if body.action == 'files_ready' or conversation['current_stage'] in ('upload_dataset', 'understanding', 'goal'):
+            files = [await with_workbook(file, request, user) for file in files]
         project = await project_for(user, project_id)
         # Tiempo total menor que la concesión durable de 180 segundos.
         async with asyncio.timeout(150):
@@ -282,23 +286,48 @@ async def select_sheet(project_id: UUID, file_id: UUID, body: Rename, request: R
     # Congelar el perfil usado por planes: otra hoja se adjunta como nueva referencia.
     if file['metadata'].get('profile'):
         raise HTTPException(409, 'La hoja ya fue perfilada. Adjunta el libro de nuevo para trabajar con otra hoja sin alterar planes previos.')
-    data = await user.store.download(file['storage_path'])
+    from app.services.workbook import select_profile
+    file = await with_workbook(file, request, user)
     async with request.app.state.profile_lock:
-        metadata = await asyncio.to_thread(inspect_file, file['original_name'], data, 'dataset', request.app.state.settings, body.title)
-    if file['metadata'].get('content_sha256'):
-        metadata['content_sha256'] = file['metadata']['content_sha256']
-    return (await user.store.update('project_files', {'id': str(file_id)}, {'metadata': metadata}))[0]
+        current = await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)})
+        if current['metadata'].get('profile'):
+            raise HTTPException(409, 'La hoja ya fue perfilada. Adjunta el libro de nuevo sin alterar planes previos.')
+        metadata = select_profile({**file['metadata'], **current['metadata']}, body.title)
+        return (await user.store.update('project_files', {'id': str(file_id)}, {'metadata': metadata}))[0]
+
+
+async def with_workbook(file, request, user):
+    """Ampliación efímera de perfiles antiguos; jamás reescribe su selección o perfil."""
+    if file['file_type'] != 'xlsx' or file['metadata'].get('workbook_profile_version') == 1:
+        return file
+    settings = request.app.state.settings
+    async with request.app.state.profile_lock:
+        data = await user.store.download(file['storage_path'], max_bytes=settings.max_file_bytes)
+        inspected = await asyncio.to_thread(inspect_file, file['original_name'], data, 'dataset', settings)
+    return {**file, 'metadata': {**file['metadata'], **{k: inspected[k] for k in ('sheets', 'sheet_profiles', 'workbook_profile_version')}}}
 
 
 @router.get('/files/{file_id}/profile', summary='Consultar perfil descriptivo o metadatos del instrumento')
-async def get_profile(project_id: UUID, file_id: UUID, user: CurrentUser):
+async def get_profile(project_id: UUID, file_id: UUID, user: CurrentUser, request: Request, response: Response,
+                      sheet: str | None = Query(default=None, min_length=1, max_length=31)):
     await project_for(user, project_id)
-    return (await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)}))['metadata']
+    file = await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)})
+    file = await with_workbook(file, request, user)
+    metadata = file['metadata']
+    if sheet is not None:
+        if file['file_type'] == 'xlsx':
+            from app.services.workbook import select_profile
+            metadata = select_profile(metadata, sheet)
+        elif file['file_role'] != 'dataset' or sheet != metadata.get('selected_sheet'):
+            raise HTTPException(422, 'La hoja solicitada no existe en esta tabla.')
+    response.headers['Cache-Control'] = 'no-store'
+    return metadata
 
 
 @router.get('/files/{file_id}/rows', response_model=FileRows, summary='Consultar una página de registros originales, sin enviar datos a IA')
 async def get_rows(project_id: UUID, file_id: UUID, request: Request, user: CurrentUser, response: Response,
-                   offset: int = Query(default=0, ge=0, le=20000), limit: int = Query(default=50, ge=1, le=100)):
+                   offset: int = Query(default=0, ge=0, le=20000), limit: int = Query(default=50, ge=1, le=100),
+                   sheet: str | None = Query(default=None, min_length=1, max_length=31)):
     from app.services.data_preview import preview_rows
     await project_for(user, project_id)
     file = await user.store.one('project_files', {'id': str(file_id), 'project_id': str(project_id)})
@@ -307,7 +336,7 @@ async def get_rows(project_id: UUID, file_id: UUID, request: Request, user: Curr
     settings = request.app.state.settings
     async with request.app.state.profile_lock:
         data = await user.store.download(file['storage_path'], max_bytes=settings.max_file_bytes)
-        page = await asyncio.to_thread(preview_rows, file, data, settings, offset, limit)
+        page = await asyncio.to_thread(preview_rows, file, data, settings, offset, limit, sheet)
     response.headers['Cache-Control'] = 'no-store'
     return page
 

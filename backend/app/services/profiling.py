@@ -5,13 +5,11 @@ import json
 import math
 import re
 import statistics
-import zipfile
 from collections import Counter
 from datetime import date, datetime
 from pathlib import PurePath
 
 from fastapi import HTTPException
-from openpyxl import load_workbook
 from pypdf import PdfReader, apply_configuration
 
 from app.core.config import Settings
@@ -186,27 +184,8 @@ def _inspect_file(name: str, data: bytes, role: str, settings: Settings, sheet: 
             return {'file_type': extension, 'sheets': [], 'text_excerpt': text, 'pages': len(reader.pages),
                     'warnings': [] if text.strip() else ['El PDF no contiene texto extraíble. Se conserva el archivo; no se realiza OCR.']}
         if extension == 'xlsx':
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                if sum(x.file_size for x in archive.infolist()) > settings.max_expanded_bytes or len(archive.infolist()) > 500:
-                    invalid('El XLSX supera el tamaño expandido o la cantidad de entradas permitida.')
-            book = load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
-            try:
-                names = book.sheetnames
-                if len(names) > 30:
-                    invalid('El libro supera las 30 hojas permitidas.')
-                if sheet is None and len(names) > 1:
-                    return {'file_type': extension, 'sheets': names, 'selected_sheet': None, 'needs_sheet_selection': True}
-                selected = sheet or names[0]
-                if selected not in names:
-                    invalid('La hoja seleccionada no existe en el libro.')
-                tab = book[selected]
-                if (tab.max_row or 0) > settings.max_rows + 1 or (tab.max_column or 0) > settings.max_columns:
-                    invalid('La hoja supera los límites preliminares de filas o columnas.')
-                iterator = tab.iter_rows(values_only=True)
-                headers = next(iterator, [])
-                profile = table_profile(headers, iterator, settings, 'xlsx')
-            finally:
-                book.close()
+            from app.services.workbook import inspect_workbook
+            return inspect_workbook(data, settings, sheet)
         else:
             try:
                 text = data.decode('utf-8-sig')

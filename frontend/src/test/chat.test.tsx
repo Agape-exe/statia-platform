@@ -1008,7 +1008,7 @@ it.each(['general', 'thesis'] as const)(
 )
 
 it.each(['general', 'thesis'] as const)(
-  'muestra las hojas pendientes y comprende solo tras seleccionar en %s',
+  'comprende el libro completo antes de seleccionar la hoja de planes en %s',
   async (mode) => {
     detail.conversation.current_stage = 'upload_dataset'
     const excel: ProjectFile = {
@@ -1020,6 +1020,21 @@ it.each(['general', 'thesis'] as const)(
         sheets: ['Notas', 'Otra'],
         selected_sheet: undefined,
         needs_sheet_selection: true,
+        workbook_profile_version: 1,
+        sheet_profiles: [
+          {
+            sheet: 'Notas',
+            status: 'available',
+            profile: dataset.metadata.profile,
+            warnings: [],
+          },
+          {
+            sheet: 'Otra',
+            status: 'available',
+            profile: dataset.metadata.profile,
+            warnings: [],
+          },
+        ],
       },
     }
     vi.mocked(chatService.upload).mockImplementation(async () => {
@@ -1061,9 +1076,9 @@ it.each(['general', 'thesis'] as const)(
     expect(
       within(select).getByRole('option', { name: 'Otra' }),
     ).toBeInTheDocument()
-    expect(chatService.turn).not.toHaveBeenCalled()
-    await user.selectOptions(select, 'Notas')
     await waitFor(() => expect(chatService.turn).toHaveBeenCalledOnce())
+    await user.selectOptions(select, 'Notas')
+    await waitFor(() => expect(chatService.turn).toHaveBeenCalledTimes(2))
     expect(chatService.sheet).toHaveBeenCalledOnce()
     expect(
       screen.queryByRole('combobox', { name: 'Hoja de Notas.xlsx' }),

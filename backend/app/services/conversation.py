@@ -139,7 +139,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     datasets = [f for f in files if f['file_role'] == 'dataset']
     if not datasets:
         raise HTTPException(422, 'Adjunta al menos un dataset antes de solicitar su comprensión.')
-    if any(not f['metadata'].get('profile') for f in datasets):
+    if any(not f['metadata'].get('profile') and not f['metadata'].get('sheet_profiles') for f in datasets):
         raise HTTPException(422, 'Elige una hoja para cada libro XLSX antes de continuar.')
     conversation, scope_result = (conversation, None) if alternative or result_discussion(turn.content) else comparison_scope(conversation, turn, files)
     if scope_result:
