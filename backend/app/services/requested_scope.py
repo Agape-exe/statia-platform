@@ -11,6 +11,7 @@ from app.models.chat import AssistantReply
 from app.services.conversation_text import action_of
 from app.services.plan_capabilities import (
     OUTPUTS,
+    SUMMARY_STATISTICS,
     normalized,
     output_request,
     validate_products,
@@ -18,6 +19,8 @@ from app.services.plan_capabilities import (
 from app.services.planning_errors import PlanningError
 
 LABELS = {
+    **SUMMARY_STATISTICS,
+    "numeric_summary": "N válido, media, mediana, DE muestral, mínimo y máximo",
     "global": "Resúmenes globales",
     "grouped": "Resúmenes por grupo",
     "frequencies": "Frecuencias categóricas",
@@ -37,7 +40,7 @@ LABELS = {
     "paired_change_interval": "Estimación del cambio con incertidumbre",
 }
 USER_ALIASES = {
-    **OUTPUTS,
+    **{alias: kinds for alias, kinds in OUTPUTS.items() if alias != "de"},
     "globales y por grupo": ("global", "grouped"),
     "frecuencias del grupo": ("group_frequencies",),
 }
@@ -72,8 +75,15 @@ def parse_products(text):
         products.add("grouped")
     # «p global»/«contraste global» no describe el alcance de las medias.
     summary_scope = re.sub(r"\b(?:p|anova|contraste|prueba|estadistico(?: de prueba)?) global\b", "", text)
-    if "global" in products and re.search(r"por grupo|segun [\w`]+", text) and not re.search(r"global", summary_scope):
-        products.remove("global")
+    if (
+        re.search(r"por grupo|segun [\w`]+", text)
+        and not re.search(r"global", summary_scope)
+        and products & {"global", "mean", "sample_sd", "valid_n"}
+    ):
+        products.discard("global")
+        # N/media/DE por grupo ya pertenecen al resumen agrupado. No exigir
+        # además un descriptivo de todas las filas por reconocer cada nombre.
+        products.difference_update({"mean", "sample_sd", "valid_n"})
         products.add("grouped")
     return products, residue
 
@@ -96,6 +106,7 @@ def product_request(text):
             negative.append(clause[match.end() :])
         else:
             positive.append(clause)
+    positive = ["de muestral" if clause.strip() == "de" else clause for clause in positive]
     products, residue = parse_products(" ".join(positive))
     excluded, excluded_residue = parse_products(" ".join(negative))
     # Sin IC es una restricción ejecutable del descriptivo, no una solicitud de IC.
@@ -105,7 +116,9 @@ def product_request(text):
         excluded_residue = re.sub(r"intervalos(?: de confianza)?", "", excluded_residue)
     if re.search(r"(?:sin|no (?:quiero|incluir|incluyas)) (?:comparaciones )?post[ -]?hoc", literal):
         excluded.add("posthoc")
-    if re.search(r"sin inferencia|exclusivamente descriptiv|solo descriptiv", literal):
+    if re.search(r"sin inferencia|exclusivamente descriptiv|solo descriptiv", literal) or re.search(
+        r"\binferencia\b", " ".join(negative)
+    ):
         excluded.update(
             {
                 "p_value",
@@ -134,7 +147,7 @@ def user_products(text):
 
 def requested_scope(conversation, messages, turn):
     saved = conversation.get("stage_data", {}).get("requested_scope")
-    if saved and saved.get("recognizer_version") != 2:
+    if saved and saved.get("recognizer_version") != 3:
         # Reparar únicamente cachés derivadas cuya evidencia completa aún está
         # disponible. Nunca inferir que se puede recortar un historial truncado.
         source_ids = set(saved.get("source_requests", []))
@@ -143,7 +156,7 @@ def requested_scope(conversation, messages, turn):
             saved = None
     scope = dict(saved) if saved else {"version": 1, "products": [], "unresolved": False, "mode": "analysis"}
     scope["source_requests"] = list(scope.get("source_requests", []))
-    scope["recognizer_version"] = 2
+    scope["recognizer_version"] = 3
     if saved:
         watermark = saved.get("through_position", -1)
         candidates = [
@@ -230,6 +243,11 @@ def validate_plan_scope(plan, scope, files):
         )
     validate_products(plan, files)  # Conserva también las ligaduras a componentes.
     declared = {kind for text in plan.expected_outputs for kind in OUTPUTS.get(output_request(text)[1], ())}
+    if "global" in declared or "numeric_summary" in declared:
+        declared.update(SUMMARY_STATISTICS)
+    if set(SUMMARY_STATISTICS) <= declared:
+        declared.add("numeric_summary")
+        declared.add("global")
     excluded = set(scope.get("excluded_products", []))
     steps = plan.components if plan.procedure == "integral" else [plan]
     if {"global_test", "correlation_coefficient", "p_value"} <= excluded and any(
