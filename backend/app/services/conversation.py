@@ -6,7 +6,7 @@ from app.models.chat import AssistantReply
 from app.services.gemini import build_context
 from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, interaction_mode, technical_details_requested
 from app.services.methodology import levels
-from app.services.titles import automatic_title, usable_title
+from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
 from app.services.planning_errors import PlanningIssue, log_issues
 from app.services.planning_validation import Assessment, assess_reply, retain_valid_plans
@@ -319,9 +319,6 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             tail = '\n\nFuentes de los fragmentos consultados: ' + ' | '.join(sources)
             reply.response = reply.response[:max(1, 12000 - len(tail))] + tail
     result = reply_result(reply, conversation, files=files, scope=scope)
-    if mode in NON_PLANNING and turn.action == 'message' and not usable_title(conversation.get('title')):
-        # Consulta nueva, no renombrado masivo ni finalidad estadística inventada.
-        result['title'], _ = automatic_title(conversation, turn.content, None)
     result['metadata']['technical_details'] = context['technical_details']
     result['metadata']['interaction_mode'] = mode
     result['metadata']['instrument_retrieval'] = [

@@ -16,6 +16,7 @@ from app.services.gemini import validate_reply
 from app.services.conversation import ACTION_LABELS, linked_files, process_turn
 from app.services.profiling import MIMES, inspect_file, safe_name
 from app.services.execution_preparation import EXECUTION_ACTIONS, normalized_preparation
+from app.services.titles import title_completed_activity
 
 router = APIRouter(prefix='/projects/{project_id}', tags=['Asistente'])
 
@@ -186,6 +187,7 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
                     result = await process_turn(user.store, project, conversation, body, files, provider, request.app.state.settings)
             else:
                 result = await process_turn(user.store, project, conversation, body, files, provider, request.app.state.settings)
+        title_completed_activity(conversation, body, result)
         result.setdefault('metadata', {})['selected_provider'] = selected
         result['metadata']['generation'] = provider.trace if provider.calls else {'source': 'deterministic'}
         await user.store.rpc('finish_chat_turn', {**params, 'p_result': result})

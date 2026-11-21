@@ -52,7 +52,7 @@ export function DatasetCard({
             ? `Instrumento ${file.file_type.toUpperCase()}`
             : profile
               ? `${profile.row_count} filas · ${profile.column_count} columnas`
-              : file.metadata.needs_sheet_selection
+              : file.metadata.needs_sheet_selection && file.file_type === 'xlsx'
                 ? `Selecciona una de sus ${file.metadata.sheets.length} hojas para continuar`
                 : 'Perfil no disponible'}
         </span>
@@ -69,14 +69,14 @@ export function DatasetCard({
           Descargar original
         </button>
         <p className="muted">
-          {(file.file_size / 1024).toFixed(1)} KB ·{' '}
-          {file.metadata.selected_sheet
-            ? `Hoja: ${file.metadata.selected_sheet}`
+          {(file.file_size / 1024).toFixed(1)} KB
+          {file.file_type === 'xlsx' && file.metadata.selected_sheet
+            ? ` · Hoja: ${file.metadata.selected_sheet}`
             : file.metadata.pages
-              ? `${file.metadata.pages} ${file.metadata.pages === 1 ? 'página' : 'páginas'}`
-              : ''}
+              ? ` · ${file.metadata.pages} ${file.metadata.pages === 1 ? 'página' : 'páginas'}`
+              : ` · ${file.file_type.toUpperCase()}`}
         </p>
-        {file.metadata.sheet_profiles && (
+        {file.file_type === 'xlsx' && file.metadata.sheet_profiles && (
           <div className="table-scroll">
             <table>
               <caption>
@@ -110,33 +110,35 @@ export function DatasetCard({
             </table>
           </div>
         )}
-        {file.metadata.needs_sheet_selection && onSheet && (
-          <label>
-            Hoja de {file.original_name}
-            <select
-              disabled={busy}
-              value=""
-              onChange={(e) => {
-                if (e.target.value) onSheet(e.target.value)
-              }}
-            >
-              <option value="" disabled>
-                Elige una hoja
-              </option>
-              {file.metadata.sheets.map((sheet) => (
-                <option
-                  key={sheet}
-                  disabled={file.metadata.sheet_profiles?.some(
-                    (entry) =>
-                      entry.sheet === sheet && entry.status !== 'available',
-                  )}
-                >
-                  {sheet}
+        {file.file_type === 'xlsx' &&
+          file.metadata.needs_sheet_selection &&
+          onSheet && (
+            <label>
+              Hoja de {file.original_name}
+              <select
+                disabled={busy}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) onSheet(e.target.value)
+                }}
+              >
+                <option value="" disabled>
+                  Elige una hoja
                 </option>
-              ))}
-            </select>
-          </label>
-        )}
+                {file.metadata.sheets.map((sheet) => (
+                  <option
+                    key={sheet}
+                    disabled={file.metadata.sheet_profiles?.some(
+                      (entry) =>
+                        entry.sheet === sheet && entry.status !== 'available',
+                    )}
+                  >
+                    {sheet}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         {file.file_role === 'instrument' && (
           <p className="notice">
             Lectura:{' '}

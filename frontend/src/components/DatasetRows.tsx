@@ -73,7 +73,9 @@ export function DatasetRows({
         page && (
           <>
             <p role="status">
-              {page.sheet ? `Hoja: ${page.sheet}. ` : ''}
+              {file.file_type === 'xlsx' && page.sheet
+                ? `Hoja: ${page.sheet}. `
+                : ''}
               {page.rows.length
                 ? `Filas ${page.offset + 1}–${page.offset + page.rows.length} de ${page.total_rows}`
                 : `No hay registros en esta página. Total: ${page.total_rows}`}

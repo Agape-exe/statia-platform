@@ -451,8 +451,10 @@ export function ExecutionReview({
               return (
                 <fieldset key={variableKey(decision.variable)} disabled={busy}>
                   <legend>
-                    {file?.original_name || 'Archivo no disponible'} /{' '}
-                    {decision.variable.sheet} / {decision.variable.column}
+                    {file?.original_name || 'Archivo no disponible'}
+                    {file?.file_type === 'xlsx' &&
+                      ` / ${decision.variable.sheet}`}{' '}
+                    / {decision.variable.column}
                   </legend>
                   <p className="muted">
                     Perfil tentativo:{' '}

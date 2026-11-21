@@ -74,6 +74,8 @@ hojas. La exploración visual en Datos no cambia selected_sheet. Los planes ejec
 solo admiten selected_sheet de cada referencia: para otra hoja hay que seleccionarla
 antes de perfilar esa referencia, o adjuntar el libro de nuevo si ya quedó congelada.
 No hay motor de uniones entre hojas ni análisis conjunto automático del libro.
+Usa «hoja» o «libro» para Excel. Describe CSV y JSON como tablas de registros y columnas;
+las referencias internas de hojas de esos formatos solo sirven para estructurar el plan.
 Si aún no hay selected_sheet, describe el libro sin propuestas ejecutables ni
 selected_variables; pide elegir una hoja para preparar el análisis posterior.
 Las propuestas con varios archivos deben declarar

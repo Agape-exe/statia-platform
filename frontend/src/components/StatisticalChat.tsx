@@ -956,11 +956,15 @@ export function StatisticalChat({ project }: { project: Project }) {
                             ? 'Tú'
                             : message.role === 'assistant'
                               ? 'Statia'
-                              : message.metadata.event === 'provider_selected'
-                                ? 'Statia'
-                                : 'Estado del plan'}
+                              : message.metadata.file_ids?.length
+                                ? 'Archivos asociados'
+                                : message.metadata.proposal_id &&
+                                    message.metadata.status
+                                  ? 'Estado del plan'
+                                  : 'Statia'}
                         </strong>
-                        {messageProvenance(message) &&
+                        {!message.metadata.file_ids?.length &&
+                          messageProvenance(message) &&
                           messageProvenance(message) !== 'Statia' && (
                             <small
                               className="message-provenance"

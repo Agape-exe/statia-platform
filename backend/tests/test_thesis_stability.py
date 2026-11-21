@@ -90,6 +90,8 @@ def test_understanding_and_simple_plan_remain_distinct_and_idempotent(api, mode,
     assert turn(client, path, action="files_ready", request_id=request_id).json()["replayed"]
     detail = client.get(path).json()
     assert not detail["proposals"] and detail["conversation"]["primary_goal"] is None
+    assert detail["conversation"]["title"] == "Exploración de archivos"
+    assert detail["conversation"]["stage_data"]["title_provisional"] is True
     assert len(provider.contexts) == 1 and provider.contexts[-1][0]["interaction_mode"] == "understanding"
     if mode == "thesis":
         assert provider.contexts[-1][0]["research_context"]["revision"] == 3
@@ -197,6 +199,48 @@ def test_empty_document_diagnostic_is_distinct_and_never_calls_provider(api):
     assert "No se recuperó texto" in message["content"]
     assert message["metadata"]["instrument_retrieval"][0]["retrieval"] == "no_text"
     assert not provider.contexts
+
+
+def test_long_document_query_recovers_dotted_codes_across_pages_with_explicit_consent(api):
+    client, store, provider = api
+    path = new(client, store)
+    assert turn(client, path, action="instrument_yes").status_code == 200
+    introductory_pages = ["Instructions for participants. " * 30] * 20
+    items = [
+        "QST.030: Do you attend workshops? Options: yes or no.",
+        "QST.050: How often do you read? Options: weekly or monthly.",
+        "QST.120: How far is the library? Options: near or far.",
+    ]
+    record, _ = upload_instrument(client, path, "pdf", introductory_pages + items)
+    assert not any(item in record["metadata"]["text_excerpt"] for item in items)
+    assert turn(client, path, action="instruments_done").status_code == 200
+    attach_dataset(client, path)
+    query = (
+        "Recupera las preguntas del instrumento y sus opciones de respuesta. "
+        + "Indica la página del fragmento y conserva las opciones en el orden del documento. " * 12
+        + "Busca QST030, QST.050, QST 120 y ZZZ999."
+    )
+    assert turn(client, path, content=query, share_instrument_text=False).status_code == 200
+    unshared = client.get(path).json()
+    assert unshared["conversation"]["title"].startswith("Recupera las preguntas")
+    assert unshared["messages"][-1]["metadata"]["instrument_retrieval"][0]["retrieval"] == "not_authorized"
+    assert not provider.contexts
+    provider.replies.append(
+        reply(
+            response="QST.030: «Do you attend workshops?». QST050: «How often do you read?». QST 120: «How far is the library?». No encontré ZZZ.999."
+        )
+    )
+    assert turn(client, path, content=query, share_instrument_text=True).status_code == 200
+    assert len(provider.contexts) == 1
+    context = provider.contexts[0][0]
+    assert context["interaction_mode"] == "document" and context["instrument_text_authorized"] is True
+    assert store.data["chat_requests"][-1]["payload"]["share_instrument_text"] is True
+    evidence = next(item["instrument"] for item in context["files"] if "instrument" in item)
+    for page, item in enumerate(items, start=21):
+        assert any(f["location"] == f"Página {page}" and item in f["text"] for f in evidence["fragments_shared"])
+    assert evidence["fragments_available"] > len(evidence["fragments_shared"])
+    assert len(evidence["fragments_shared"]) <= 10
+    assert not client.get(path).json()["proposals"]
 
 
 @pytest.mark.parametrize("provider_name", ["gemini", "openai"])

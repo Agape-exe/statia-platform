@@ -181,7 +181,8 @@ def test_system_actions_cannot_become_goal_but_explicit_exploration_can(api):
     assert turn(client, path, action='files_ready').status_code == 200
     detail = client.get(path).json()
     assert detail['conversation']['primary_goal'] is None
-    assert detail['conversation']['title'] == 'Nueva conversación'
+    assert detail['conversation']['title'] == 'Exploración de archivos'
+    assert detail['conversation']['stage_data']['title_provisional'] is True
     context = provider.contexts[0][0]
     assert context['turn']['kind'] == 'action'
     assert context['history'][-1]['kind'] == 'action' and context['history'][-1]['role'] == 'system'

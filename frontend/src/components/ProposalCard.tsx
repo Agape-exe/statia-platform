@@ -39,13 +39,16 @@ export function ProposalCard({
       <details className="plan-scope">
         <summary>Revisar dataset y variables ({plan.variables.length})</summary>
         <ul>
-          {plan.variables.map((variable, index) => (
-            <li key={index}>
-              {files.find((f) => f.id === variable.file_id)?.original_name ||
-                'Archivo no disponible'}{' '}
-              / {variable.sheet}: <strong>{variable.column}</strong>
-            </li>
-          ))}
+          {plan.variables.map((variable, index) => {
+            const file = files.find((item) => item.id === variable.file_id)
+            return (
+              <li key={index}>
+                {file?.original_name || 'Archivo no disponible'}
+                {file?.file_type === 'xlsx' && ` / ${variable.sheet}`}:{' '}
+                <strong>{variable.column}</strong>
+              </li>
+            )
+          })}
         </ul>
       </details>
       <p>

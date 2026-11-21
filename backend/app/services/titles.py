@@ -33,3 +33,19 @@ def automatic_title(conversation, suggested, goal):
     if re.search(r'recomiend|sugier|no .*conozco|no s[eé].*an[aá]lisis', text, re.I):
         text = 'Exploración estadística de los datos'
     return compact_title(text[0].upper() + text[1:]), True
+
+
+def title_completed_activity(conversation, turn, result):
+    """Da un título provisional al primer turno informativo sin finalidad estadística."""
+    if conversation.get('title_manual') or usable_title(conversation.get('title')) or result.get('title'):
+        return
+    mode = result.get('metadata', {}).get('interaction_mode')
+    if turn.action == 'message' and mode in ('document', 'methodology', 'understanding'):
+        title = compact_title(turn.content)
+    elif turn.action in ('files_ready', 'reuse'):
+        title = 'Exploración de archivos' if turn.action == 'files_ready' else 'Archivos reutilizados'
+    else:
+        return
+    if usable_title(title):
+        result['title'] = title
+        result['stage_data'] = {**result['stage_data'], 'title_provisional': True}

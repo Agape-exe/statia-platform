@@ -157,6 +157,32 @@ function chat() {
   )
 }
 
+it('identifica la asociación de un CSV sin etiquetarla como evento de un plan o de Excel', async () => {
+  detail.conversation.current_stage = 'goal'
+  detail.files = [dataset]
+  detail.messages.push({
+    id: 'attachment',
+    role: 'system',
+    position: 2,
+    content: 'Archivo asociado a la conversación.',
+    message_type: 'event',
+    metadata: { file_ids: [dataset.id] },
+  })
+  chat()
+  expect(
+    await screen.findByText('Archivos asociados', { selector: 'strong' }),
+  ).toBeVisible()
+  expect(screen.queryByText('Estado del plan')).not.toBeInTheDocument()
+  await userEvent.click(
+    screen.getByText(dataset.original_name, {
+      selector: 'summary',
+      exact: false,
+    }),
+  )
+  expect(screen.getByText(/KB · CSV/)).toBeVisible()
+  expect(screen.queryByText(/Hoja: tabla/)).not.toBeInTheDocument()
+})
+
 const instrument: ProjectFile = {
   id: 'document',
   original_name: 'escala.docx',
