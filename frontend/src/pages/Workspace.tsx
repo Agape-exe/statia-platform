@@ -75,7 +75,7 @@ const modules = [
     icon: FlaskConical,
     text: 'Tus hallazgos, organizados en un solo lugar.',
     detail:
-      'Aquí aparecerán los análisis y recursos exportables vinculados a tus ejecuciones. Estarán disponibles al integrar el motor estadístico.',
+      'Consulta tus análisis guardados, tablas, gráficos y recursos descargables.',
   },
 ]
 export function Workspace() {
@@ -145,7 +145,9 @@ export function Workspace() {
   return (
     <div
       className={
-        module === 'asistente' ? 'workspace-shell assistant-shell' : undefined
+        module === 'asistente'
+          ? 'workspace-shell assistant-shell'
+          : 'workspace-shell'
       }
     >
       <AppHeader />

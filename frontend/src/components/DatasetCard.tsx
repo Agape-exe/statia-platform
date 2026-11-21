@@ -1,4 +1,5 @@
 import type { ProjectFile } from '../types/chat'
+import { instrumentReading } from '../lib/instrument'
 
 const physical: Record<string, string> = {
   empty: 'Vacía',
@@ -32,11 +33,13 @@ export function DatasetCard({
   onSheet,
   onDownload,
   expanded,
+  instrumentAuthorized,
 }: {
   file: ProjectFile
   busy: boolean
   onSheet?: (sheet: string) => void
   expanded?: boolean
+  instrumentAuthorized?: boolean
   onDownload: () => void
 }) {
   const { profile } = file.metadata
@@ -53,6 +56,13 @@ export function DatasetCard({
                 ? `Selecciona una de sus ${file.metadata.sheets.length} hojas para continuar`
                 : 'Perfil no disponible'}
         </span>
+        {file.file_role === 'instrument' && (
+          <span className="file-status">
+            {instrumentReading(file)}
+            {instrumentAuthorized !== undefined &&
+              ` · ${instrumentAuthorized ? 'Lectura autorizada' : 'Contenido no compartido'}`}
+          </span>
+        )}
       </summary>
       <div className="dataset-body">
         <button className="btn secondary" disabled={busy} onClick={onDownload}>

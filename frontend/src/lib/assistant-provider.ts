@@ -22,13 +22,12 @@ export function messageProvenance(message: Message): string | null {
     generation?.source === 'deterministic' ||
     message.metadata.source === 'deterministic'
   )
-    return 'Acción determinista de Statia'
+    return 'Información del sistema'
   if (message.message_type === 'event' || message.role === 'system')
-    return 'Evento de Statia'
+    return 'Información del sistema'
   // La selección por sí sola no acredita que haya intervenido un modelo.
   const provider = generation?.provider
-  if (provider !== 'gemini' && provider !== 'openai')
-    return 'Modelo histórico no registrado'
+  if (provider !== 'gemini' && provider !== 'openai') return 'Statia'
   const name = provider === 'openai' ? 'Terra' : 'Gemini'
-  return `${name} — ${generation?.model || 'modelo histórico no registrado'}`
+  return name
 }

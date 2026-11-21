@@ -4,6 +4,7 @@ import { analysisService } from '../services/analysis'
 import { chatService } from '../services/chat'
 import type { AnalysisRun } from '../types/analysis'
 import { runStatus } from '../types/analysis'
+import { methodNames } from '../lib/analysis-methods'
 import type { Conversation } from '../types/chat'
 import { AnalysisResultCard } from './AnalysisResultCard'
 import { Alert, Loading } from './ui'
@@ -120,34 +121,43 @@ export function AnalysisResults({ projectId }: { projectId: string }) {
           />
         </div>
       )}
-      {Array.from(groups).map(([id, items]) => (
-        <section key={id} className="results-conversation">
-          <h2>
-            {conversations.find((c) => c.id === id)?.title || 'Conversación'}
-          </h2>
-          {items.map((item) => (
-            <article className="result-row" key={item.id}>
-              <div>
-                <h3>{item.title}</h3>
-                <p>{item.methods.join(' · ')}</p>
-                <p className="muted">
-                  {new Date(item.created_at).toLocaleString('es-PE')} ·{' '}
-                  {runStatus[item.status]} · {item.artifact_count} recursos
-                </p>
-                {item.error && <p>{item.error}</p>}
-              </div>
-              {selected !== item.id && (
-                <button
-                  className="btn secondary"
-                  onClick={() => selectRun(item.id)}
-                >
-                  Consultar y descargar
-                </button>
-              )}
-            </article>
-          ))}
-        </section>
-      ))}
+      {Array.from(groups)
+        .filter(([, items]) => items.some((item) => item.id !== selected))
+        .map(([id, items]) => (
+          <section key={id} className="results-conversation">
+            <h2>
+              {conversations.find((c) => c.id === id)?.title || 'Conversación'}
+            </h2>
+            {items
+              .filter((item) => item.id !== selected)
+              .map((item) => (
+                <article className="result-row" key={item.id}>
+                  <div>
+                    <h3>{item.title}</h3>
+                    <p>
+                      {item.methods
+                        .map((method) => methodNames[method] || method)
+                        .join(' · ')}
+                    </p>
+                    <p className="muted">
+                      {new Date(item.created_at).toLocaleString('es-PE')} ·{' '}
+                      {runStatus[item.status]} · {item.artifact_count}{' '}
+                      {item.artifact_count === 1 ? 'recurso' : 'recursos'}
+                    </p>
+                    {item.error && <p>{item.error}</p>}
+                  </div>
+                  {selected !== item.id && (
+                    <button
+                      className="btn secondary"
+                      onClick={() => selectRun(item.id)}
+                    >
+                      Consultar y descargar
+                    </button>
+                  )}
+                </article>
+              ))}
+          </section>
+        ))}
       {more && (
         <button
           className="btn secondary"

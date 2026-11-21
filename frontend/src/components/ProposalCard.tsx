@@ -36,15 +36,18 @@ export function ProposalCard({
       <p>
         <strong>Procedimiento:</strong> {visible(plan.method)}
       </p>
-      <ul>
-        {plan.variables.map((variable, index) => (
-          <li key={index}>
-            {files.find((f) => f.id === variable.file_id)?.original_name ||
-              'Archivo no disponible'}{' '}
-            / {variable.sheet}: <strong>{variable.column}</strong>
-          </li>
-        ))}
-      </ul>
+      <details className="plan-scope">
+        <summary>Revisar dataset y variables ({plan.variables.length})</summary>
+        <ul>
+          {plan.variables.map((variable, index) => (
+            <li key={index}>
+              {files.find((f) => f.id === variable.file_id)?.original_name ||
+                'Archivo no disponible'}{' '}
+              / {variable.sheet}: <strong>{variable.column}</strong>
+            </li>
+          ))}
+        </ul>
+      </details>
       <p>
         <strong>Justificación:</strong> {visible(plan.justification)}
       </p>

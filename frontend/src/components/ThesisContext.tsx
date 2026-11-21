@@ -170,25 +170,39 @@ export function ThesisContext({ projectId }: { projectId: string }) {
           {notice}
         </div>
       )}
-      <p className="muted">
+      <p className="context-version">
         {saved
-          ? `Contexto confirmado · Revisión ${saved.revision} · ${new Date(saved.updated_at).toLocaleString('es-PE')}`
-          : 'Todavía no hay contexto guardado.'}{' '}
-        Todos los campos son opcionales. Deja vacía la información desconocida;
-        no necesitas formular hipótesis si tu estudio no las tiene.
+          ? `Contexto confirmado · Revisión ${saved.revision}`
+          : 'Todavía no hay contexto guardado.'}
+        {saved && (
+          <small>
+            Actualizado el {new Date(saved.updated_at).toLocaleString('es-PE')}
+          </small>
+        )}
       </p>
-      <p role="status">
+      <p
+        role="status"
+        className={`context-edit-state ${changed ? 'draft-changed' : ''}`}
+      >
         {changed
           ? 'Borrador modificado; los cambios aún no están guardados.'
           : saved
             ? 'Sin cambios pendientes.'
             : 'Completa o importa el contexto para revisarlo.'}
       </p>
-      <p className="muted">
-        El contexto confirmado se comparte con el asistente para orientar
-        recomendaciones. Revisa su contenido y evita incluir datos personales,
-        contraseñas o información confidencial.
-      </p>
+      <details className="context-guidance">
+        <summary>Campos opcionales y uso del contexto</summary>
+        <p className="muted">
+          Todos los campos son opcionales. Deja vacía la información
+          desconocida; no necesitas formular hipótesis si tu estudio no las
+          tiene.
+        </p>
+        <p className="muted">
+          El contexto confirmado se comparte con el asistente para orientar
+          recomendaciones. Revisa su contenido y evita incluir datos personales,
+          contraseñas o información confidencial.
+        </p>
+      </details>
       <details className="context-import">
         {importNotice && (
           <div className="notice" role="status">

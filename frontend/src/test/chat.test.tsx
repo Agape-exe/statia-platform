@@ -157,6 +157,87 @@ function chat() {
   )
 }
 
+const instrument: ProjectFile = {
+  id: 'document',
+  original_name: 'escala.docx',
+  file_type: 'docx',
+  file_role: 'instrument',
+  file_size: 500,
+  metadata: { sheets: [], extraction_status: 'partial', warnings: [] },
+}
+
+it('solicita consentimiento contextual, lo aplica inmediatamente y permite revocarlo sin reenviar mensajes', async () => {
+  detail.files = [instrument]
+  detail.conversation.current_stage = 'goal'
+  chat()
+  const user = userEvent.setup()
+  const allow = await screen.findByRole('button', {
+    name: 'Permitir consultar fragmentos',
+  })
+  expect(chatService.turn).not.toHaveBeenCalled()
+  await user.click(allow)
+  await user.type(
+    screen.getByRole('textbox', { name: 'Mensaje para Statia' }),
+    'Busca EDU030',
+  )
+  await user.click(screen.getByRole('button', { name: /^Enviar$/ }))
+  await waitFor(() => expect(chatService.turn).toHaveBeenCalledTimes(1))
+  expect(
+    vi.mocked(chatService.turn).mock.calls[0][2].share_instrument_text,
+  ).toBe(true)
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Cambiar autorización' }),
+    ).toBeEnabled(),
+  )
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Cambiar autorización' }))
+  await user.click(
+    screen.getByRole('button', { name: 'Continuar sin compartir' }),
+  )
+  await user.type(
+    screen.getByRole('textbox', { name: 'Mensaje para Statia' }),
+    'Busca EDU050',
+  )
+  await user.click(screen.getByRole('button', { name: /^Enviar$/ }))
+  await waitFor(() => expect(chatService.turn).toHaveBeenCalledTimes(2))
+  expect(
+    vi.mocked(chatService.turn).mock.calls[1][2].share_instrument_text,
+  ).toBe(false)
+  expect(screen.getByLabelText('Acceso a instrumentos')).toHaveTextContent(
+    'Contenido no compartido',
+  )
+})
+
+it('una carga mixta espera la elección documental y distingue instrumentos de datos', async () => {
+  detail.conversation.current_stage = 'upload_dataset'
+  vi.mocked(chatService.upload).mockImplementation(
+    async (_project, _chat, file, role) => {
+      const record = {
+        ...(role === 'instrument' ? instrument : dataset),
+        original_name: file.name,
+      }
+      detail.files.push(record)
+      return record
+    },
+  )
+  chat()
+  await screen.findByRole('textbox')
+  await userEvent.upload(screen.getByLabelText('Archivos para adjuntar'), [
+    new File(['text'], 'instrumento.docx'),
+    new File(['nota\n1'], 'datos.csv'),
+  ])
+  await screen.findByRole('button', { name: 'Permitir consultar fragmentos' })
+  expect(chatService.turn).not.toHaveBeenCalled()
+  expect(
+    vi.mocked(chatService.upload).mock.calls.map((call) => call[3]),
+  ).toEqual(['instrument', 'dataset'])
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Continuar sin compartir' }),
+  )
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
 describe('chat persistente y acciones', () => {
   it('consulta pendientes desde el resultado sin enviar un turno y mantiene el estado parcial al recargar', async () => {
     detail.conversation.current_stage = 'ready'

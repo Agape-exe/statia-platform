@@ -196,26 +196,20 @@ export function ChatComposer({
         </button>
       </div>
       <div className="composer-footer">
-        <p className="muted">
-          Instrumentos:{' '}
-          {instrumentText
-            ? `extractos autorizados para ${providerName(provider)} en los próximos mensajes`
-            : `contenido sin compartir con ${providerName(provider)}`}
-          . Los mensajes anteriores siguen formando parte del historial.
-        </p>
         <details className="privacy-options">
           <summary>Información compartida con {providerName(provider)}</summary>
           <div className="privacy-content">
             <p>
               Se envían mensajes y resúmenes de columnas. Evita información
               personal o secretos. Los archivos completos permanecen en el
-              almacenamiento privado.
+              almacenamiento privado. Los mensajes anteriores siguen formando
+              parte del historial.
             </p>
             <label className="checkbox-label">
               <input
                 type="checkbox"
                 checked={samples}
-                disabled={disabled}
+                disabled={disabled || !!pending}
                 onChange={(event) => onSamples(event.target.checked)}
               />
               Compartir muestras pequeñas sin identificadores detectados
@@ -224,7 +218,7 @@ export function ChatComposer({
               <input
                 type="checkbox"
                 checked={instrumentText}
-                disabled={disabled}
+                disabled={disabled || !!pending}
                 onChange={(event) => onInstrumentText(event.target.checked)}
               />
               Compartir extractos de instrumentos PDF y DOCX
@@ -239,6 +233,9 @@ export function ChatComposer({
           Enter envía · Shift + Enter añade una línea
         </span>
       </div>
+      <span className="attachment-hint">
+        Instrumentos: PDF, DOCX · Datos: CSV, XLSX, JSON
+      </span>
     </form>
   )
 }

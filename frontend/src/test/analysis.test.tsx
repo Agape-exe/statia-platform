@@ -163,6 +163,50 @@ const run = {
   },
 } as unknown as AnalysisRun
 
+it('amplía el gráfico privado conservado sin exponer su ruta ni volver a calcular', async () => {
+  const fixture = structuredClone(run)
+  const artifactName = 'graficos/componente_1_1.png'
+  fixture.result!.components[0].charts = [artifactName]
+  fixture.artifacts = [
+    {
+      id: 'chart',
+      run_id: fixture.id,
+      project_id: fixture.project_id,
+      name: artifactName,
+      mime_type: 'image/png',
+      size_bytes: 100,
+      sha256: 'synthetic',
+    },
+  ]
+  const original = structuredClone(fixture)
+  vi.mocked(analysisService.artifact).mockResolvedValue(
+    new Blob(['synthetic'], { type: 'image/png' }),
+  )
+  render(
+    <MemoryRouter>
+      <AnalysisResultCard
+        projectId="proyecto"
+        runId={fixture.id}
+        initialRun={fixture}
+        expanded
+      />
+    </MemoryRouter>,
+  )
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Ampliar gráfico' }),
+  )
+  const dialog = screen.getByRole('dialog')
+  expect(
+    within(dialog).getByRole('region', { name: 'Gráfico a tamaño original' }),
+  ).toBeInTheDocument()
+  expect(screen.queryByText(artifactName, { exact: true })).not.toBeVisible()
+  expect(analysisService.artifact).toHaveBeenCalledTimes(1)
+  expect(analysisService.execute).not.toHaveBeenCalled()
+  expect(fixture).toEqual(original)
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Cerrar' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
 beforeEach(() => {
   vi.resetAllMocks()
   sessionStorage.clear()
