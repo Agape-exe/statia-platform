@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
 from app.services.gemini import build_context
-from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply
+from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, interaction_mode, technical_details_requested
 from app.services.methodology import levels
 from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
@@ -107,7 +107,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         if stage != 'instrument':
             raise HTTPException(409, 'La pregunta sobre instrumentos ya fue respondida. Recarga la conversación.')
         return static_result(conversation, 'upload_instrument' if action == 'instrument_yes' else 'upload_dataset',
-                             'Adjunta uno o varios instrumentos PDF. Después podrás continuar con los datasets.' if action == 'instrument_yes'
+                             'Adjunta uno o varios instrumentos PDF o DOCX. Word antiguo .doc requiere conversión a DOCX o PDF. Después podrás continuar con los datasets.' if action == 'instrument_yes'
                              else 'Adjunta uno o varios datasets CSV, XLSX o JSON. No necesitas un instrumento.')
     if action == 'new_files':
         if stage != 'reuse':
@@ -134,10 +134,16 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         return static_result(conversation, 'upload_dataset', 'Adjunta ahora uno o varios datasets. Puedes completar los instrumentos más adelante si lo necesitas.')
     if stage in ('instrument', 'reuse'):
         raise HTTPException(422, 'Responde primero la pregunta inicial con las opciones disponibles.')
-    if stage == 'upload_instrument' and action == 'message' and not any(f['file_role'] == 'dataset' for f in files):
+    if stage == 'upload_instrument' and action == 'message' and interaction_mode(turn) not in ('document', 'methodology') and not any(f['file_role'] == 'dataset' for f in files):
         return static_result(conversation, stage, 'Adjunta tus instrumentos o elige «Continuar con los datasets» para seguir.')
     datasets = [f for f in files if f['file_role'] == 'dataset']
-    if not datasets:
+    from app.services.reply_contract import NON_PLANNING, normalize_reply
+    mode = interaction_mode(turn)
+    if mode in ('planning', 'methodology') and any(f['file_role'] == 'instrument' for f in files) and not statistical_request(turn.content):
+        from app.services.instrument_context import CODE
+        if CODE.search(turn.content) and re.search(r'pregunta|codigo|opciones|que dice|que significa|busca|recupera', normalize(turn.content)):
+            mode = 'document'
+    if not datasets and mode not in ('document', 'methodology'):
         raise HTTPException(422, 'Adjunta al menos un dataset antes de solicitar su comprensión.')
     if any(not f['metadata'].get('profile') and not f['metadata'].get('sheet_profiles') for f in datasets):
         raise HTTPException(422, 'Elige una hoja para cada libro XLSX antes de continuar.')
@@ -168,8 +174,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     except ValueError as exc:
         return static_result(conversation, 'clarification', str(exc))
     analysis_results = await saved_results_context(store, conversation, turn.content)
-    discussion = bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
-    scope = None if alternative or discussion or result_discussion(turn.content) else requested_scope(conversation, messages, turn)
+    discussion = mode != 'document' and bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
+    scope = None if alternative or discussion or mode in NON_PLANNING or result_discussion(turn.content) else requested_scope(conversation, messages, turn)
     if scope:
         data['requested_scope'] = scope
     conversation = {**conversation, 'stage_data': data}
@@ -177,6 +183,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         return reply_result(scope_question(scope), conversation, files=files, scope=scope)
     research = await current_context(store, project)
     context = build_context(project, conversation, messages, files, turn, settings, analysis_results, research)
+    context['interaction_mode'] = mode
+    if mode in NON_PLANNING:
+        context['recommendations_requested'] = False
+    context['technical_details'] = technical_details_requested(turn.content)
     if scope:
         # Compromisos del usuario, separados del texto generado por el proveedor.
         context['requested_scope'] = scope
@@ -198,6 +208,22 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         import json
         if len(json.dumps(context, ensure_ascii=False)) > settings.gemini_context_chars:
             raise HTTPException(413, 'El contexto de la alternativa supera el límite del proveedor. El análisis original y tus respuestas se conservan.')
+    if mode == 'document' and not any(f.get('instrument', {}).get('fragments_shared') for f in context['files']):
+        if not any(f['file_role'] == 'instrument' for f in files):
+            content = 'No hay instrumentos asociados a esta conversación. Adjunta un PDF o DOCX para consultar su contenido.'
+        elif not turn.share_instrument_text:
+            content = 'El instrumento está asociado, pero su texto no está autorizado para el proveedor. Habilita «Compartir extractos de instrumentos PDF y Word» y vuelve a enviar tu consulta. No he consultado su contenido.'
+        else:
+            content = 'No encontré información pertinente en el texto recuperable de los instrumentos asociados. No puedo atribuirles esa pregunta o código. La extracción puede ser parcial o requerir OCR, que no está disponible; revisa las advertencias y el original.'
+        result = static_result(conversation, stage, content)
+        result['metadata'] = {'interaction_mode': mode, 'research_context_revision': research['revision'] if research else None}
+        return result
+    import json
+    context_limit = settings.gemini_context_chars - min(4000, settings.gemini_context_chars // 5)
+    while len(json.dumps(context, ensure_ascii=False)) > context_limit and len(context['history']) > 1:
+        context['history'].pop(0)
+    if len(json.dumps(context, ensure_ascii=False)) > context_limit:
+        raise HTTPException(413, 'El contexto indispensable supera el presupuesto del proveedor y su corrección acotada. Reduce archivos o identifica una consulta más concreta; se conserva tu solicitud.')
     async def generate(correction=None):
         try:
             return await provider.generate(context, correction)
@@ -211,6 +237,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     partial = False
     for attempt in range(2):
         try:
+            reply = normalize_reply(reply, mode)
             if alternative:
                 reply = bind_descriptive_scope(reply, alternative)
             if discussion and (reply.proposals or reply.goal_change):
@@ -221,8 +248,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                         proposed.expected_outputs.append('Sin comparaciones post hoc')
             reply = bind_confirmations(reply, data.get('confirmed_variable_types', []), files)
             from app.services.interpretation_guards import result_ids, validate_explanation
+            from app.services.instrument_context import validate_document_claims
+            validate_document_claims(reply.response, context)
             validate_explanation(reply.response, context)
-            reply = humanize_reply(reply, files, result_ids(context))
+            reply = humanize_reply(reply, files, result_ids(context) if context['technical_details'] else ())
             assessment = assess_reply(reply, files, project, context)
         except (ValidationError, ValueError) as exc:
             # Conservar la corrección acotada si la normalización deja contenido inválido.
@@ -248,10 +277,14 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 reply = scope_question(scope, provider_failed=True)
                 break
             type_problems = list(dict.fromkeys(issue.message for issue in assessment.issues if issue.category == 'variable_type'))
-            detail = ('El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000]
-                      + ' No se guardó una propuesta inválida; solicita una reformulación compatible.') if type_problems else 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.'
+            if mode in NON_PLANNING:
+                detail = 'El proveedor no pudo responder con evidencia suficiente. No se guardó la respuesta; puedes reintentar.'
+            elif type_problems:
+                detail = 'El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000] + ' No se guardó una propuesta inválida; solicita una reformulación compatible.'
+            else:
+                detail = 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.'
             raise HTTPException(502, detail,
-                                headers={'X-Statia-Error': 'planning_validation',
+                                headers={'X-Statia-Error': 'response_validation' if mode in NON_PLANNING else 'planning_validation',
                                          'X-Statia-Validation': ','.join(sorted({issue.category for issue in assessment.issues}))}) from None
         failures = '\n'.join(f'Propuesta {issue.plan_index + 1 if issue.plan_index is not None else "respuesta"} [{issue.category}]: {issue.message}'
                              for issue in assessment.issues)
@@ -272,7 +305,21 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         reply.goal_change = False
     from app.services.plan_capabilities import warn_capabilities
     reply = warn_capabilities(reply)
+    if mode in NON_PLANNING:
+        reply.detected_goal = reply.suggested_title = None
+        reply.goal_change = False
+    if mode == 'document':
+        sources = [f['file_name'] + ' · ' + '; '.join(dict.fromkeys(fragment['location'] for fragment in f['instrument']['fragments_shared'])) for f in context['files'] if f.get('instrument', {}).get('fragments_shared')]
+        if sources:
+            tail = '\n\nFuentes de los fragmentos consultados: ' + ' | '.join(sources)
+            reply.response = reply.response[:max(1, 12000 - len(tail))] + tail
     result = reply_result(reply, conversation, files=files, scope=scope)
+    result['metadata']['technical_details'] = context['technical_details']
+    result['metadata']['interaction_mode'] = mode
+    result['metadata']['instrument_retrieval'] = [
+        {'file_id': f['file_id'], **{key: value for key, value in f['instrument'].items() if key != 'fragments_shared'},
+         'locations_shared': [fragment['location'] for fragment in f['instrument']['fragments_shared']]}
+        for f in context['files'] if 'instrument' in f]
     if research:
         result['metadata']['research_context_revision'] = research['revision']
     if discussion:

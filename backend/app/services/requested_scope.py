@@ -243,6 +243,31 @@ def validate_plan_scope(plan, scope, files):
         )
     validate_products(plan, files)  # Conserva también las ligaduras a componentes.
     declared = {kind for text in plan.expected_outputs for kind in OUTPUTS.get(output_request(text)[1], ())}
+    from app.services.plan_capabilities import DEFAULT_OUTPUTS
+
+    if (
+        plan.procedure in {"descriptive", "exploratory"}
+        and not plan.components
+        and any(output_request(text)[1] in DEFAULT_OUTPUTS for text in plan.expected_outputs)
+    ):
+        # El motor del descriptivo simple ya entrega estos productos. Comprobar
+        # la cobertura real antes de acreditar un alias, sin cambiar el método.
+        for product in set(scope["products"]) & {"global", "grouped", "frequencies", "grouped_frequencies"}:
+            validate_products(plan.model_copy(update={"expected_outputs": [LABELS[product]]}), files)
+            declared.add(product)
+    if (
+        "global" in scope["products"]
+        and "frequencies" in declared
+        and plan.procedure in {"descriptive", "exploratory"}
+        and not plan.components
+    ):
+        from app.services.plan_capabilities import product_coverage
+
+        _, groups, measures, categories, covered = product_coverage(plan, files)
+        if not groups and measures and measures <= categories and measures <= covered["frequencies"]:
+            # En una selección exclusivamente categórica, las frecuencias de
+            # todas las observaciones son su descripción global, sin otro método.
+            declared.add("global")
     if "global" in declared or "numeric_summary" in declared:
         declared.update(SUMMARY_STATISTICS)
     if set(SUMMARY_STATISTICS) <= declared:

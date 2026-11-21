@@ -7,7 +7,6 @@ import httpx
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.models.chat import AssistantReply
 from app.services.gemini import SYSTEM
 from app.services.gemini_schema import reply_schema
 from app.services.plan_capabilities import PRODUCT_INSTRUCTIONS
@@ -88,7 +87,7 @@ def http_diagnostic(response):
     return diagnostic(category, local, status)
 
 
-def parse_reply(data):
+def parse_reply(data, interaction_mode=None):
     if not isinstance(data, dict):
         raise diagnostic("invalid_response")
     if data.get("status") != "completed" or data.get("incomplete_details") or data.get("error"):
@@ -105,7 +104,9 @@ def parse_reply(data):
             if part.get("type") != "output_text" or not isinstance(part.get("text"), str):
                 raise diagnostic("invalid_response")
             parts.append(part["text"])
-    return AssistantReply.model_validate_json("".join(parts))
+    from app.services.reply_contract import parse_assistant_reply
+
+    return parse_assistant_reply("".join(parts), interaction_mode)
 
 
 class OpenAIProvider:
@@ -169,7 +170,7 @@ class OpenAIProvider:
                         "cached_input_tokens": (raw.get("input_tokens_details") or {}).get("cached_tokens"),
                         "reasoning_tokens": (raw.get("output_tokens_details") or {}).get("reasoning_tokens"),
                     }
-                reply = parse_reply(data)
+                reply = parse_reply(data, context.get("interaction_mode"))
             category = "completed"
             return reply
         except (TimeoutError, httpx.TimeoutException):

@@ -20,6 +20,15 @@ def validate_explanation(text, context):
     context = context or {}
     literal = normalized(text)
     known = result_ids(context)
+    research = context.get("research_context")
+    if research and context.get("project_mode") == "thesis":
+        document = research.get("document", {})
+        if document.get("general_objective") or document.get("specific_objectives"):
+            if re.search(r"objetivos?.{0,80}(?:no (?:estan? |se han? )?guardad|todavia no.{0,15}guardad)", literal):
+                raise PlanningError(
+                    "response_content",
+                    "El Contexto vigente ya contiene objetivos confirmados. Reconoce su revisión; no afirmes que faltan guardar.",
+                )
     for match in re.finditer(r"\brun_id`?\s*[:=]?\s*`?(" + UUID + r")", text, re.I):
         if match[1] not in known:
             raise PlanningError(

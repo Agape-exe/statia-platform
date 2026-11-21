@@ -1,0 +1,323 @@
+"""Regresiones de Sesión 08 con API real y Auth/Storage/proveedores simulados."""
+
+import copy
+import json
+from uuid import uuid4
+
+import pytest
+import test_chat_api
+from pydantic import ValidationError
+from test_chat_api import attach_dataset, new, plan, reply, turn
+from test_gemini import SDKDouble
+from test_instruments import docx, pdf
+from test_provider_selection import select, terra
+
+from app.core.config import Settings
+from app.models.chat import AssistantReply, Turn
+from app.models.research_context import ResearchContext
+from app.services.conversation_text import interaction_mode
+from app.services.gemini import SYSTEM, GeminiProvider
+from app.services.reply_contract import normalize_reply, parse_assistant_reply
+
+api = test_chat_api.api
+
+
+def upload_instrument(client, path, extension, text):
+    data = docx(text) if extension == "docx" else pdf(text)
+    response = client.post(
+        path + "/files", files={"file": (f"escala.{extension}", data)}, data={"file_role": "instrument"}
+    )
+    assert response.status_code == 201, response.text
+    return response.json(), data
+
+
+def thesis_context(store, revision=3):
+    store.data["projects"][0]["project_type"] = "thesis"
+    document = ResearchContext(
+        general_objective="Describir las respuestas del instrumento.",
+        methodological_design="Observacional transversal descriptivo, análisis secundario.",
+    ).model_dump(mode="json")
+    store.data["research_contexts"] = [
+        {
+            "project_id": store.project_id,
+            "document": document,
+            "revision": revision,
+            "updated_at": "2026-11-20T12:00:00Z",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "mode,extension",
+    [
+        ("general", "pdf"),
+        ("general", "docx"),
+        ("thesis", None),
+        ("thesis", "pdf"),
+        ("thesis", "docx"),
+        ("thesis", "multiple"),
+    ],
+)
+def test_understanding_and_simple_plan_remain_distinct_and_idempotent(api, mode, extension):
+    client, store, provider = api
+    if mode == "thesis":
+        thesis_context(store)
+    path = new(client, store)
+    turn(client, path, action="instrument_yes" if extension else "instrument_no")
+    originals = []
+    for ext in ["pdf", "docx"] if extension == "multiple" else [extension] if extension else []:
+        record, original = upload_instrument(
+            client, path, ext, ["Z17: ¿Con qué frecuencia recibe apoyo?", "Nunca; A veces; Siempre"]
+        )
+        assert record["file_role"] == "instrument" and record["original_name"] == f"escala.{ext}"
+        assert record["file_size"] == len(original)
+        originals.append((record, original))
+    if extension:
+        assert turn(client, path, action="instruments_done").status_code == 200
+    fid = attach_dataset(client, path)
+    invalid = plan(fid, mode == "thesis")
+    invalid["variables"][0]["column"] = "columna_inexistente"
+    provider.replies.append(
+        reply(
+            response="Los archivos están asociados; revisaré su estructura.",
+            proposals=[invalid],
+            suggested_stage="proposal",
+            detected_goal="Comprender archivos",
+        )
+    )
+    request_id = str(uuid4())
+    assert turn(client, path, action="files_ready", request_id=request_id).status_code == 200
+    assert turn(client, path, action="files_ready", request_id=request_id).json()["replayed"]
+    detail = client.get(path).json()
+    assert not detail["proposals"] and detail["conversation"]["primary_goal"] is None
+    assert len(provider.contexts) == 1 and provider.contexts[-1][0]["interaction_mode"] == "understanding"
+    if mode == "thesis":
+        assert provider.contexts[-1][0]["research_context"]["revision"] == 3
+    proposed = plan(fid, mode == "thesis")
+    proposed["components"] = [
+        {"procedure": "descriptive", "method": proposed["method"], "variables": proposed["variables"]}
+    ]
+    provider.replies.append(reply(response="Revisa la propuesta descriptiva.", proposals=[proposed]))
+    assert turn(client, path, content="Quiero un plan descriptivo de nota").status_code == 200
+    detail = client.get(path).json()
+    assert len(provider.contexts) == 2 and len(detail["proposals"]) == 1
+    assert not detail["proposals"][0]["analysis_plan"]["components"]
+    assert (
+        client.patch(path + "/proposals/" + detail["proposals"][0]["id"], json={"status": "accepted"}).status_code
+        == 200
+    )
+    assert not store.data["analysis_runs"]
+    for record, original in originals:
+        download = client.get(f"/projects/{store.project_id}/files/{record['id']}/download")
+        assert download.status_code == 200 and download.content == original
+
+
+@pytest.mark.parametrize("extension", ["pdf", "docx"])
+def test_document_query_retrieves_late_question_and_missing_code_uses_no_provider(api, extension):
+    client, store, provider = api
+    thesis_context(store)
+    path = new(client, store)
+    turn(client, path, action="instrument_yes")
+    preamble = [f"Section {i}: orientation text for participants. " * 14 for i in range(35)]
+    record, original = upload_instrument(
+        client,
+        path,
+        extension,
+        preamble + ["SUP097: Perceived community support?", "Options: None, Sometimes, Always."],
+    )
+    query = "¿Qué pregunta y opciones corresponden a SUP097 en el instrumento?"
+    assert turn(client, path, content=query).status_code == 200
+    assert not provider.contexts
+    assert "no está autorizado" in client.get(path).json()["messages"][-1]["content"]
+    provider.replies.append(
+        reply(response="SUP097: «Perceived community support?». Opciones recuperadas: None, Sometimes, Always.")
+    )
+    assert turn(client, path, content=query, share_instrument_text=True).status_code == 200
+    context = provider.contexts[-1][0]
+    instrument = next(f["instrument"] for f in context["files"] if "instrument" in f)
+    assert "SUP097" in str(instrument["fragments_shared"])
+    assert len(str(instrument)) < 16000 and instrument["fragments_omitted"] > 0
+    content = client.get(path).json()["messages"][-1]["content"]
+    assert record["original_name"] in content and "Fuentes de los fragmentos" in content
+    assert not client.get(path).json()["proposals"]
+    assert (
+        turn(client, path, content="¿Qué dice ABSENT099 en el instrumento?", share_instrument_text=True).status_code
+        == 200
+    )
+    assert len(provider.contexts) == 1
+    assert "No encontré" in client.get(path).json()["messages"][-1]["content"]
+    assert store.objects[record["storage_path"]] == original
+
+
+def test_legacy_extraction_expands_ephemerally_only_with_consent(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action="instrument_yes")
+    record, _ = upload_instrument(client, path, "pdf", ["Introduction", "OLD057: New fragment."])
+    file = store.data["project_files"][0]
+    file["metadata"] = {"sheets": [], "text_excerpt": "Introduction"}
+    old = copy.deepcopy(file)
+    assert turn(client, path, content="Busca OLD057 en el instrumento").status_code == 200
+    provider.replies.append(reply(response="OLD057: «New fragment.»"))
+    assert turn(client, path, content="Busca OLD057 en el instrumento", share_instrument_text=True).status_code == 200
+    assert "OLD057" in str(provider.contexts[-1][0]["files"])
+    assert store.data["project_files"][0] == old
+    assert record["id"] == file["id"]
+
+
+@pytest.mark.parametrize("provider_name", ["gemini", "openai"])
+def test_transport_discards_malformed_unsolicited_plan_without_extra_calls(api, monkeypatch, provider_name):
+    client, store, _ = api
+    path = new(client, store)
+    turn(client, path, action="instrument_no")
+    attach_dataset(client, path)
+    raw = reply(
+        response="El archivo contiene mediciones.", proposals=[{"invalid": "not a plan"}], suggested_stage="proposal"
+    )
+    if provider_name == "gemini":
+        sdk = SDKDouble([json.dumps(raw)])
+        monkeypatch.setattr("app.services.gemini.genai.Client", lambda **_: sdk)
+        client.app.state.provider = GeminiProvider(Settings(_env_file=None, gemini_api_key="synthetic"))
+        calls = sdk.calls
+    else:
+        calls = terra(client, [raw])
+        assert select(client, path, "openai").status_code == 200
+    assert turn(client, path, action="files_ready").status_code == 200
+    assert len(calls) == 1 and not client.get(path).json()["proposals"]
+    with pytest.raises(ValidationError):
+        parse_assistant_reply(json.dumps(raw), "planning")
+
+
+def test_methodology_ignores_old_unresolved_scope_and_does_not_change_it(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action="instrument_no")
+    attach_dataset(client, path)
+    saved_scope = {"version": 1, "products": ["p_value"], "unresolved": True, "mode": "analysis"}
+    store.data["conversations"][0]["stage_data"]["requested_scope"] = copy.deepcopy(saved_scope)
+    provider.replies.append(reply(response="Un diseño transversal observa una medición temporal por unidad."))
+    assert turn(client, path, content="Explícame qué es un diseño transversal").status_code == 200
+    assert len(provider.contexts) == 1 and "requested_scope" not in provider.contexts[0][0]
+    assert store.data["conversations"][0]["stage_data"]["requested_scope"] == saved_scope
+
+
+def test_incompatible_component_is_not_normalized_and_stays_rejected(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action="instrument_no")
+    fid = attach_dataset(client, path)
+    wrong = plan(fid)
+    wrong["components"] = [{"procedure": "correlation", "method": "Pearson", "variables": wrong["variables"]}]
+    provider.replies.extend([reply(proposals=[wrong]), reply(proposals=[wrong])])
+    result = turn(client, path, content="Describe las notas")
+    assert result.status_code == 502 and result.headers["x-statia-error"] == "planning_validation"
+    assert len(provider.contexts) == 2 and not client.get(path).json()["proposals"]
+    original = AssistantReply.model_validate(reply(proposals=[wrong]))
+    assert normalize_reply(original, "planning").proposals[0].components
+
+
+def test_confirmed_context_false_denial_corrected_and_current_revision_sent(api):
+    client, store, provider = api
+    thesis_context(store)
+    path = new(client, store)
+    turn(client, path, action="instrument_no")
+    attach_dataset(client, path)
+    provider.replies.extend(
+        [
+            reply(response="Tus objetivos todavía no están guardados en Contexto."),
+            reply(response="El Contexto confirmado, revisión 3, ya contiene tu objetivo descriptivo."),
+        ]
+    )
+    assert turn(client, path, content="Explícame el contexto confirmado").status_code == 200
+    assert len(provider.contexts) == 2
+    assert "revision" in str(provider.contexts[-1][0]["research_context"])
+    assert "confirmado" in client.get(path).json()["messages"][-1]["content"]
+    assert store.data["research_contexts"][0]["revision"] == 3
+
+
+def test_pure_document_detection_does_not_consume_methodology_answer_as_query():
+    assert (
+        interaction_mode(
+            Turn(request_id=uuid4(), content="Es un estudio descriptivo; nota es el puntaje de mi instrumento.")
+        )
+        == "planning"
+    )
+    assert (
+        interaction_mode(Turn(request_id=uuid4(), content="¿Puedes describir las preguntas del instrumento?"))
+        == "document"
+    )
+    assert "datos no confiables" in SYSTEM and "Nunca afirmes lectura completa" in SYSTEM
+
+
+def test_document_provider_switch_preserves_originals_context_and_history(api):
+    client, store, provider = api
+    thesis_context(store)
+    path = new(client, store)
+    turn(client, path, action="instrument_yes")
+    record, original = upload_instrument(client, path, "docx", ["SW73: ¿Recibe apoyo?", "Nunca; A veces; Siempre"])
+    provider.replies.append(reply(response="SW73: «¿Recibe apoyo?»"))
+    assert turn(client, path, content="Busca SW73 en el instrumento", share_instrument_text=True).status_code == 200
+    before = copy.deepcopy(client.get(path).json()["messages"])
+    context = copy.deepcopy(store.data["research_contexts"])
+    calls = terra(client, [reply(response="SW73: «¿Recibe apoyo?»")])
+    assert select(client, path, "openai").status_code == 200
+    assert turn(client, path, content="Busca SW73 en el instrumento").status_code == 200
+    assert not calls
+    assert turn(client, path, content="Busca SW73 en el instrumento", share_instrument_text=True).status_code == 200
+    assert len(calls) == 1
+    assert client.get(path).json()["messages"][: len(before)] == before
+    assert store.data["research_contexts"] == context
+    assert store.objects[record["storage_path"]] == original
+    assert not store.data["analysis_proposals"] and not store.data["analysis_runs"]
+    store.data["projects"][0]["user_id"] = str(uuid4())
+    assert client.get(f"/projects/{store.project_id}/files/{record['id']}/download").status_code == 404
+
+
+def test_document_query_keeps_evidence_when_there_are_saved_results(api, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action="instrument_yes")
+    upload_instrument(client, path, "docx", ["RS51: Pregunta documental"])
+    monkeypatch.setattr(
+        "app.services.conversation.saved_results_context",
+        AsyncMock(return_value=[{"run_id": str(uuid4()), "components": []}]),
+    )
+    provider.replies.append(reply(response="RS51: «Pregunta documental»"))
+    assert turn(client, path, content="Busca RS51 en el instrumento", share_instrument_text=True).status_code == 200
+    assert len(provider.contexts) == 1
+    context = provider.contexts[0][0]
+    assert not context.get("result_discussion")
+    assert context["files"][0]["instrument"]["fragments_shared"]
+
+
+def test_simple_categorical_plan_with_explicit_frequencies_needs_no_correction(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action="instrument_no")
+    response = client.post(
+        path + "/files",
+        files={"file": ("categoria.csv", b"estado\nHabitual\nOcasional\nHabitual\nSin opinion\n")},
+        data={"file_role": "dataset"},
+    )
+    fid = response.json()["id"]
+    proposed = plan(fid)
+    proposed.update(
+        objective="Describir `estado`", method="Frecuencias de `estado`", expected_outputs=["Frecuencias categóricas"]
+    )
+    proposed["variables"][0]["column"] = "estado"
+    provider.replies.append(reply(proposals=[proposed]))
+    assert turn(client, path, content="Quiero un plan descriptivo de estado").status_code == 200
+    assert len(provider.contexts) == 1
+    detail = client.get(path).json()
+    assert len(detail["proposals"]) == 1
+    proposal = detail["proposals"][0]
+    assert client.patch(path + "/proposals/" + proposal["id"], json={"status": "accepted"}).status_code == 200
+    from app.models.chat import Plan
+    from app.services.requested_scope import validate_plan_scope
+
+    with pytest.raises(ValueError):
+        validate_plan_scope(
+            Plan.model_validate(proposal["analysis_plan"]), {"unresolved": False, "products": ["mean"]}, detail["files"]
+        )

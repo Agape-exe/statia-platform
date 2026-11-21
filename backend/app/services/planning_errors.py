@@ -7,7 +7,7 @@ CATEGORIES = frozenset({
     'column_reference', 'objective_variables', 'component_variables', 'variable_type',
     'comparison_design', 'comparison_scope', 'effect_definition', 'independence',
     'essential_clarification', 'recommendation_coverage', 'cross_table_relation',
-    'response_content', 'semantic_validation', 'internal_contract',
+    'response_content', 'document_evidence', 'semantic_validation', 'internal_contract',
 })
 
 
