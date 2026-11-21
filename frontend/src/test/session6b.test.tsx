@@ -198,7 +198,9 @@ it('desde otro módulo conserva el enlace a Resultados y el control de detalle',
 
 it('solo conserva identificadores de ejecución conocidos y omite el marcador legado', () => {
   const id = '10000000-0000-4000-8000-000000000001'
-  expect(visibleChatText(`Ejecución run_id ${id}`, [], [id])).toContain(id)
+  expect(visibleChatText(`Ejecución run_id ${id}`, [], [id], true)).toContain(
+    id,
+  )
   expect(
     visibleChatText(
       'Resultado ejecutado bajo el run_id archivo del proyecto.',

@@ -69,6 +69,7 @@ export interface Message {
   content: string
   message_type: string
   metadata: {
+    technical_details?: boolean
     selected_provider?: AssistantProviderId
     generation?: Generation | null
     source?: string
@@ -121,6 +122,9 @@ export interface ProjectFile {
       profile?: NonNullable<ProjectFile['metadata']['profile']>
     }[]
     needs_sheet_selection?: boolean
+    extraction_status?: 'extracted' | 'partial' | 'no_text'
+    extracted_chars?: number
+    instrument_extraction_version?: number
     text_excerpt?: string
     pages?: number
     warnings?: string[]

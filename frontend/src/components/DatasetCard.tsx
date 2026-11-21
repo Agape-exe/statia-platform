@@ -46,7 +46,7 @@ export function DatasetCard({
         {file.original_name}{' '}
         <span className="muted">
           {file.file_role === 'instrument'
-            ? 'Instrumento PDF'
+            ? `Instrumento ${file.file_type.toUpperCase()}`
             : profile
               ? `${profile.row_count} filas · ${profile.column_count} columnas`
               : file.metadata.needs_sheet_selection
@@ -127,9 +127,24 @@ export function DatasetCard({
             </select>
           </label>
         )}
+        {file.file_role === 'instrument' && (
+          <p className="notice">
+            Lectura:{' '}
+            {file.metadata.extraction_status === 'extracted'
+              ? 'texto recuperado; no garantiza reproducir el diseño visual'
+              : file.metadata.extraction_status === 'partial'
+                ? 'extracción parcial'
+                : file.metadata.extraction_status === 'no_text'
+                  ? 'sin texto accesible; OCR no disponible'
+                  : 'extracto histórico parcial; se revisará el original al autorizar una consulta'}
+            . Archivo asociado no significa documento leído por el proveedor.
+          </p>
+        )}
         {file.file_role === 'instrument' && file.metadata.text_excerpt && (
           <details>
-            <summary>Texto extraído del instrumento</summary>
+            <summary>
+              Vista previa del texto recuperado (hasta 16 000 caracteres)
+            </summary>
             <p className="instrument-excerpt">{file.metadata.text_excerpt}</p>
             <p className="muted">
               Compartir extractos con el proveedor requiere habilitarlo

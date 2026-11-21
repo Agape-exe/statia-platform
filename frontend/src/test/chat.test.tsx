@@ -619,11 +619,14 @@ describe('chat persistente y acciones', () => {
     await user.upload(screen.getByLabelText('Archivos para adjuntar'), [
       new File(['a\n1'], 'nuevo.csv', { type: 'text/csv' }),
       new File(['%PDF-'], 'instrumento.pdf', { type: 'application/pdf' }),
+      new File(['synthetic'], 'escala.DOCX', {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
     ])
-    await waitFor(() => expect(chatService.upload).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(chatService.upload).toHaveBeenCalledTimes(3))
     expect(
       vi.mocked(chatService.upload).mock.calls.map((call) => call[3]),
-    ).toEqual(['dataset', 'instrument'])
+    ).toEqual(['dataset', 'instrument', 'instrument'])
   })
 
   it('acepta un plan estructurado y muestra sus limitaciones', async () => {

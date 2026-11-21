@@ -598,7 +598,7 @@ describe('selector multiproveedor con HTTP controlado', () => {
     })
     expect(screen.getByRole('combobox')).toHaveValue('gemini')
   })
-  it('conserva controles de muestras/PDF y los envía realmente al cambiar proveedor', async () => {
+  it('conserva muestras y exige autorizar extractos para el nuevo proveedor', async () => {
     mount()
     await ready()
     await userEvent.click(screen.getByText('Información compartida con Gemini'))
@@ -616,7 +616,7 @@ describe('selector multiproveedor con HTTP controlado', () => {
     ).toBeChecked()
     expect(
       screen.getByRole('checkbox', { name: /Compartir extractos/ }),
-    ).toBeChecked()
+    ).not.toBeChecked()
     expect(
       screen.getByText(/Evita información personal o secretos/),
     ).toBeInTheDocument()
@@ -628,7 +628,7 @@ describe('selector multiproveedor con HTTP controlado', () => {
     await waitFor(() => expect(requests('/turns')).toHaveLength(1))
     expect(JSON.parse(String(requests('/turns')[0][1]?.body))).toMatchObject({
       share_samples: true,
-      share_instrument_text: true,
+      share_instrument_text: false,
     })
   })
   it('mantiene el selector etiquetado y la confirmación en vista móvil', async () => {

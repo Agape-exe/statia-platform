@@ -145,7 +145,7 @@ export function ProjectData({ projectId }: { projectId: string }) {
       </button>
       {!files.length && !error && (
         <p>
-          Aún no hay archivos. Adjunta datasets o instrumentos PDF desde el
+          Aún no hay archivos. Adjunta datasets o instrumentos PDF/DOCX desde el
           asistente.
         </p>
       )}

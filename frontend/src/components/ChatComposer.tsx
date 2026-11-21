@@ -136,7 +136,7 @@ export function ChatComposer({
           multiple
           hidden
           aria-label="Archivos para adjuntar"
-          accept=".csv,.xlsx,.json,.pdf"
+          accept=".csv,.xlsx,.json,.pdf,.docx,.doc"
           onChange={(event) => {
             const files = Array.from(event.target.files || [])
             event.target.value = ''
@@ -147,7 +147,7 @@ export function ChatComposer({
           type="button"
           className="icon-btn attachment-button"
           aria-label="Adjuntar archivos"
-          title="Adjuntar CSV, XLSX, JSON o PDF (10 MB por archivo por defecto)"
+          title="Adjuntar CSV, XLSX, JSON, PDF o DOCX (10 MB por archivo por defecto)"
           disabled={disabled || !!pending}
           onClick={() => fileInput.current?.click()}
         >
@@ -196,6 +196,13 @@ export function ChatComposer({
         </button>
       </div>
       <div className="composer-footer">
+        <p className="muted">
+          Instrumentos:{' '}
+          {instrumentText
+            ? `extractos autorizados para ${providerName(provider)} en los próximos mensajes`
+            : `contenido sin compartir con ${providerName(provider)}`}
+          . Los mensajes anteriores siguen formando parte del historial.
+        </p>
         <details className="privacy-options">
           <summary>Información compartida con {providerName(provider)}</summary>
           <div className="privacy-content">
@@ -220,7 +227,7 @@ export function ChatComposer({
                 disabled={disabled}
                 onChange={(event) => onInstrumentText(event.target.checked)}
               />
-              Compartir extractos de instrumentos PDF
+              Compartir extractos de instrumentos PDF y DOCX
             </label>
             <small>
               La detección de datos sensibles es parcial. Revisa tus archivos

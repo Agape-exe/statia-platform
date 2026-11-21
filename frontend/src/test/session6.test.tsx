@@ -75,7 +75,7 @@ it('Datos muestra cada ID una vez, mantiene archivos distintos del mismo nombre 
   )
   await screen.findByText(/1 página/)
   expect(chatService.profile).toHaveBeenCalledWith('proyecto-privado', 'pdf')
-  await user.click(within(card).getByText('Texto extraído del instrumento'))
+  await user.click(within(card).getByText(/Vista previa del texto recuperado/))
   expect(screen.getByText('Instrumento sintético')).toBeInTheDocument()
   await user.click(
     within(card).getAllByRole('button', { name: 'Descargar original' })[0],

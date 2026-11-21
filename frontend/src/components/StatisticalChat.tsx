@@ -71,7 +71,13 @@ export function StatisticalChat({ project }: { project: Project }) {
   const [removing, setRemoving] = useState(false)
   const [reuseIds, setReuseIds] = useState<string[]>([])
   const [samples, setSamples] = useState(false)
-  const [instrumentText, setInstrumentText] = useState(false)
+  const [instrumentConsent, setInstrumentConsent] = useState<string | null>(
+    null,
+  )
+  const instrumentConsentKey = `${project.id}:${selected}:${detail?.conversation.assistant_provider ?? 'gemini'}`
+  const instrumentText = instrumentConsent === instrumentConsentKey
+  const setInstrumentText = (allowed: boolean) =>
+    setInstrumentConsent(allowed ? instrumentConsentKey : null)
   const [compact, setCompact] = useState(
     () => window.matchMedia('(max-width: 1100px)').matches,
   )
@@ -333,7 +339,7 @@ export function StatisticalChat({ project }: { project: Project }) {
             project.id,
             selectedRef.current,
             file,
-            file.name.toLowerCase().endsWith('.pdf') ? 'instrument' : 'dataset',
+            /\.(pdf|docx|doc)$/i.test(file.name) ? 'instrument' : 'dataset',
           )
         } catch (caught) {
           failures.push(
@@ -343,21 +349,26 @@ export function StatisticalChat({ project }: { project: Project }) {
       }
       const current = await refresh()
       if (failures.length) throw new Error(failures.join('\n'))
-      if (files.some((file) => !file.name.toLowerCase().endsWith('.pdf')))
+      if (files.some((file) => !/\.(pdf|docx|doc)$/i.test(file.name)))
         await understandIfReady(current)
     })
 
   const conversation = detail?.conversation
-  const visible = (value: string) =>
-    visibleChatText(value, detail?.files || projectFiles, [
-      ...(detail?.messages.flatMap((message) =>
-        message.metadata.analysis_run_id
-          ? [message.metadata.analysis_run_id]
-          : [],
-      ) || []),
-      ...(latestRun ? [latestRun.id] : []),
-      ...(detail?.latest_analysis_run ? [detail.latest_analysis_run.id] : []),
-    ])
+  const visible = (value: string, technical = false) =>
+    visibleChatText(
+      value,
+      detail?.files || projectFiles,
+      [
+        ...(detail?.messages.flatMap((message) =>
+          message.metadata.analysis_run_id
+            ? [message.metadata.analysis_run_id]
+            : [],
+        ) || []),
+        ...(latestRun ? [latestRun.id] : []),
+        ...(detail?.latest_analysis_run ? [detail.latest_analysis_run.id] : []),
+      ],
+      technical,
+    )
   const answerReuse = (content: string) =>
     perform(() =>
       submitTurn(selectedRef.current, {
@@ -433,6 +444,7 @@ export function StatisticalChat({ project }: { project: Project }) {
         setConversations((current) =>
           current.map((item) => (item.id === updated.id ? updated : item)),
         )
+        setInstrumentConsent(null)
         setProviderChange(null)
         await refresh(updated.id)
       } catch (caught) {
@@ -926,10 +938,18 @@ export function StatisticalChat({ project }: { project: Project }) {
                         )}
                         {message.role === 'assistant' ? (
                           <ChatMarkdown>
-                            {visible(message.content)}
+                            {visible(
+                              message.content,
+                              message.metadata.technical_details,
+                            )}
                           </ChatMarkdown>
                         ) : (
-                          <p>{visible(message.content)}</p>
+                          <p>
+                            {visible(
+                              message.content,
+                              message.metadata.technical_details,
+                            )}
+                          </p>
                         )}
                         {!!message.metadata.questions?.length && (
                           <ul>

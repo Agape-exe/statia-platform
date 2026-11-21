@@ -12,6 +12,7 @@ import { Alert, Loading } from './ui'
 import { formatResult } from '../lib/analysis-format'
 import { ComponentStates } from './ComponentStates'
 import { PendingComponentsReview } from './PendingComponentsReview'
+import { ResponseMeaning } from './ResponseMeaning'
 
 function StatisticalTable({ table }: { table: ResultTable }) {
   return (
@@ -44,6 +45,7 @@ function StatisticalTable({ table }: { table: ResultTable }) {
           ))}
         </tbody>
       </table>
+      <ResponseMeaning table={table} />
     </div>
   )
 }
