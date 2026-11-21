@@ -10,6 +10,137 @@ expresamente, sin actualizar ni desarrollar sobre `develop` o `main`.
 instrumento original del incidente siguen pendientes de validación real. No se
 hicieron push, PR, merge, despliegues, cambios remotos ni llamadas reales a proveedores.
 
+## Seguimiento de la validación manual
+
+Los commits locales `6679d0f` y `913568c` corrigen la búsqueda y la presentación.
+
+La prueba de seguimiento reportó que la consulta de `SLQ030`, `SLQ050` y `SLQ120`
+terminaba antes de Gemini con el diagnóstico de texto disponible sin coincidencias.
+Se reprodujo ese resultado con el recuperador anterior y la copia pública del CDC,
+con `share_instrument_text=true`. El objeto privado de la conversación y su metadata
+quedan pendientes de cotejo. [Cuestionario público del CDC](https://wwwn.cdc.gov/nchs/data/nhanes/public/2017/questionnaires/SLQ_J.pdf).
+
+El flujo local de carga ejecutó el extractor real en su proceso acotado. El PDF
+público tiene 63 565 bytes y cuatro páginas. La cuarta carece de texto extraíble,
+por lo que el estado fue `partial`. Las otras tres produjeron cinco fragmentos y
+5 157 caracteres, con página y desplazamiento. Los tres ítems estaban presentes
+en los fragmentos de la página 2 (desplazamientos 0 y 1 200) y la página 3
+(desplazamiento 0). La API guardó los fragmentos en `project_files.metadata` y
+el original byte por byte en el almacenamiento simulado.
+
+El patrón anterior omitía el punto entre el prefijo y los dígitos. Una consulta
+compacta o con espacios buscaba un código en cada fragmento y descartaba los que
+solo contenían la forma con punto. Al fallar los tres códigos juntos, el backend
+terminaba el turno antes de invocar al proveedor. El índice recorre todos los
+fragmentos conservados en `metadata.fragments`. La vista previa de 16 000
+caracteres es independiente y sirve de respaldo para el legado sin fragmentos.
+La selección para el proveedor se aplica después de buscar y conserva los límites
+de diez fragmentos y 12 000 caracteres. Una regresión multipágina comprueba que
+una consulta larga en varios formatos recupera los ítems situados después de
+la vista previa, incluso cuando uno de los códigos solicitados no existe.
+
+El buscador y el validador de afirmaciones usan ahora la misma equivalencia entre
+formas compactas, con punto y con espacios. La equivalencia conserva ceros y sufijos,
+y el validador comprueba la evidencia de cada fragmento por separado para los
+códigos. La API local, con Auth, almacenamiento y proveedor simulados, recuperó
+los tres enunciados de la copia pública en una consulta con grafías mixtas. Con el
+permiso activo persistió `share_instrument_text=true` y pasó cuatro de cinco
+fragmentos al doble. Con el permiso desactivado registró `not_authorized` y el
+doble recibió cero invocaciones. El original público quedó fuera de Git.
+
+«Nueva conversación» persistía si el turno era de comprensión sin finalidad o si
+la consulta documental terminaba en una respuesta local antes de generar un título.
+El backend asigna un título provisional al completar la próxima consulta informativa
+o acción de comprensión y reutilización. Los títulos manuales siguen teniendo
+prioridad. Una conversación antigua que solo tiene archivos adjuntos toma el título
+al completar ese turno. Los eventos de asociación muestran «Archivos asociados».
+Las tarjetas, registros y revisión de variables reservan «hoja» para XLSX, y los
+proveedores reciben la instrucción de describir los CSV como tablas de registros y
+columnas. Se mantienen las referencias técnicas del plan y el rediseño índigo/lavanda.
+
+### Repetir con el PDF de la conversación
+
+1. En **Archivos asociados**, descarga el instrumento `SLQ_J.pdf` original. Compara
+   su SHA-256 mediante `Get-FileHash -Algorithm SHA256` con el de la copia pública
+   usada en esta prueba, `ef7cb3ff1f9a81031e75425fc5d062341cc6d41fceded62439c0b68f26991e15`.
+   Si el hash difiere, usa el archivo descargado como entrada del siguiente paso.
+2. En la rama `fix/estabilizacion-instrumentos-ux-sesion9`, entra a `backend`. Ajusta
+   la ruta del PDF y ejecuta este diagnóstico local. Usa el flujo HTTP real de carga
+   y turno con el doble de proveedor y almacenamiento de las pruebas.
+
+   ```powershell
+   $env:STATIA_VALIDATION_PDF = 'C:\ruta\a\SLQ_J.pdf'
+   @'
+   import os
+   import sys
+   from pathlib import Path
+
+   sys.path.insert(0, 'tests')
+   from test_chat_api import api, attach_dataset, new, reply, turn
+   from app.services.instrument_context import codes
+
+   pdf = Path(os.environ['STATIA_VALIDATION_PDF'])
+   fixture = api.__wrapped__()
+   client, store, provider = next(fixture)
+   try:
+       path = new(client, store)
+       assert turn(client, path, action='instrument_yes').status_code == 200
+       upload = client.post(path + '/files', files={'file': (pdf.name, pdf.read_bytes())},
+                            data={'file_role': 'instrument'})
+       assert upload.status_code == 201, upload.text
+       metadata = upload.json()['metadata']
+       assert turn(client, path, action='instruments_done').status_code == 200
+       attach_dataset(client, path)
+       query = ('Recupera las preguntas del instrumento con sus opciones y paginas. '
+                'Busca SLQ030, SLQ.050 y SLQ 120.')
+       assert turn(client, path, content=query, share_instrument_text=False).status_code == 200
+       assert not provider.contexts
+       provider.replies.append(reply(response='Los extractos incluyen SLQ.030, SLQ050 y SLQ 120.'))
+       result = turn(client, path, content=query, share_instrument_text=True)
+       assert result.status_code == 200, result.text
+       assert len(provider.contexts) == 1
+       context = provider.contexts[0][0]
+       assert context['instrument_text_authorized'] is True
+       assert store.data['chat_requests'][-1]['payload']['share_instrument_text'] is True
+       evidence = next(item['instrument'] for item in context['files'] if 'instrument' in item)
+       print(metadata['extraction_status'], metadata['pages'], evidence['fragments_available'])
+       for code in ('slq030', 'slq050', 'slq120'):
+           matches = [item for item in evidence['fragments_shared'] if code in codes(item['text'])]
+           assert matches, code
+           print(code, [(item['location'], item['offset']) for item in matches])
+   finally:
+       fixture.close()
+   '@ | .\.venv\Scripts\python -
+   Remove-Item Env:STATIA_VALIDATION_PDF
+   ```
+
+3. En la copia pública se esperan `slq030` y `slq050` en la página 2 y `slq120`
+   en la 3. Contrasta los enunciados y las opciones con el PDF. Para comprobar
+   la pantalla autenticada en un entorno de pruebas con proveedor simulado,
+   abre la conversación, selecciona Gemini en el simulador, activa **Lectura
+   autorizada**, y envía la consulta como un mensaje nuevo. Comprueba que el
+   `POST /turns` lleva `share_instrument_text: true` y que la nueva respuesta
+   tiene `instrument_retrieval` en estado `matched` y ubicaciones en las páginas
+   2 y 3. Repite con `SLQ030`, `SLQ.030` y `SLQ 030` como consultas separadas.
+   En la conversación original, deja pendiente la prueba de respuesta de Gemini
+   real para cuando se autorice. Este seguimiento usó un dataset sintético para
+   el turno HTTP, sin acceder al CSV privado ni ejecutar cálculos.
+
+### Comprobaciones del seguimiento
+
+- Backend dirigido con instrumentos, tesis, planificación, API de chat, Gemini,
+  Terra, Excel y estadística. Pasaron 324 pruebas y se omitió la comprobación
+  histórica A/D por falta de su evidencia local. Tras el último ajuste en el
+  validador, volvieron a pasar las suites de instrumentos y tesis (63 pruebas).
+- Frontend completo. Pasaron 131 pruebas. TypeScript, lint, formato y build
+  aprobados. Persiste el aviso de Vite por el tamaño del chunk principal.
+- Ruff y el control `check_analysis_quality.py` aprobaron el código de producción
+  tocado y el conjunto que controla el proyecto. Una revisión adicional de estilo
+  sobre `test_planning.py` señaló infracciones preexistentes fuera de ese conjunto.
+- El diagnóstico local anterior se ejecutó con la copia pública y comprobó las
+  páginas y desplazamientos. El entorno autenticado y Gemini real quedan
+  pendientes de validación externa.
+
 ## 1. Causas raíz identificadas
 
 - El recuperador exigía encontrar los códigos de la consulta dentro de tokens
