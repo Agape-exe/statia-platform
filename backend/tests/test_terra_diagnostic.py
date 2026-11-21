@@ -534,6 +534,12 @@ def test_saved_live_plans_preserve_evidence_and_unverified_outputs_require_scope
     case = diagnostic.build_case("M")
     metrics = saved["metrics"][0]
     assert metrics["result"] == "failed" and metrics["category"] == "independence"
+    # Sesión 08 añade una bandera explícita incluso cuando no hay instrumentos.
+    # Auditar la llamada anterior con su contrato de contexto, sin alterar el
+    # documento observado ni sustituir sus hashes por los del contrato nuevo.
+    assert case.context["instrument_text_authorized"] is False
+    assert not any(f["role"] == "instrument" for f in case.context["files"])
+    case.context.pop("instrument_text_authorized")
     assert diagnostic.digest(case.context) == metrics["context_sha256"]
     # Auditoría de una llamada histórica: usar su prompt congelado, nunca el
     # prompt actual ni cambiar los hashes/planes realmente observados.
