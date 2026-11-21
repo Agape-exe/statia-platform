@@ -89,6 +89,56 @@ Requiere migración remota, sesiones de usuario y credenciales Gemini autorizada
 
 ## Problemas frecuentes
 
+### Instrumentos Word/PDF y tesis — Sesión 08
+
+La versión local admite instrumentos PDF y DOCX en General y Tesis. DOC antiguo,
+DOCM, archivos cifrados y objetos activos no son formatos admitidos: convertir
+una copia a DOCX sin contraseña/objetos o PDF. El original aceptado permanece
+privado, descargable y reutilizable dentro del mismo proyecto.
+
+Reinstalar `backend/requirements-dev.txt` para incorporar `defusedxml` (Python
+puro; sin OCR ni conversores del sistema). No hay variables nuevas.
+
+**Requisito de esquema para DOCX:** la migración local
+`supabase/migrations/202611200009_instrument_docx.sql` amplía exclusivamente los
+CHECK de tipo/rol y el MIME del bucket privado existente. Debe revisarse y
+aplicarse en una fase autorizada antes de subir DOCX contra Supabase real.
+Esta sesión no la ejecutó en remoto. No volver a ejecutar migraciones anteriores.
+PDF y los archivos históricos conservan sus referencias.
+
+En el compositor, habilitar «Compartir extractos de instrumentos PDF y Word»
+solo después de revisar el contenido y el proveedor indicado. La autorización
+está vinculada al proyecto, conversación y proveedor; cambiar de proveedor
+requiere autorizar otra vez. No se comparten originales. Desactivar la opción
+evita nueva recuperación documental, pero los mensajes anteriores siguen en el
+historial compartido. Una consulta sin autorización informa el límite sin llamar
+al proveedor. Especificar el código o términos buscados ayuda a recuperar texto
+alejado del comienzo; el asistente indica documento y ubicación de los fragmentos.
+
+Límites documentales: hasta 10 MB comprimidos y el máximo de archivo configurado;
+30 MB expandidos por defecto, 500 entradas DOCX, expansión máxima 200:1 por entrada,
+8 MiB por parte XML interpretada, 80 páginas PDF, 240 000 caracteres recuperados
+(incluye solapamientos), 600 fragmentos. Un proceso de extracción por semáforo,
+20 segundos, RSS observada del hijo hasta 192 MiB y API+hijo hasta 450 MiB.
+La monitorización cada 100 ms no garantiza que no haya picos entre mediciones;
+la instancia Render real sigue pendiente de medir. Mantener un worker.
+
+PDF escaneado puede carecer de texto; no hay OCR. PDF multicolumna/tablas puede
+perder orden. Word recupera párrafos, tablas, encabezados/pies, notas y comentarios;
+no reproduce páginas, numeración automática ni imágenes y avisa de lectura parcial.
+La vista previa local sigue limitada a 16 000 caracteres; la búsqueda usa todos los
+fragmentos conservados. Por turno se recuperan hasta diez fragmentos y 12 000
+caracteres en total. No encontrar un código no prueba que no exista fuera de lo
+recuperable. Instrumentos históricos se amplían temporalmente desde el original
+solo cuando se autoriza compartir, sin reescribir su metadata histórica.
+
+Contexto muestra revisión confirmada y borrador modificado; revisar/guardar se
+habilita con cambios reales. Un 409 conserva el borrador y exige revisar la versión
+guardada; el chat no escribe Contexto. Resultados añade una vista local optativa
+para declarar categorías de no información; no modifica resultados ni descargas.
+
+Comprobaciones, causas y pendientes: [informe de Sesión 08](SESSION8_REPORT.md).
+
 ### Excel multihoja — Sesión 07
 
 Reiniciar backend y frontend; no requiere migraciones, dependencias ni variables

@@ -224,3 +224,68 @@ convierte N/media/DE por grupo en una solicitud global adicional. La caché de
 alcance usa recognizer_version=3 y solo se reconstruye con evidencia completa
 del usuario. Se conserva el límite de solicitudes y la única corrección existente;
 no se cambian fórmulas ni el motor. Ver [informe de validación](SESSION7_REPORT.md).
+
+
+## Instrumentos y estabilidad de tesis (Sesión 08)
+
+`instruments.py` unifica PDF/pypdf y Word DOCX/ZIP+defusedxml. Valida bytes,
+contenedor OPC, partes principales, namespaces, CRC, entradas, expansión y
+compresión. Rechaza DTD/entidades incluso en XML UTF-16, macros, objetos activos,
+cifrado y formatos incompatibles. No extrae a disco, no ejecuta documentos ni
+resuelve relaciones externas. `instrument_worker.py` procesa originales por
+stdio en un hijo cancelable con timeout/RSS observada; reutiliza únicamente
+la terminación de procesos existente, sin cambiar el motor estadístico.
+
+Metadatos aditivos JSONB: `instrument_extraction_version`, `extraction_status`,
+`extracted_chars`, `fragments` (texto, ubicación y desplazamiento), advertencias
+y páginas/partes. `text_excerpt` conserva una vista previa compatible de 16 000
+caracteres. El límite total recuperado es 240 000 caracteres con solapamientos
+y 600 fragmentos; nunca acredita que imágenes, orden visual o etiquetas de
+numeración estén íntegros. PDF conserva ubicación por página; DOCX por parte
+y párrafo. El archivo original sigue en el mismo bucket privado y con JWT/RLS.
+La migración 009 es necesaria por los CHECK/MIME que antes solo admitían PDF;
+no modifica políticas, tablas ni registros históricos. No se ejecutó en remoto.
+
+`instrument_context.py` busca términos/códigos sin embeddings, red ni significado
+inferido. Comparte solo fragmentos autorizados por `share_instrument_text`, hasta
+diez/12 000 caracteres por turno, con ubicaciones y omisiones. Las coincidencias
+de distintos códigos/documentos preceden a vecinos con posibles opciones. El
+proveedor recibe texto como dato no confiable y debe distinguir literal/paráfrasis/
+inferencia. Se rechazan códigos sin evidencia y citas literales entre «» no
+recuperadas; estos controles finitos no acreditan toda la semántica de una respuesta.
+Sin consentimiento o coincidencias documentales, responde el servidor sin llamada
+al proveedor. Con autorización, los originales históricos pueden reextraerse
+efémeramente; no se sobrescriben sus metadatos. Mensajes ya enviados siguen
+formando parte del historial; revocar el envío nuevo no borra ese historial.
+
+Los modos `understanding`, `document`, `methodology` y `planning` distinguen
+consultas de propuestas. Los primeros no aplican alcance pendiente de planes ni
+cuotas de recomendaciones y descartan planes no solicitados antes del contrato
+interno, tanto en Gemini como Terra. `reply_contract.py` normaliza un único paso
+redundante solo si coinciden procedimiento (o envoltura integral), método exacto,
+referencias/roles/orden y ausencia de dependencias; luego se ejecutan todos los
+validadores existentes. Un método distinto no se convierte. Los alias descriptivos
+por defecto acreditan productos explícitos solo tras comprobar cobertura real.
+Comprensión no define finalidad ni guarda planes. Resultados existentes tampoco
+suprimen la recuperación de una consulta documental.
+
+Se reserva hasta 4000 caracteres del presupuesto total del proveedor para la
+corrección semántica ya existente; el resto del contexto indispensable debe caber
+o se devuelve 413. Las categorías distinguen validación de respuesta/documento y
+de planificación; los errores de transporte/formato/cuota conservan sus códigos.
+No cambian cuotas, reintentos, idempotencia, catálogos ni fórmulas.
+
+`current_context` sigue leyendo la revisión vigente confirmada en cada turno de
+tesis. La UI compara el borrador normalizado, no el orden de claves adicionales,
+y muestra revisión y cambios pendientes. La API devuelve la revisión existente
+si recibe el mismo documento y la revisión esperada; las escrituras nuevas siguen
+el RPC con control de conflictos. No hay guardado desde chat ni dependencia de
+Contexto para General.
+
+La presentación oculta trazas técnicas por defecto sin modificar IDs persistidos.
+Una solicitud expresa puede mostrar IDs de ejecuciones verificados. La vista
+`ResponseMeaning` requiere selección local del investigador sobre categorías de
+no información, comprueba que la tabla de frecuencias esté completa y distingue
+valores presentes/respuestas sustantivas/ausencias registradas. No reescribe
+resultados, porcentajes, gráficos ni exportaciones y no transmite esa selección al
+proveedor. Detalles y pendientes: [Sesión 08](SESSION8_REPORT.md).
