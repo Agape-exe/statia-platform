@@ -1,5 +1,23 @@
 # Configuración local
 
+Sesión 09: [estabilización documental y rediseño](SESSION9_REPORT.md). Sin nuevas
+dependencias, migraciones ni variables. Reiniciar API y Vite si no están en modo
+recarga. El consentimiento aparece al asociar instrumentos y se modifica junto al
+compositor; no se activa automáticamente. Se solicita de nuevo al añadir instrumentos,
+cambiar proveedor o recargar/salir del asistente. La elección solo afecta a turnos futuros.
+
+Para inspeccionar el diseño sin sesión remota, abrir con Vite activo
+`http://localhost:5173/visual/index.html?screen=dashboard`. La misma entrada admite
+`screen=asistente`, `contexto`, `datos`, `resultados`, `login` o `registro`. Usa componentes
+reales con fixtures sintéticas, bloquea llamadas de red y no forma parte de `dist`.
+No valida proveedores, RLS o persistencia remotos. No usarla para datos reales.
+
+**Migración 009:** el usuario confirma que ya se aplicó manualmente en el Supabase
+de validación. No se vuelve a ejecutar durante esta sesión; se conserva el archivo.
+Antes de futuros despliegues debe conciliarse con el historial de migraciones y
+verificarse el entorno de destino. Esto actualiza el requisito pendiente descrito
+históricamente en la Sesión 08; no es una comprobación remota realizada aquí.
+
 Sesión 6B: ver [Welch, vista de registros y validación final](SESSION6B_REPORT.md).
 Sin variables nuevas, migraciones ni cambios de configuración remota.
 
@@ -101,13 +119,17 @@ puro; sin OCR ni conversores del sistema). No hay variables nuevas.
 
 **Requisito de esquema para DOCX:** la migración local
 `supabase/migrations/202611200009_instrument_docx.sql` amplía exclusivamente los
-CHECK de tipo/rol y el MIME del bucket privado existente. Debe revisarse y
-aplicarse en una fase autorizada antes de subir DOCX contra Supabase real.
-Esta sesión no la ejecutó en remoto. No volver a ejecutar migraciones anteriores.
+CHECK de tipo/rol y el MIME del bucket privado existente. El usuario confirma que
+ya se aplicó manualmente en su entorno de validación. No volver a ejecutarla;
+conciliar el historial de migraciones antes de futuros despliegues y revisar otros
+destinos en una fase autorizada. La Sesión 08 la preparó localmente y la Sesión 09
+no ejecuta operaciones remotas. No volver a ejecutar migraciones anteriores.
 PDF y los archivos históricos conservan sus referencias.
 
-En el compositor, habilitar «Compartir extractos de instrumentos PDF y Word»
-solo después de revisar el contenido y el proveedor indicado. La autorización
+Al asociar instrumentos, elegir «Permitir consultar fragmentos» solo después de
+revisar el contenido y el proveedor indicado. «Continuar sin compartir» conserva
+el archivo privado sin enviarlo. La franja junto al compositor permite cambiar la
+elección; las opciones de privacidad siguen disponibles. La autorización
 está vinculada al proyecto, conversación y proveedor; cambiar de proveedor
 requiere autorizar otra vez. No se comparten originales. Desactivar la opción
 evita nueva recuperación documental, pero los mensajes anteriores siguen en el

@@ -1,5 +1,39 @@
 # Arquitectura
 
+## Estabilización documental y presentación — Sesión 09
+
+La extracción privada PDF/DOCX conserva sus límites, fragmentos y metadatos
+originales. `instrument_context` construye un índice léxico temporal por consulta:
+normaliza Unicode, acentos y separadores de presentación de referencias
+alfanuméricas, sin quitar ceros ni aproximar números. Prioriza códigos y documentos,
+reserva fragmentos contiguos para alternativas/celdas y comparte como máximo diez
+fragmentos y 12 000 caracteres. Las citas conservan el texto; las ubicaciones DOCX
+se presentan como cuerpo, encabezados, pies o notas, manteniendo la metadata interna.
+No hay embeddings, búsquedas remotas, OCR, nuevas tablas ni modificación de originales.
+
+Se distinguen autorización ausente, extracción sin texto y búsqueda sin coincidencias;
+las tres rutas se resuelven localmente sin invocar al proveedor y registran el estado
+de recuperación. Las consultas explícitas de códigos pueden realizarse antes de
+adjuntar datasets. La consulta documental/metodológica puede titular un chat todavía
+sin nombre mediante el mensaje auténtico, sin inventar finalidad estadística ni
+sobrescribir títulos manuales o conversaciones históricas en lote.
+
+`InstrumentAccess` presenta la elección contextual y su modificación junto al
+compositor. La elección vive en memoria por proyecto/conversación/proveedor; salir
+del asistente o recargar exige volver a autorizar. Añadir un instrumento o cambiar
+de proveedor exige una nueva elección. Las cargas mixtas esperan esta decisión;
+cada turno envía su bandera explícita, validada por el backend. Un reintento conserva
+su payload original; primero se descarta ese reintento para cambiar opciones. No se
+reenvían mensajes automáticamente al autorizar. Los estados de lectura proceden de
+metadata del servidor y no acreditan que un proveedor haya leído el documento completo.
+
+La identidad visual usa tokens CSS índigo/lavanda/perla compartidos por todas las
+pantallas. `AnalysisResultCard` conserva tablas y PNG históricos: cambia la contención,
+etiquetas de presentación y ampliación del mismo recurso privado, nunca sus cálculos.
+La entrada `frontend/visual/index.html` sirve exclusivamente para revisión local con
+componentes reales y servicios sintéticos, sin acceso de red y fuera del build público.
+Evidencia y límites: [SESSION9_REPORT](SESSION9_REPORT.md).
+
 El [frontend multiproveedor de Sesión 5B](MULTIPROVIDER_FRONTEND.md) obtiene el catálogo
 desde `services/chat`, confirma el cambio y envía `expected_provider`. La selección
 local solo se confirma mediante respuestas del servidor; 409 recarga el detalle y un
