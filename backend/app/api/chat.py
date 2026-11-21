@@ -165,6 +165,17 @@ async def send_turn(project_id: UUID, conversation_id: UUID, body: Turn, user: C
         project = await project_for(user, project_id)
         # Tiempo total menor que la concesión durable de 180 segundos.
         async with asyncio.timeout(150):
+            if body.share_instrument_text:
+                from app.services.instrument_worker import inspect_instrument
+                expanded = []
+                for attached in files:
+                    if attached['file_role'] == 'instrument' and not attached['metadata'].get('instrument_extraction_version'):
+                        async with request.app.state.profile_lock:
+                            original = await user.store.download(attached['storage_path'])
+                            metadata = await inspect_instrument(attached['original_name'], original, request.app.state.settings)
+                        attached = {**attached, 'metadata': metadata}
+                    expanded.append(attached)
+                files = expanded
             preparation = normalized_preparation(conversation.get('stage_data', {}).get('execution_preparation'))
             from app.services.execution_preparation import preparation_message_route
             preparing = preparation_message_route(body, preparation) == 'execution' and (body.action in ('prepare_execution', 'clarify_execution', 'review_execution') or bool(preparation.get('result', {}).get('questions')))
@@ -242,7 +253,11 @@ async def upload_project_file(project_id, conversation_id, request, user, file, 
     async with request.app.state.profile_lock:
         data = await file.read(settings.max_file_bytes + 1)
         await file.close()
-        metadata = await asyncio.to_thread(inspect_file, name, data, file_role, settings)
+        if file_role == 'instrument':
+            from app.services.instrument_worker import inspect_instrument
+            metadata = await inspect_instrument(name, data, settings)
+        else:
+            metadata = await asyncio.to_thread(inspect_file, name, data, file_role, settings)
     digest = hashlib.sha256(data).hexdigest()
     existing = await user.store.rows('project_files', {'project_id': str(project_id)})
     match = next((f for f in existing if f['file_role'] == file_role and f['file_type'] == metadata['file_type']

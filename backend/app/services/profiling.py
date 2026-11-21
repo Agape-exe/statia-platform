@@ -10,12 +10,12 @@ from datetime import date, datetime
 from pathlib import PurePath
 
 from fastapi import HTTPException
-from pypdf import PdfReader, apply_configuration
 
 from app.core.config import Settings
 
 MIMES = {'csv': 'text/csv', 'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-         'json': 'application/json', 'pdf': 'application/pdf'}
+         'json': 'application/json', 'pdf': 'application/pdf',
+         'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
 SENSITIVE = re.compile(r'(^id$|_id$|^id_|nombre|name|apellido|correo|email|tel[eé]fono|phone|dni|documento|password|contrase[ñn]a|direcci[oó]n)', re.I)
 
 
@@ -143,15 +143,7 @@ def table_profile(headers, records, settings, source='native'):
 
 
 def inspect_file(name: str, data: bytes, role: str, settings: Settings, sheet: str | None = None):
-    with apply_configuration(zlib_maximum_output_length=settings.max_expanded_bytes,
-                             array_based_stream_maximum_output_length=settings.max_expanded_bytes,
-                             lzw_maximum_output_length=settings.max_expanded_bytes,
-                             maximum_declared_stream_length=settings.max_expanded_bytes,
-                             run_length_maximum_output_length=settings.max_expanded_bytes,
-                             stream_decoding_work_maximum_length=settings.max_expanded_bytes,
-                             page_tree_maximum_entries=100, page_tree_maximum_page_entries=100,
-                             stream_parsing_work_maximum_count=200000, xform_maximum_invocations_per_extraction=50):
-        return _inspect_file(name, data, role, settings, sheet)
+    return _inspect_file(name, data, role, settings, sheet)
 
 
 def _inspect_file(name: str, data: bytes, role: str, settings: Settings, sheet: str | None = None):
@@ -160,29 +152,14 @@ def _inspect_file(name: str, data: bytes, role: str, settings: Settings, sheet: 
     if len(data) > settings.max_file_bytes:
         raise HTTPException(413, f'El archivo supera el límite de {settings.max_file_bytes // 1048576} MB.')
     extension = PurePath(name).suffix.lower().lstrip('.')
-    if extension not in MIMES or (role == 'instrument') != (extension == 'pdf'):
-        invalid('Usa CSV, XLSX o JSON para datasets, y PDF para instrumentos.')
+    if extension == 'doc':
+        invalid('El formato Word antiguo .doc no se interpreta. Convierte el documento a .docx o PDF.')
+    if role not in ('instrument', 'dataset') or extension not in MIMES or (role == 'instrument') != (extension in ('pdf', 'docx')):
+        invalid('Usa CSV, XLSX o JSON para datasets, y PDF o DOCX para instrumentos.')
     try:
-        if extension == 'pdf':
-            if not data.startswith(b'%PDF-'):
-                invalid('El archivo no es un PDF válido.')
-            reader = PdfReader(io.BytesIO(data))
-            if reader.is_encrypted:
-                invalid('El PDF está cifrado. Adjunta una copia sin contraseña.')
-            if len(reader.pages) > 80:
-                invalid('El instrumento supera las 80 páginas permitidas en la inspección preliminar.')
-            texts, expanded = [], 0
-            for page in reader.pages:
-                # Primero comprobar los streams para acotar PDFs comprimidos.
-                contents = page.get_contents()
-                expanded += len(contents.get_data()) if contents else 0
-                if expanded > settings.max_expanded_bytes:
-                    invalid('El contenido expandido del PDF supera el límite preliminar.')
-                if sum(len(t) for t in texts) < 16000:
-                    texts.append((page.extract_text() or '')[:16000])
-            text = '\n'.join(texts)[:16000]
-            return {'file_type': extension, 'sheets': [], 'text_excerpt': text, 'pages': len(reader.pages),
-                    'warnings': [] if text.strip() else ['El PDF no contiene texto extraíble. Se conserva el archivo; no se realiza OCR.']}
+        if extension in ('pdf', 'docx'):
+            from app.services.instruments import extract_instrument
+            return extract_instrument(extension, data, settings)
         if extension == 'xlsx':
             from app.services.workbook import inspect_workbook
             return inspect_workbook(data, settings, sheet)
