@@ -26,7 +26,14 @@ async def get_context(project_id: UUID, user: CurrentUser):
 
 @router.put("")
 async def save_context(project_id: UUID, body: ContextSave, user: CurrentUser):
-    await thesis_project(user, project_id)
+    project = await thesis_project(user, project_id)
+    current = await current_context(user.store, project)
+    if (
+        current
+        and current["revision"] == body.expected_revision
+        and current["document"] == body.document.model_dump(mode="json")
+    ):
+        return {"context": current}
     try:
         row = await user.store.rpc(
             "save_research_context",
