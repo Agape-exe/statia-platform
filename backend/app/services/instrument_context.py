@@ -5,10 +5,15 @@ import unicodedata
 
 from app.services.planning_errors import PlanningError
 
-CODE = re.compile(r"\b(?=[\w-]*[a-zA-Z])(?=[\w-]*\d)[a-zA-Z][a-zA-Z0-9_-]{1,39}\b")
-# Solo separadores de presentación entre un prefijo alfabético y un número.
-# No hace búsqueda difusa, no elimina ceros ni confunde Q12 con Q120/Q12A.
-LAYOUT_CODE = re.compile(r"(?<!\w)[a-zA-Z]{1,16}(?:\s*[-_‐‑–−]\s*|\s+)?\d{1,12}(?:[-_]\d{1,8})?(?![\w-])")
+# El punto es un separador solo dentro de una referencia alfanumérica.
+# Los límites impiden tomar un prefijo de otro ítem o de un número compuesto.
+CODE = re.compile(
+    r"(?<![\w.])(?:"
+    r"(?P<prefix>[a-zA-Z]{1,16})(?:\s*[-_.‐‑–−]\s*|\s+)?\d{1,12}"
+    r"(?:[a-zA-Z][a-zA-Z0-9]{0,11}|[-_]\d{1,8})?"
+    r"|(?=[\w-]*\d)[a-zA-Z][a-zA-Z0-9_-]{1,39}"
+    r")(?![\w-]|\.\d)"
+)
 STOP = set(
     "a al el la los las de del en por para con que cual cuales como un una y o es son me puedes favor pregunta preguntas instrumento documento pdf docx codigo codigos opciones respuesta respuestas busca buscar explica explicar dice dime sobre contiene consultar informacion muestra mostrar describe describir este esta estos estas su sus".split()
 )
@@ -23,14 +28,20 @@ def tokens(text):
 
 
 def canonical_code(value):
-    return re.sub(r"[\s_‐‑–−-]+", "", normalized(value))
+    return re.sub(r"[\s_.‐‑–−-]+", "", normalized(value))
 
 
 def codes(text):
-    # NFKC también recupera letras/números de ancho completo y ligaduras.
-    text = unicodedata.normalize("NFKC", text)
-    layout = [code for code in LAYOUT_CODE.findall(text) if re.split(r"[\s_‐‑–−-]|\d", code)[0].casefold() not in STOP]
-    return {canonical_code(code) for code in [*CODE.findall(text), *layout]}
+    return {canonical_code(match[0]) for match in code_matches(text)}
+
+
+def code_matches(text):
+    # NFKC recupera letras, números y signos de ancho completo.
+    return (
+        match
+        for match in CODE.finditer(unicodedata.normalize("NFKC", text))
+        if (match["prefix"] or "").casefold() not in STOP or match[0].isalnum()
+    )
 
 
 def readable_location(location):
@@ -88,11 +99,11 @@ def retrieve_instruments(files, query, authorized, *, budget=12000):
             if score:
                 # Nombre explícito ayuda a priorizar, sin inventar asociación entre archivos.
                 score += 20 if normalized(file.get("original_name", "")) in normalized(query) and query else 0
-                candidates.append((score, file["id"], index, fragments))
+                candidates.append((score, file["id"], index, fragments, code_hits))
     ranked = sorted(candidates, key=lambda c: -c[0])
     anchors = []
     for code in sorted(requested_codes):
-        candidate = next((c for c in ranked if code in codes(c[3][c[2]]["text"])), None)
+        candidate = next((c for c in ranked if code in c[4]), None)
         if candidate is not None and candidate not in anchors:
             anchors.append(candidate)
     for fid in results:
@@ -102,7 +113,7 @@ def retrieve_instruments(files, query, authorized, *, budget=12000):
     seen = set()
     # Reservar espacio para opciones contiguas antes de otras coincidencias débiles.
     for neighbor_offsets in [(0,), (1, -1), *((offset,) for offset in range(2, 9))]:
-        for _, fid, index, fragments in anchors[:10]:
+        for _, fid, index, fragments, _ in anchors[:10]:
             for offset in neighbor_offsets:
                 position = index + offset
                 if position < 0 or position >= len(fragments) or (fid, position) in seen:
@@ -120,7 +131,7 @@ def retrieve_instruments(files, query, authorized, *, budget=12000):
                     }
                 )
                 results[fid]["retrieval"] = "matched"
-    for _, fid, index, fragments in ranked:
+    for _, fid, index, fragments, _ in ranked:
         text = fragments[index]["text"]
         if (fid, index) not in seen and len(seen) < 10 and len(text) <= budget:
             seen.add((fid, index))
@@ -138,21 +149,30 @@ def retrieve_instruments(files, query, authorized, *, budget=12000):
 def validate_document_claims(text, context):
     if context.get("interaction_mode") != "document":
         return
-    evidence = "\n".join(
+    excerpts = [
         fragment["text"]
         for file in context["files"]
         for fragment in file.get("instrument", {}).get("fragments_shared", [])
-    )
-    known = codes(evidence)
+    ]
+    evidence = "\n".join(excerpts)
+    known = {code for excerpt in excerpts for code in codes(excerpt)}
     for literal in re.findall(r"«([^»]+)»", text):
         if re.sub(r"\s+", " ", normalized(literal)).strip() not in re.sub(r"\s+", " ", normalized(evidence)):
             raise PlanningError(
                 "document_evidence",
                 "Una cita literal debe coincidir con el texto recuperado. Presenta las paráfrasis como tales y reconoce contenido ausente.",
             )
-    for sentence in re.split(r"[.!?\n]", text):
-        for code in CODE.findall(sentence):
-            if canonical_code(code) not in known and not re.search(
+    # Separar afirmaciones tras normalizar las referencias completas. Un punto
+    # o salto dentro del código no debe ocultar el identificador al validador.
+    normalized_text = unicodedata.normalize("NFKC", text)
+    parts, last = [], 0
+    for match in code_matches(normalized_text):
+        parts.extend((normalized_text[last : match.start()], canonical_code(match[0])))
+        last = match.end()
+    parts.append(normalized_text[last:])
+    for sentence in re.split(r"[.!?\n]", "".join(parts)):
+        for code in codes(sentence):
+            if code not in known and not re.search(
                 r"no (?:se |lo |he )?(?:encontr|aparece|consta|dispon|recuper)|sin evidencia|no puedo|no tengo",
                 normalized(sentence),
             ):

@@ -116,6 +116,35 @@ def test_retrieval_distinguishes_no_text_and_no_match_and_keeps_codes_exact():
     assert retrieve_instruments([text], "Busca R12", True)["instrument"]["retrieval"] == "no_match"
 
 
+def test_document_validation_does_not_join_a_code_across_fragments():
+    context = {
+        "interaction_mode": "document",
+        "files": [{"instrument": {"fragments_shared": [{"text": "See LAB"}, {"text": "007: room number"}]}}],
+    }
+    with pytest.raises(ValueError):
+        validate_document_claims("LAB.007 es una pregunta.", context)
+
+
+@pytest.mark.parametrize("extension", ["pdf", "docx"])
+@pytest.mark.parametrize("query", ["LAB007", "LAB.007", "LAB 007"])
+def test_dotted_document_code_uses_same_identity_as_compact_and_spaced_references(extension, query):
+    item = "LAB.007: Is the equipment ready?"
+    pages = ["Intro", item, "Yes / No"]
+    data = pdf(pages) if extension == "pdf" else docx(pages)
+    meta = inspect_file(f"equipment.{extension}", data, "instrument", Settings())
+    record = file_record(meta)
+    result = retrieve_instruments([record], f"Busca {query}.", True)["instrument"]
+    assert result["retrieval"] == "matched"
+    evidence = "\n".join(fragment["text"] for fragment in result["fragments_shared"])
+    assert item in evidence and "Yes / No" in evidence
+    context = {"interaction_mode": "document", "files": [{"instrument": result}]}
+    validate_document_claims(f"{query}: «Is the equipment ready?»", context)
+    for missing in ("LAB.07", "LAB 0070", "LAB007A", "LAB.007A"):
+        assert retrieve_instruments([record], f"Busca {missing}.", True)["instrument"]["retrieval"] == "no_match"
+        with pytest.raises(ValueError):
+            validate_document_claims(f"No encontré ZZZ999. {missing}: otra pregunta.", context)
+
+
 def test_docx_unicode_layout_and_options_in_separate_table_cells():
     cells = ["ＡＤＭ‐０２１: Satisfaction?", "Never", "Rarely", "Sometimes", "Often", "Always", "Not applicable"]
     body = (
