@@ -78,6 +78,71 @@ def file_record(meta, fid="instrument", name=None):
     }
 
 
+@pytest.mark.parametrize("extension", ["pdf", "docx"])
+@pytest.mark.parametrize(
+    "printed,query", [("EDU030 -", "EDU030"), ("SOC_050", "SOC050"), ("PSY 120", "PSY120"), ("ADM-021", "ADM 021")]
+)
+def test_layout_equivalent_codes_retrieve_real_text(extension, printed, query):
+    lines = ["Instructions", f"{printed}: Community participation?", "A Never; B Often; C Always."]
+    data = pdf(lines) if extension == "pdf" else docx(lines)
+    meta = inspect_file(f"scale.{extension}", data, "instrument", Settings())
+    found = retrieve_instruments([file_record(meta)], f"Explica {query}", True)["instrument"]
+    assert found["retrieval"] == "matched"
+    assert printed in str(found["fragments_shared"])
+    assert "C Always" in str(found["fragments_shared"])
+    validate_document_claims(
+        f"{query}: participación comunitaria.", {"interaction_mode": "document", "files": [{"instrument": found}]}
+    )
+
+
+def test_word_phrase_search_does_not_match_only_filename_or_request_words():
+    meta = inspect_file(
+        "survey.docx",
+        docx(["Autonomía docente", "Participación escolar frecuente", "Nunca; A veces; Siempre"]),
+        "instrument",
+        Settings(),
+    )
+    record = file_record(meta)
+    assert retrieve_instruments([record], "Busca autonomía docente", True)["instrument"]["fragments_shared"]
+    assert not retrieve_instruments([record], "¿Qué dice cuestionario.docx sobre astronomía?", True)["instrument"][
+        "fragments_shared"
+    ]
+
+
+def test_retrieval_distinguishes_no_text_and_no_match_and_keeps_codes_exact():
+    empty = file_record(inspect_file("blank.pdf", pdf([""]), "instrument", Settings()))
+    assert retrieve_instruments([empty], "Busca R12", True)["instrument"]["retrieval"] == "no_text"
+    text = file_record(inspect_file("form.docx", docx(["R120: Texto", "R12A: Otro ítem"]), "instrument", Settings()))
+    assert retrieve_instruments([text], "Busca R12", True)["instrument"]["retrieval"] == "no_match"
+
+
+def test_docx_unicode_layout_and_options_in_separate_table_cells():
+    cells = ["ＡＤＭ‐０２１: Satisfaction?", "Never", "Rarely", "Sometimes", "Often", "Always", "Not applicable"]
+    body = (
+        "<w:tbl><w:tr>"
+        + "".join(f"<w:tc><w:p><w:r><w:t>{escape(value)}</w:t></w:r></w:p></w:tc>" for value in cells)
+        + "</w:tr></w:tbl>"
+    )
+    meta = inspect_file("rubrica.docx", docx(body=body), "instrument", Settings())
+    found = retrieve_instruments([file_record(meta)], "Busca ADM021", True)["instrument"]
+    assert all(value in str(found["fragments_shared"]) for value in cells)
+    validate_document_claims(
+        "ADM021: satisfacción.", {"interaction_mode": "document", "files": [{"instrument": found}]}
+    )
+    assert not retrieve_instruments([file_record(meta)], "Busca ADM21", True)["instrument"]["fragments_shared"]
+
+
+@pytest.mark.parametrize("extension", ["pdf", "docx"])
+def test_code_split_by_line_break_is_recovered_without_rewriting_evidence(extension):
+    text = "EDU\n030: Participation?"
+    meta = inspect_file(
+        f"form.{extension}", pdf([text]) if extension == "pdf" else docx([text]), "instrument", Settings()
+    )
+    found = retrieve_instruments([file_record(meta)], "Busca EDU030", True)["instrument"]
+    assert "030: Participation?" in str(found["fragments_shared"])
+    assert found["retrieval"] == "matched"
+
+
 @pytest.mark.parametrize(
     "pages",
     [

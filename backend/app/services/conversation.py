@@ -6,7 +6,7 @@ from app.models.chat import AssistantReply
 from app.services.gemini import build_context
 from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, interaction_mode, technical_details_requested
 from app.services.methodology import levels
-from app.services.titles import automatic_title
+from app.services.titles import automatic_title, usable_title
 from app.services.independence import user_independence_evidence
 from app.services.planning_errors import PlanningIssue, log_issues
 from app.services.planning_validation import Assessment, assess_reply, retain_valid_plans
@@ -134,15 +134,15 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         return static_result(conversation, 'upload_dataset', 'Adjunta ahora uno o varios datasets. Puedes completar los instrumentos más adelante si lo necesitas.')
     if stage in ('instrument', 'reuse'):
         raise HTTPException(422, 'Responde primero la pregunta inicial con las opciones disponibles.')
-    if stage == 'upload_instrument' and action == 'message' and interaction_mode(turn) not in ('document', 'methodology') and not any(f['file_role'] == 'dataset' for f in files):
-        return static_result(conversation, stage, 'Adjunta tus instrumentos o elige «Continuar con los datasets» para seguir.')
     datasets = [f for f in files if f['file_role'] == 'dataset']
     from app.services.reply_contract import NON_PLANNING, normalize_reply
     mode = interaction_mode(turn)
     if mode in ('planning', 'methodology') and any(f['file_role'] == 'instrument' for f in files) and not statistical_request(turn.content):
-        from app.services.instrument_context import CODE
-        if CODE.search(turn.content) and re.search(r'pregunta|codigo|opciones|que dice|que significa|busca|recupera', normalize(turn.content)):
+        from app.services.instrument_context import codes
+        if codes(turn.content) and re.search(r'pregunta|codigo|opciones|que dice|que significa|busca|recupera', normalize(turn.content)):
             mode = 'document'
+    if stage == 'upload_instrument' and action == 'message' and mode not in ('document', 'methodology') and not datasets:
+        return static_result(conversation, stage, 'Adjunta tus instrumentos o elige «Continuar con los datasets» para seguir.')
     if not datasets and mode not in ('document', 'methodology'):
         raise HTTPException(422, 'Adjunta al menos un dataset antes de solicitar su comprensión.')
     if any(not f['metadata'].get('profile') and not f['metadata'].get('sheet_profiles') for f in datasets):
@@ -212,11 +212,16 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         if not any(f['file_role'] == 'instrument' for f in files):
             content = 'No hay instrumentos asociados a esta conversación. Adjunta un PDF o DOCX para consultar su contenido.'
         elif not turn.share_instrument_text:
-            content = 'El instrumento está asociado, pero su texto no está autorizado para el proveedor. Habilita «Compartir extractos de instrumentos PDF y Word» y vuelve a enviar tu consulta. No he consultado su contenido.'
+            content = 'El instrumento está asociado, pero su texto no está autorizado para el proveedor. Elige «Permitir consultar fragmentos» en la autorización del instrumento y vuelve a enviar tu consulta. No he consultado su contenido.'
+        elif not any(f.get('instrument', {}).get('fragments_available', 0) for f in context['files']):
+            content = 'No se recuperó texto de los instrumentos asociados. Revisa el original y las advertencias de extracción. Puede contener imágenes o una estructura no accesible; no hay OCR disponible. No se envió contenido documental al proveedor.'
         else:
-            content = 'No encontré información pertinente en el texto recuperable de los instrumentos asociados. No puedo atribuirles esa pregunta o código. La extracción puede ser parcial o requerir OCR, que no está disponible; revisa las advertencias y el original.'
+            content = 'No encontré la información solicitada en los fragmentos recuperables de los instrumentos asociados. Sí hay texto disponible, pero esta búsqueda no encontró coincidencias verificables. Prueba con el código, una frase del original o el encabezado de la sección. Revisa las advertencias si la extracción es parcial; esto no demuestra que la información no exista en el original. No se envió esta consulta al proveedor.'
         result = static_result(conversation, stage, content)
         result['metadata'] = {'interaction_mode': mode, 'research_context_revision': research['revision'] if research else None}
+        result['metadata']['instrument_retrieval'] = [
+            {'file_id': f['file_id'], **{key: value for key, value in f['instrument'].items() if key != 'fragments_shared'}}
+            for f in context['files'] if 'instrument' in f]
         return result
     import json
     context_limit = settings.gemini_context_chars - min(4000, settings.gemini_context_chars // 5)
@@ -314,6 +319,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             tail = '\n\nFuentes de los fragmentos consultados: ' + ' | '.join(sources)
             reply.response = reply.response[:max(1, 12000 - len(tail))] + tail
     result = reply_result(reply, conversation, files=files, scope=scope)
+    if mode in NON_PLANNING and turn.action == 'message' and not usable_title(conversation.get('title')):
+        # Consulta nueva, no renombrado masivo ni finalidad estadística inventada.
+        result['title'], _ = automatic_title(conversation, turn.content, None)
     result['metadata']['technical_details'] = context['technical_details']
     result['metadata']['interaction_mode'] = mode
     result['metadata']['instrument_retrieval'] = [

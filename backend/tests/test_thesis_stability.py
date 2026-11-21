@@ -165,6 +165,40 @@ def test_legacy_extraction_expands_ephemerally_only_with_consent(api):
     assert record["id"] == file["id"]
 
 
+@pytest.mark.parametrize("extension", ["pdf", "docx"])
+def test_document_layout_codes_reach_provider_and_title_preserves_manual_choice(api, extension):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action="instrument_yes")
+    upload_instrument(client, path, extension, ["EDU_030: Participation?", "A Never; B Often."])
+    provider.replies.append(reply(response="EDU030: «Participation?». A Never; B Often."))
+    assert turn(client, path, content="Busca EDU 030", share_instrument_text=True).status_code == 200
+    assert len(provider.contexts) == 1
+    saved = client.get(path).json()
+    assert saved["conversation"]["title"] == "Busca EDU 030"
+    assert saved["conversation"]["primary_goal"] is None
+    assert saved["messages"][-1]["metadata"]["instrument_retrieval"][0]["retrieval"] == "matched"
+    assert "word/document.xml" not in saved["messages"][-1]["content"]
+    assert client.patch(path, json={"title": "Mi consulta documental"}).status_code == 200
+    provider.replies.append(reply(response="EDU030: «Participation?"))
+    assert (
+        turn(client, path, content="Describe EDU030 en el instrumento", share_instrument_text=True).status_code == 200
+    )
+    assert client.get(path).json()["conversation"]["title"] == "Mi consulta documental"
+
+
+def test_empty_document_diagnostic_is_distinct_and_never_calls_provider(api):
+    client, store, provider = api
+    path = new(client, store)
+    turn(client, path, action="instrument_yes")
+    upload_instrument(client, path, "pdf", [""])
+    assert turn(client, path, content="Busca EDU030 en el instrumento", share_instrument_text=True).status_code == 200
+    message = client.get(path).json()["messages"][-1]
+    assert "No se recuperó texto" in message["content"]
+    assert message["metadata"]["instrument_retrieval"][0]["retrieval"] == "no_text"
+    assert not provider.contexts
+
+
 @pytest.mark.parametrize("provider_name", ["gemini", "openai"])
 def test_transport_discards_malformed_unsolicited_plan_without_extra_calls(api, monkeypatch, provider_name):
     client, store, _ = api
