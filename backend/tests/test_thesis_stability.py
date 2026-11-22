@@ -9,7 +9,15 @@ import test_chat_api
 from pydantic import ValidationError
 from test_chat_api import attach_dataset, new, plan, reply, turn
 from test_gemini import SDKDouble
-from test_instruments import docx, pdf
+from test_instruments import (
+    DEVICE_QUESTION,
+    INTERNET_QUESTION,
+    SKILLS_QUESTION,
+    SKILLS_SCALE,
+    docx,
+    pdf,
+    thematic_docx,
+)
 from test_provider_selection import select, terra
 
 from app.core.config import Settings
@@ -17,6 +25,7 @@ from app.models.chat import AssistantReply, Turn
 from app.models.research_context import ResearchContext
 from app.services.conversation_text import interaction_mode
 from app.services.gemini import SYSTEM, GeminiProvider
+from app.services.instrument_context import PARTIAL_EVIDENCE
 from app.services.reply_contract import normalize_reply, parse_assistant_reply
 
 api = test_chat_api.api
@@ -199,6 +208,57 @@ def test_empty_document_diagnostic_is_distinct_and_never_calls_provider(api):
     assert "No se recuperó texto" in message["content"]
     assert message["metadata"]["instrument_retrieval"][0]["retrieval"] == "no_text"
     assert not provider.contexts
+
+
+def test_thematic_docx_turn_covers_distant_topics_and_validates_quotes_with_consent(api):
+    client, store, provider = api
+    thesis_context(store, 1)
+    path = new(client, store)
+    assert turn(client, path, action="instrument_yes").status_code == 200
+    upload = client.post(
+        path + "/files", files={"file": ("encuesta.docx", thematic_docx())}, data={"file_role": "instrument"}
+    )
+    assert upload.status_code == 201
+    assert turn(client, path, action="instruments_done").status_code == 200
+    attach_dataset(client, path)
+    query = (
+        "¿Qué preguntas relacionadas con equipos electrónicos, conectividad y alfabetización digital hay? "
+        "Incluye el texto de las preguntas y opciones de respuesta de cada tema, respetando el orden original. " * 4
+    )
+    assert turn(client, path, content=query, share_instrument_text=False).status_code == 200
+    assert not provider.contexts
+    unauthorized = client.get(path).json()["messages"][-1]["metadata"]["instrument_retrieval"][0]
+    assert unauthorized["retrieval"] == "not_authorized"
+    absent = "¿Qué preguntas relacionadas con la atención médica contiene el instrumento?"
+    assert turn(client, path, content=absent, share_instrument_text=True).status_code == 200
+    assert not provider.contexts
+    assert client.get(path).json()["messages"][-1]["metadata"]["instrument_retrieval"][0]["retrieval"] == "no_match"
+
+    provider.replies.append(reply(response="«Do you own a phone?»\n«Yes / No»"))
+    provider.replies.append(
+        reply(
+            response="\n".join(
+                f"«{text}»" for text in (DEVICE_QUESTION, INTERNET_QUESTION, SKILLS_QUESTION, SKILLS_SCALE)
+            )
+            + f"\n{PARTIAL_EVIDENCE}",
+            warnings=["Invented option"],
+        )
+    )
+    result = turn(client, path, content=query, share_instrument_text=True)
+    assert result.status_code == 200, result.text
+    assert len(provider.contexts) == 2 and "document_evidence" in provider.contexts[1][1]
+    context = provider.contexts[0][0]
+    assert context["interaction_mode"] == "document" and context["instrument_text_authorized"] is True
+    instrument = next(file["instrument"] for file in context["files"] if file["role"] == "instrument")
+    assert instrument["retrieval_method"] == "thematic"
+    fragments = instrument["fragments_shared"]
+    assert {DEVICE_QUESTION, INTERNET_QUESTION, SKILLS_QUESTION, SKILLS_SCALE} <= {
+        fragment["text"] for fragment in fragments
+    }
+    assert len(fragments) <= 10 and sum(len(fragment["text"]) for fragment in fragments) <= 12000
+    saved = client.get(path).json()["messages"][-1]
+    assert "Do you own" not in saved["content"] and not saved["metadata"]["warnings"]
+    assert context["research_context"]["revision"] == 1
 
 
 def test_long_document_query_recovers_dotted_codes_across_pages_with_explicit_consent(api):

@@ -13,6 +13,7 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from app.core.config import Settings
 from app.services.instrument_context import (
+    PARTIAL_EVIDENCE,
     retrieve_instruments,
     validate_document_claims,
 )
@@ -21,6 +22,26 @@ from app.services.instruments import MAX_TEXT
 from app.services.profiling import inspect_file
 
 NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+DEVICE_QUESTION = "Which electronic devices do you use for homework?"
+SKILLS_QUESTION = "How would you rate your computer skills?"
+SKILLS_SCALE = "Basic / Intermediate / Advanced"
+INTERNET_QUESTION = "Where can you connect to broadband?"
+
+
+def thematic_docx():
+    def paragraph(text):
+        return f"<w:p><w:r><w:t>{escape(text)}</w:t></w:r></w:p>"
+
+    def row(*cells):
+        return "<w:tr>" + "".join(f"<w:tc>{paragraph(cell)}</w:tc>" for cell in cells) + "</w:tr>"
+
+    body = paragraph("Technology in schools")
+    body += "<w:tbl>" + row(DEVICE_QUESTION, "Laptop / Tablet / Other") + "</w:tbl>"
+    for index in range(45):
+        body += paragraph(f"Background - {index}. " + "Instructions for completing this form. " * 13)
+    body += "<w:tbl>" + row(SKILLS_QUESTION, SKILLS_SCALE) + row(INTERNET_QUESTION, "Home / Library") + "</w:tbl>"
+    return docx(body=body, compression=zipfile.ZIP_STORED)
 
 
 def docx(paragraphs=None, *, body=None, extras=None, compression=zipfile.ZIP_DEFLATED):
@@ -114,6 +135,51 @@ def test_retrieval_distinguishes_no_text_and_no_match_and_keeps_codes_exact():
     assert retrieve_instruments([empty], "Busca R12", True)["instrument"]["retrieval"] == "no_text"
     text = file_record(inspect_file("form.docx", docx(["R120: Texto", "R12A: Otro ítem"]), "instrument", Settings()))
     assert retrieve_instruments([text], "Busca R12", True)["instrument"]["retrieval"] == "no_match"
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("Where can you connect to broadband?", INTERNET_QUESTION),
+        ("¿Qué preguntas del instrumento tratan de equipos electrónicos?", DEVICE_QUESTION),
+        ("¿Qué preguntas del cuestionario tratan de alfabetización digital?", SKILLS_QUESTION),
+        ("¿Qué preguntas del cuestionario tratan de conectividad?", INTERNET_QUESTION),
+    ],
+)
+def test_thematic_docx_search_recovers_literal_and_related_terms(query, expected):
+    metadata = inspect_file("encuesta.docx", thematic_docx(), "instrument", Settings())
+    fragments = retrieve_instruments([file_record(metadata)], query, True)["instrument"]["fragments_shared"]
+    assert expected in {fragment["text"] for fragment in fragments}
+    if expected == SKILLS_QUESTION:
+        assert SKILLS_QUESTION not in metadata["text_excerpt"]
+        assert SKILLS_SCALE in {fragment["text"] for fragment in fragments}
+
+
+def test_conceptual_retrieval_gives_no_evidence_for_an_unrelated_topic():
+    metadata = inspect_file("encuesta.docx", thematic_docx(), "instrument", Settings())
+    query = "¿Qué preguntas relacionadas con la seguridad alimentaria contiene el instrumento?"
+    result = retrieve_instruments([file_record(metadata)], query, True)["instrument"]
+    assert result["retrieval"] == "no_match" and not result["fragments_shared"]
+
+
+def test_theme_expansion_generalizes_and_does_not_establish_equivalence():
+    meta = inspect_file(
+        "encuesta.docx",
+        docx(["What is your monthly salary?", "Less than 1000 / More than 1000"]),
+        "instrument",
+        Settings(),
+    )
+    result = retrieve_instruments([file_record(meta)], "¿Qué preguntas miden los ingresos?", True)["instrument"]
+    assert result["retrieval_method"] == "thematic"
+    context = {"interaction_mode": "document", "files": [{"instrument": result}]}
+    validate_document_claims(f"«What is your monthly salary?»\n{PARTIAL_EVIDENCE}", context)
+    for unsupported in (
+        "«What is your household income?»",
+        "La encuesta mide los ingresos familiares.",
+        "«1000 / 2000»",
+    ):
+        with pytest.raises(ValueError):
+            validate_document_claims(unsupported, context)
 
 
 def test_document_validation_does_not_join_a_code_across_fragments():

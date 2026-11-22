@@ -137,9 +137,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     datasets = [f for f in files if f['file_role'] == 'dataset']
     from app.services.reply_contract import NON_PLANNING, normalize_reply
     mode = interaction_mode(turn)
-    if mode in ('planning', 'methodology') and any(f['file_role'] == 'instrument' for f in files) and not statistical_request(turn.content):
+    if action == 'message' and mode in ('planning', 'methodology') and any(f['file_role'] == 'instrument' for f in files) and not statistical_request(turn.content):
         from app.services.instrument_context import codes
-        if codes(turn.content) and re.search(r'pregunta|codigo|opciones|que dice|que significa|busca|recupera', normalize(turn.content)):
+        asks_for_items = re.search(r'^(?:que|cual(?:es)?|identifica|busca|recupera|muestra|lista|indicame) (?:son )?(?:las? |los? )?(?:preguntas|items|enunciados)\b', normalized)
+        if asks_for_items or (codes(turn.content) and re.search(r'pregunta|codigo|opciones|que dice|que significa|busca|recupera', normalized)):
             mode = 'document'
     if stage == 'upload_instrument' and action == 'message' and mode not in ('document', 'methodology') and not datasets:
         return static_result(conversation, stage, 'Adjunta tus instrumentos o elige «Continuar con los datasets» para seguir.')
@@ -253,8 +254,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                         proposed.expected_outputs.append('Sin comparaciones post hoc')
             reply = bind_confirmations(reply, data.get('confirmed_variable_types', []), files)
             from app.services.interpretation_guards import result_ids, validate_explanation
-            from app.services.instrument_context import validate_document_claims
+            from app.services.instrument_context import uses_thematic_evidence, validate_document_claims
             validate_document_claims(reply.response, context)
+            if uses_thematic_evidence(context):
+                reply = reply.model_copy(update={'questions': [], 'warnings': [], 'context_summary': None})
             validate_explanation(reply.response, context)
             reply = humanize_reply(reply, files, result_ids(context) if context['technical_details'] else ())
             assessment = assess_reply(reply, files, project, context)
