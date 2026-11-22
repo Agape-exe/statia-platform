@@ -12,6 +12,154 @@ hicieron push, PR, merge, despliegues, cambios remotos ni llamadas reales a prov
 
 ## Seguimiento de la validación manual
 
+### T2 — Recuperación bilingüe de un instrumento Word (22 de noviembre de 2026)
+
+T1 con el PDF resultó satisfactoria según la validación manual reportada. Para T2
+se examinó la copia pública de `Questionnaire_WP4_individual_EN_v0.docx` y
+`UII_individual_public.xlsx`. El objeto privado de la conversación original sigue
+pendiente de cotejo. [Archivos públicos ODDEA en Zenodo](https://zenodo.org/records/23841446).
+
+| Archivo público | SHA-256 |
+| --- | --- |
+| `Questionnaire_WP4_individual_EN_v0.docx` | `a837b857621e97ec38de3a906602ac69e2ff9f36e042934643747dfd7aec469a` |
+| `UII_individual_public.xlsx` | `8dc8980e50834f60617919ca03007955446ffc25e029284fd9d8f8d20b7f3e04` |
+
+El extractor real produjo 117 fragmentos, con estado `partial`. Conservó texto de
+párrafos, encabezados y celdas por orden de aparición dentro de cada parte Word.
+El cuerpo contiene el enunciado sobre tiempo de uso de dispositivos (índice 25),
+filas por tipo de dispositivo y un bloque de habilidades con escala e ítem de
+habilidades en línea (índices 46–49). Word localiza estos fragmentos por parte y
+párrafo. La extracción de texto no conserva la cuadrícula visual de la tabla.
+
+La consulta original en español reprodujo `no_match` con permiso activo. El
+recuperador anterior recorría los 117 fragmentos y comparaba las palabras
+normalizadas literalmente. La consulta no contenía códigos y los términos en
+inglés no coincidían con los términos españoles. El backend terminó el turno
+antes de invocar al proveedor. El límite de envío se aplica después de la búsqueda.
+
+La búsqueda ahora combina términos literales con un vocabulario español–inglés
+acotado. Las referencias exactas por código mantienen prioridad. Para una consulta
+con varios temas se reserva evidencia de cada tema encontrado y, cuando aparecen
+filas de una tabla Word, se prioriza la pregunta cercana y su contexto. Se conservan
+las ubicaciones, el máximo de 10 fragmentos y 12 000 caracteres y la edición de datos
+sensibles previa al contexto del proveedor. El vocabulario cubre varias disciplinas y
+puede ampliarse. Fuera de sus términos, sigue disponible la búsqueda literal.
+
+El turno temático exige citas textuales comprobables dentro de un solo fragmento
+compartido. Las partes sin respaldo se declaran insuficientes. El DOCX público
+permite recuperar evidencia sobre uso de dispositivos y habilidades digitales, incluida
+una habilidad en línea. Esa evidencia no acredita por sí sola acceso a dispositivos
+ni acceso y uso de internet como medidas independientes. La escala descrita en texto
+es recuperable. Algunas series numéricas se ocultan por el filtro de privacidad.
+
+El recorrido local con los archivos públicos y la API real seleccionó los índices
+24–26, 30, 34 y 46–50. Con permiso denegado registró `not_authorized` y el proveedor
+simulado recibió cero invocaciones. Con el permiso activo recibió una invocación
+con la revisión 1 y aceptó una cita textual acompañada del aviso de insuficiencia.
+Las pruebas de integración con fixtures también verificaron el diagnóstico
+`no_match` y el rechazo de preguntas y opciones inventadas. La respuesta de un
+proveedor real y el objeto privado de la conversación quedan pendientes de cotejo.
+
+El libro público conserva las 492 filas y las 46 columnas de `Form Responses 1`.
+`columns_omitted` se refiere al detalle duplicado del resumen global del libro.
+El recorrido local mantuvo las 46 columnas en el perfil y la vista de filas y
+omitió 23 en el resumen. El número depende del espacio restante en el turno.
+Una regresión con datos sintéticos reprodujo exactamente 34 columnas omitidas
+en el resumen y aceptó un plan sobre la última columna omitida.
+Se mantuvieron el presupuesto de contexto, el motor estadístico y los resultados
+históricos. La corrección no requiere cambios de dependencias, migraciones ni variables
+de entorno de la aplicación. La conciliación de la migración 009 sigue pendiente.
+
+Commits locales del ajuste: `205f36c` (recuperación y regresiones DOCX) y
+`b2f011a` (regresión de Excel). El frontend índigo/lavanda conserva la revisión
+visual de la entrega inicial. Este ajuste no modifica sus componentes.
+
+La batería general de backend tuvo 666 pruebas aprobadas y una omisión heredada
+por falta de evidencia local A/D de Terra. La ejecución dirigida tuvo 239 pruebas
+aprobadas. En frontend pasaron 131 pruebas, TypeScript, oxlint, Prettier y el build.
+También pasaron el control de calidad de Python y `pip check`. Vite emitió un aviso
+de tamaño de un fragmento JS y pytest mostró un aviso deprecación de Starlette.
+
+#### Repetir T2 localmente con los originales
+
+1. Guarda ambos originales fuera de Git. En PowerShell ejecuta `Get-FileHash -Algorithm SHA256`
+   sobre cada archivo y compara con la tabla. Si un hash difiere, coteja la evidencia
+   que imprima el recorrido con esa versión del documento.
+2. Desde `backend`, ejecuta el siguiente bloque con las rutas de tus originales.
+   Usa la API y los extractores reales con autenticación, almacenamiento y proveedor
+   simulados. Se confirma la revisión 1 dentro del proyecto de prueba. El comando
+   no requiere credenciales ni inicia un servidor contra Supabase.
+
+```powershell
+$env:STATIA_T2_DOCX = 'C:\ruta\Questionnaire_WP4_individual_EN_v0.docx'
+$env:STATIA_T2_XLSX = 'C:\ruta\UII_individual_public.xlsx'
+@'
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, 'tests')
+from test_chat_api import new, reply, turn
+from test_session6 import local, upload
+from test_thesis_stability import thesis_context
+from app.services.instrument_context import PARTIAL_EVIDENCE
+
+case = local.__wrapped__()
+client, store, provider = next(case)
+try:
+    thesis_context(store, 1)
+    path = new(client, store)
+    assert turn(client, path, action='instrument_yes').status_code == 200
+    docx = Path(os.environ['STATIA_T2_DOCX'])
+    xlsx = Path(os.environ['STATIA_T2_XLSX'])
+    upload(client, path, docx.name, docx.read_bytes(), role='instrument')
+    assert turn(client, path, action='instruments_done').status_code == 200
+    dataset = upload(client, path, xlsx.name, xlsx.read_bytes())
+    query = ('Que preguntas del instrumento tratan el acceso a dispositivos digitales, '
+             'el acceso y uso de internet y las competencias digitales?')
+    assert turn(client, path, content=query, share_instrument_text=False).status_code == 200
+    blocked = client.get(path).json()['messages'][-1]['metadata']['instrument_retrieval'][0]
+    assert blocked['retrieval'] == 'not_authorized' and not provider.contexts
+    quote = chr(171) + 'Basic online skills' + chr(187)
+    provider.replies.append(reply(response=quote + '\n' + PARTIAL_EVIDENCE))
+    result = turn(client, path, content=query, share_instrument_text=True)
+    assert result.status_code == 200, result.text
+    assert len(provider.contexts) == 1
+    context = provider.contexts[0][0]
+    assert context['research_context']['revision'] == 1
+    assert context['instrument_text_authorized'] is True
+    doc = next(f['instrument'] for f in context['files'] if f['role'] == 'instrument')
+    assert doc['retrieval'] == 'matched' and doc['retrieval_method'] == 'thematic'
+    print('DOCX:', doc['status'], doc['fragments_available'], 'fragmentos disponibles')
+    for f in doc['fragments_shared']:
+        print(f['index'], f['location'], f['text'])
+    book = next(f for f in context['files'] if f['role'] == 'dataset')
+    summary = book['workbook_sheets'][0]
+    base = f"/projects/{store.project_id}/files/{dataset['id']}"
+    profile = client.get(base + '/profile').json()['profile']
+    rows = client.get(base + '/rows?limit=1').json()
+    assert len(book['columns']) == len(profile['columns']) == len(rows['columns']) == 46
+    assert profile['row_count'] == 492
+    print('XLSX:', summary['sheet'], profile['row_count'], len(rows['columns']))
+    print('Omitidas en el resumen:', summary.get('columns_omitted', 0))
+finally:
+    case.close()
+'@ | .\.venv\Scripts\python.exe -
+```
+
+3. Coteja cada extracto con el original. Para los hashes de la tabla, se esperan
+   117 fragmentos disponibles y evidencia en los índices 25, 30, 34, 46, 47 y 49
+   entre los seleccionados. El número de columnas omitidas del resumen puede variar
+   con el contexto. El perfil y la vista de filas deben conservar las 46.
+4. Para probar opciones de tabla, temas sin coincidencia y rechazo de texto
+   inventado con el doble de proveedor, ejecuta desde `backend`:
+
+   ```powershell
+   .\.venv\Scripts\python.exe -m pytest -q tests/test_instruments.py tests/test_thesis_stability.py tests/test_excel_multihoja.py
+   ```
+
+#### T1 — Recuperación por código y ajustes del asistente
+
 Los commits locales `6679d0f` y `913568c` corrigen la búsqueda y la presentación.
 
 La prueba de seguimiento reportó que la consulta de `SLQ030`, `SLQ050` y `SLQ120`
@@ -453,8 +601,8 @@ de `test_terra_diagnostic.py`, por ausencia del archivo local no versionado
 `backend/test_terra_statia_env.py`. No se inventó ni regeneró esa evidencia.
 
 Por restricción expresa no se ejecutaron proveedores reales, Supabase remoto,
-migraciones remotas, despliegues o pruebas en Render/Vercel. Tampoco se usaron
-instrumentos o datasets reales de investigadores. No se ejecutó producción con
+migraciones remotas, despliegues o pruebas en Render/Vercel. Los seguimientos T1
+y T2 usaron archivos públicos sin consultar objetos privados. No se ejecutó producción con
 credenciales de despliegue ni se intentó autenticar una cuenta desde el navegador.
 
 ## 14. Regresiones y validaciones pendientes
