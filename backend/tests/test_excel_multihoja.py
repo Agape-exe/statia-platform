@@ -282,6 +282,36 @@ def test_global_context_reports_column_omissions_without_dropping_sheets():
     assert len(json.dumps(context, ensure_ascii=False)) <= 14000
 
 
+def test_omitted_workbook_column_remains_available_for_rows_profile_and_later_plan(local):
+    client, store, provider = local
+    path = new(client, store)
+    turn(client, path, action="instrument_no")
+    sheet = "Measurements"
+    columns = [f"Measurement {j:02d} in standard units" for j in range(1, 47)]
+    data = workbook({sheet: [columns, *[[i * 2 + j for j in range(46)] for i in range(32)]]})
+    file = upload(client, path, "wide.xlsx", data)
+    settings = client.app.state.settings
+    settings.gemini_context_chars = 31000
+    provider.replies = [reply(response="La hoja contiene mediciones.")]
+    result = turn(client, path, action="files_ready")
+    assert result.status_code == 200, result.text
+    context = provider.contexts[-1][0]
+    active = context["files"][0]
+    summary = active["workbook_sheets"][0]
+    assert summary["columns_omitted"] == 34 and summary["column_count"] == 46
+    assert columns[-1] not in [column["name"] for column in summary["columns"]]
+    assert [column["name"] for column in active["columns"]] == columns
+    base = f"/projects/{store.project_id}/files/{file['id']}"
+    assert [column["name"] for column in client.get(base + "/profile").json()["profile"]["columns"]] == columns
+    assert client.get(base + "/rows?limit=1").json()["columns"] == columns
+    provider.replies = [reply(proposals=[descriptive(file["id"], sheet, columns[-1])])]
+    result = turn(client, path, content=f"Quiero una descriptiva de `{columns[-1]}`.")
+    assert result.status_code == 200, result.text
+    proposal = client.get(path).json()["proposals"][0]
+    assert proposal["analysis_plan"]["variables"][0]["column"] == columns[-1]
+    assert client.patch(path + "/proposals/" + proposal["id"], json={"status": "accepted"}).status_code == 200
+
+
 @pytest.mark.parametrize("legacy", [False, True])
 def test_visual_navigation_profile_permissions_and_historical_selection(local, legacy):
     client, store, provider = local
