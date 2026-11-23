@@ -963,6 +963,20 @@ export function StatisticalChat({ project }: { project: Project }) {
                                   ? 'Estado del plan'
                                   : 'Statia'}
                         </strong>
+                        {message.role === 'assistant' &&
+                          message.metadata.interaction_mode ===
+                            'methodology' && (
+                            <small className="message-provenance">
+                              Orientación metodológica
+                            </small>
+                          )}
+                        {message.role === 'assistant' &&
+                          message.metadata.interaction_mode === 'planning' &&
+                          message.metadata.clarification_required && (
+                            <small className="message-provenance">
+                              Aclaración para preparar el plan
+                            </small>
+                          )}
                         {!message.metadata.file_ids?.length &&
                           messageProvenance(message) &&
                           messageProvenance(message) !== 'Statia' && (

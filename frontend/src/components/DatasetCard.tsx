@@ -1,5 +1,6 @@
 import type { ProjectFile } from '../types/chat'
 import { instrumentReading } from '../lib/instrument'
+import { statisticalTypeLabel } from '../lib/chat-text'
 
 const physical: Record<string, string> = {
   empty: 'Vacía',
@@ -17,16 +18,6 @@ const source: Record<string, string> = {
   native_boolean: 'Booleano nativo',
   empty: 'Vacía',
 }
-const statistical: Record<string, string> = {
-  identifier: 'Identificador probable',
-  temporal: 'Temporal probable',
-  categorical_or_ordinal: 'Categórica u ordinal',
-  quantitative: 'Cuantitativa probable',
-  categorical: 'Categórica probable',
-  mixed: 'Mixta; requiere aclaración',
-  unknown: 'Sin datos para inferir',
-}
-
 export function DatasetCard({
   file,
   busy,
@@ -229,10 +220,7 @@ export function DatasetCard({
                           column.inferred_type || column.physical_type
                         ] || column.physical_type}
                       </td>
-                      <td>
-                        {statistical[column.statistical_type] ||
-                          column.statistical_type}
-                      </td>
+                      <td>{statisticalTypeLabel(column.statistical_type)}</td>
                       <td>
                         {column.missing}
                         {!!column.ambiguous_missing &&

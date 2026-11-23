@@ -1,5 +1,21 @@
 import type { ProjectFile } from '../types/chat'
 
+export function statisticalTypeLabel(type: string): string {
+  return (
+    (
+      {
+        identifier: 'Identificador probable',
+        temporal: 'Temporal probable',
+        categorical_or_ordinal: 'Categórica u ordinal',
+        quantitative: 'Cuantitativa probable',
+        categorical: 'Categórica probable',
+        mixed: 'Mixta; requiere aclaración',
+        unknown: 'Sin datos para inferir',
+      } as Record<string, string>
+    )[type] || type
+  )
+}
+
 export function visibleChatText(
   text: string,
   files: ProjectFile[],

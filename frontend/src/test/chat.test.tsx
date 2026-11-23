@@ -359,6 +359,69 @@ describe('chat persistente y acciones', () => {
     ).toBeInTheDocument()
     expect(document.querySelectorAll('.proposal-card li:empty')).toHaveLength(0)
   })
+  it('distingue la orientación y las aclaraciones de las propuestas persistidas', async () => {
+    detail.files = [structuredClone(dataset)]
+    detail.messages.push(
+      {
+        id: 'metodo',
+        position: 2,
+        role: 'assistant',
+        content: 'Las frecuencias describen categorías.',
+        message_type: 'dataset_summary',
+        metadata: { interaction_mode: 'methodology' },
+      },
+      {
+        id: 'aclaracion',
+        position: 3,
+        role: 'assistant',
+        content: 'Confirma qué representa la escala.',
+        message_type: 'question',
+        metadata: {
+          interaction_mode: 'planning',
+          clarification_required: true,
+        },
+      },
+      {
+        id: 'planes',
+        position: 4,
+        role: 'assistant',
+        content: 'Hay 2 propuestas listas para revisar.',
+        message_type: 'proposal',
+        metadata: { interaction_mode: 'planning' },
+      },
+    )
+    detail.proposals = [
+      { ...structuredClone(proposal), source_message_id: 'planes' },
+      {
+        ...structuredClone(proposal),
+        id: 'pr2',
+        title: 'Distribución de notas',
+        source_message_id: 'planes',
+      },
+    ]
+    const view = chat()
+    expect(await screen.findByText('Orientación metodológica')).toBeVisible()
+    expect(screen.getByText('Aclaración para preparar el plan')).toBeVisible()
+    expect(
+      screen.getAllByRole('article', { name: /^Propuesta:/ }),
+    ).toHaveLength(2)
+    const card = screen.getByRole('article', {
+      name: 'Propuesta: Describir notas',
+    })
+    await userEvent.click(
+      within(card).getByText('Revisar dataset y variables (1)'),
+    )
+    expect(within(card).getByText(/Categórica u ordinal/)).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Ejecutar análisis' }),
+    ).not.toBeInTheDocument()
+    view.unmount()
+    chat()
+    expect(
+      await screen.findAllByRole('article', { name: /^Propuesta:/ }),
+    ).toHaveLength(2)
+    expect(analysisService.execute).not.toHaveBeenCalled()
+  })
   it('prepara la propuesta aceptada en el mismo chat sin abrir el formulario técnico', async () => {
     detail.conversation.current_stage = 'ready'
     detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]

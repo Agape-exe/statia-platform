@@ -76,6 +76,8 @@ export interface Message {
     event?: string
     questions?: string[]
     warnings?: string[]
+    clarification_required?: boolean
+    interaction_mode?: 'understanding' | 'document' | 'methodology' | 'planning'
     request_id?: string
     analysis_run_id?: string
     execution_preparation?: import('./analysis').ExecutionPreparation | null

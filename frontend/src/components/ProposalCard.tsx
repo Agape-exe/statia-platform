@@ -1,5 +1,5 @@
 import type { ProjectFile, Proposal } from '../types/chat'
-import { visibleChatText } from '../lib/chat-text'
+import { statisticalTypeLabel, visibleChatText } from '../lib/chat-text'
 
 export function ProposalCard({
   proposal,
@@ -41,11 +41,23 @@ export function ProposalCard({
         <ul>
           {plan.variables.map((variable, index) => {
             const file = files.find((item) => item.id === variable.file_id)
+            const column = file?.metadata.profile?.columns.find(
+              (item) => item.name === variable.column,
+            )
             return (
               <li key={index}>
                 {file?.original_name || 'Archivo no disponible'}
                 {file?.file_type === 'xlsx' && ` / ${variable.sheet}`}:{' '}
                 <strong>{variable.column}</strong>
+                {column && (
+                  <span className="muted">
+                    {' · '}
+                    {column.inferred_type === 'mixed' ||
+                    column.statistical_type === 'mixed'
+                      ? 'Mixta: números y texto'
+                      : statisticalTypeLabel(column.statistical_type)}
+                  </span>
+                )}
               </li>
             )
           })}
