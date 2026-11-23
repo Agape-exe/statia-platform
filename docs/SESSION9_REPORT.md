@@ -6,11 +6,51 @@ de las sesiones 07 y 08 incluidos. Rama de entrega:
 `fix/estabilizacion-instrumentos-ux-sesion9`. Se utilizó la base solicitada
 expresamente, sin actualizar ni desarrollar sobre `develop` o `main`.
 
-**Estado: APTO para revalidación manual controlada; Sesión 09 no cerrada.**
-El usuario confirmó los recorridos documentales PDF/DOCX. El bloqueo de
-planificación requiere repetir la validación con Gemini real tras la corrección
-local del 23 de noviembre. No se hicieron push, PR, merge, despliegues, cambios
-remotos ni llamadas reales a proveedores durante estas correcciones.
+**Estado actualizado al cierre: preparado para revisión de integración a develop,
+con defectos conocidos; NO APTO para despliegue todavía.** El usuario confirmó
+posteriormente el recorrido completo de tesis con Gemini real, tabla de
+frecuencias contrastada y persistencia. Las secciones de incidencias siguientes
+conservan su estado histórico. Este cierre autoriza publicar la rama y crear un
+único PR hacia develop, sin merge ni despliegue. Véase
+[preparación de integración y producción](RELEASE_READINESS_SESIONES_07_09.md).
+
+## Cierre acumulado 07–09 — 23 de noviembre de 2026
+
+La validación manual posterior comunicada por el usuario confirma PDF/DOCX,
+conversación y planificación de tesis, aceptación y ejecución separadas con
+`nhanes_dermatology.csv` y `DEQ_J.pdf`, Contexto revisión 1 y Gemini real.
+Se contrastó la tabla: 3419 registros, 3418 físicamente presentes y un ausente.
+El resultado persistió tras recargar. El descriptivo general Student Depression
+también fue satisfactorio. Son pruebas del usuario, no llamadas realizadas
+durante esta auditoría.
+
+Se mantiene pendiente el rechazo de planificación de `Raisin_Dataset.xlsx`,
+variable `Class`, por referencia o productos incompatibles. Por decisión del
+usuario no se investiga ni corrige en este cierre. También permanecen los tipos
+provisionales por confirmar, explicaciones estadísticas genéricas no aplicables
+y nombres poco específicos en algunos resultados de frecuencias. Las referencias
+a alternativas descartadas están corregidas en regresiones, sin afirmar que
+todas las variantes lingüísticas o datasets estén validados.
+
+La auditoría de integración comprobó ancestry completo de las ramas de 07 y 08,
+32 commits de sesiones sobre `origin/develop` antes del cierre, sin divergencia
+de destino ni PR abiertos. La migración 009 está incluida, conserva RLS y MIME
+PDF/DOCX según SQL/PGlite; su aplicación manual es confirmada por el usuario,
+su historial remoto aún no está verificado. No se ejecutó SQL remoto ni se
+conciliaron migraciones desde aquí. El documento de release detalla el proceso
+seguro, aprobación necesaria, pruebas, configuración y rollback.
+
+En este cierre se repitieron los 31 módulos backend en procesos aislados:
+705 pruebas aprobadas y una omitida por evidencia histórica A/D ausente,
+sin fallos. Frontend: instalación limpia, 133 pruebas, dos comprobaciones
+del guard de producción, TypeScript, lint, formato y build aprobados.
+PGlite: seis suites locales aprobadas; calidad Python y dependencias también.
+El pico local multihoja fue 107,73 MiB para 400 000 celdas en Windows;
+no es una certificación de Render. No se ejecutó build con configuración
+real de producción ni se inspeccionaron paneles remotos. La revisión de
+commits y rutas no encontró secretos ni originales de usuarios añadidos.
+El PR y sus resultados CI finales se informan en GitHub y en la entrega,
+sin fusionarlo ni desplegar desde este cierre.
 
 ## Seguimiento de la validación manual
 
