@@ -6,11 +6,254 @@ de las sesiones 07 y 08 incluidos. Rama de entrega:
 `fix/estabilizacion-instrumentos-ux-sesion9`. Se utilizó la base solicitada
 expresamente, sin actualizar ni desarrollar sobre `develop` o `main`.
 
-**Estado: APTO para validación manual controlada.** Los servicios externos y el
-instrumento original del incidente siguen pendientes de validación real. No se
-hicieron push, PR, merge, despliegues, cambios remotos ni llamadas reales a proveedores.
+**Estado: APTO para revalidación manual controlada; Sesión 09 no cerrada.**
+El usuario confirmó los recorridos documentales PDF/DOCX. El bloqueo de
+planificación requiere repetir la validación con Gemini real tras la corrección
+local del 23 de noviembre. No se hicieron push, PR, merge, despliegues, cambios
+remotos ni llamadas reales a proveedores durante estas correcciones.
 
 ## Seguimiento de la validación manual
+
+### Bloqueo de la solicitud literal de frecuencias — 23 de noviembre de 2026
+
+**Estado de este seguimiento: pendiente de revalidación con Gemini real.**
+La corrección local no cierra la Sesión 09. No se invocó Gemini ni Terra,
+no se consultó ni modificó la conversación privada en Supabase y no se
+recalcularon resultados históricos.
+
+#### Causa demostrada y recorrido anterior
+
+Se copió literalmente el mensaje recibido, incluidos «Ahora sí», los
+encabezados y las enumeraciones. Antes de modificar producción, una prueba
+HTTP sobre `de0f169` reprodujo la misma respuesta: las dos llamadas previas
+de comprensión y pregunta libre funcionaban; la solicitud de propuesta no
+llamaba al proveedor y dejaba cero tarjetas. La prueba anterior de sesión
+usaba otra redacción, con «Solo quiero» y exclusiones repetidas con «sin»;
+no cubría el texto que ahora falló.
+
+| Etapa | Evidencia del mensaje literal antes del ajuste |
+| --- | --- |
+| Intención | `planning`; una propuesta solicitada. No es el defecto. |
+| Productos reconocidos | `frequencies`; `global` aparecía excluido, no requerido. |
+| Separación de cláusulas | Cada coma cancelaba la negación. En «No incluir resúmenes globales adicionales, gráficos, otras variables ni pruebas inferenciales», gráficos pasaba al texto positivo. |
+| Detección de incertidumbre | `Producto solicitado:` dejaba el residuo `producto`; además quedaba `graficos` de la lista negada. `PRODUCT_WORDS.search(residue)` establecía `unresolved=True`. |
+| Decisión de bloqueo | `process_turn` retornaba `scope_question` antes de construir el contexto y llamar al proveedor. No se evaluaron componentes ni cobertura de un plan en ese turno. |
+| Aclaración | La plantilla, al conocer registros/grupos, preguntaba «¿Qué producto específico falta definir?». Presentaba un fallo del reconocedor como una decisión pendiente del investigador. |
+| Estado previo | El delimitador anterior no consideraba independiente una solicitud que empezara con «Ahora sí». Esto podía conservar una incertidumbre anterior; se prueba separadamente con estado v5 persistido. |
+
+Por tanto, no existe una respuesta estructurada de Gemini para comparar
+en la reproducción de este bloqueo. No se afirma que Gemini haya omitido,
+representado mal o propuesto un procedimiento incompatible en la sesión
+privada. Se demuestra un rechazo anterior al proveedor que basta para
+producir el mensaje observado, con el texto exacto.
+
+#### Corrección y contrato
+
+Se separan cláusulas positivas y excluidas conservando la negación durante
+la enumeración por comas. Otra instrucción positiva u oración termina ese
+alcance. Los encabezados de productos se tratan como estructura, no como
+entregables. Productos y restricciones usan esa misma interpretación. La
+solicitud literal queda con `products=[frequencies]`, columna exacta y las
+cinco restricciones: todos los registros, sin grupos, sin gráficos, solo
+variables seleccionadas y solo productos solicitados. Las exclusiones
+inferenciales también se conservan.
+
+Una propuesta única con un producto exclusivo definido delimita un nuevo
+alcance aunque tenga una introducción conversacional. El reconocedor v6
+reconstruye cachés anteriores cuando conserva sus fuentes; una nueva
+solicitud completa puede reemplazar un alcance anterior sin reescribir
+planes aceptados ni mensajes. La prueba incluye una conversación con
+alcance v5 ambiguo, fallo de proveedor y reintento con el mismo UUID.
+
+El catálogo admite dos etiquetas equivalentes de la tabla de frecuencias
+absolutas y porcentajes, con o sin «por categoría». Las etiquetas se
+traducen al mismo producto `frequencies` y pasan por la misma validación
+de variables, componentes y capacidad ejecutable. No se acepta una
+etiqueta que agregue predicciones ni se cambia el procedimiento para
+simular cobertura. Campos opcionales usan los valores predeterminados de
+Plan v1; los obligatorios siguen siendo obligatorios.
+
+Se evaluó la construcción determinista de un plan completo y se eligió la
+alternativa menor: reparar la interpretación anterior al proveedor y usar
+el contrato existente, con equivalencias verificadas. Un constructor de
+respaldo no corregiría esa barrera previa y podría ocultar decisiones
+metodológicas faltantes. No se fabrica un plan tras una respuesta inválida.
+El proveedor conserva su función y la corrección semántica acotada. Si
+falla dos veces, el error es reintentable y distingue contrato, referencia
+de columna, tipo, producto incompatible y falta de cobertura. No devuelve
+una tarjeta ni acusa al usuario de no haber definido los productos.
+
+Las aclaraciones realmente necesarias siguen disponibles. Se rechaza la
+pregunta del proveedor que pide definir de nuevo productos ya resueltos.
+Cuando todos los planes solicitados pasan la validación, el anuncio y las
+acciones proceden de las tarjetas disponibles; se retiran preguntas
+opcionales del proveedor que podrían ofrecer alternativas inexistentes.
+La prueba de Student reproduce un texto y una pregunta que ofrecen tres
+alternativas con una sola propuesta: la respuesta final ofrece solo esa
+tarjeta. Se reprodujo también el caso parcial con tres objetos, dos
+inválidos. El aviso de respuesta parcial ya contaba correctamente una
+tarjeta, pero `retain_valid_plans` conservaba la pregunta opcional original
+que ofrecía las tres. Ahora esa continuación ofrece pedir más alternativas,
+sin enumerar las descartadas. Los controles de decisiones imprescindibles
+se ejecutan antes; no se eliminan para permitir un plan inválido.
+
+#### Evidencia y límites de las pruebas
+
+- `test_frequency_contract.py` reproduce por HTTP la confirmación del
+  Contexto revisión 1, asociación de ambos archivos, consentimiento,
+  comprensión, pregunta libre, solicitud literal, una propuesta, aceptación,
+  ejecución separada, recarga y reintentos. API, perfilado, validadores y
+  proceso estadístico son reales. Auth, repositorio/RPC/Storage y proveedor
+  son dobles locales. La recarga acredita persistencia a través de la API
+  sobre ese repositorio, no persistencia remota.
+- La fixture por defecto tiene 3419 registros y ocho columnas y un PDF
+  sintético. Además se ejecutó el recorrido en ambos tipos de proyecto
+  con los archivos reales de Descargas `nhanes_dermatology.csv` y `DEQ_J.pdf`.
+  Se obtuvo una tabla de frecuencias, con denominador, porcentajes y
+  ausencias; cero PNG. Aceptar dejó cero runs. El reintento de ejecución
+  devolvió el mismo run y el Contexto permaneció intacto. La clasificación
+  nominal fue una decisión explícita de esta prueba, no una inferencia
+  automática sobre la escala del instrumento.
+- Diez variaciones de respuesta pasan por el parser de transporte real:
+  etiquetas equivalentes, campos opcionales ausentes y componente redundante
+  se aceptan; faltan campos obligatorios, método incompatible, columnas
+  inexistentes, productos extra, cobertura ausente, etiqueta no equivalente
+  o texto sin propuesta se rechazan según corresponda. No son respuestas
+  capturadas de Gemini real.
+- Se prueban ausencia de permisos de proyecto, consentimiento documental
+  denegado, variable por definir, aclaración redundante, caché antigua y
+  fallo de persistencia seguido de reintento sin duplicados.
+- La regresión general también se ejecutó con el
+  `Student_Depression_Dataset.csv` local. No se versionaron estos archivos
+  ni sus registros. El frontend pega el mensaje literal y verifica la única
+  tarjeta y su producto mediante componentes reales con servicio simulado.
+  No es una prueba de navegador autenticado conectada a Supabase.
+
+#### Instancia local y diagnóstico seguro
+
+La instancia encontrada escuchaba en `127.0.0.1:8001`, sin `--reload`.
+Su proceso era posterior a `de0f169`; eso por sí solo no demostraba la
+versión cargada. El módulo que Vite sirve en `localhost:5173` contiene
+`VITE_API_URL=http://localhost:8001/`. Se reinició esa misma API desde el
+backend de esta rama después del ajuste. `/health` respondió 200 y
+`X-Statia-Planning-Version: 6`, añadido sin cambiar su cuerpo JSON.
+La cabecera identifica el contrato cargado, no un commit ni una validación
+de servicios externos. No se cambiaron archivos de credenciales.
+
+El logger `app.services.conversation`, a nivel INFO, indica versión,
+productos/restricciones internos y la ruta `provider` o `scope_clarification`.
+Los fallos posteriores conservan `X-Statia-Validation` y los logs por
+categoría/intento/posición de plan. No se registran prompts, respuestas
+crudas, valores de columnas, documentos ni credenciales. Los metadatos de
+la respuesta conservan el alcance de origen de cada tarjeta. El usuario
+normal no ve estos diagnósticos técnicos.
+
+#### Revalidación manual obligatoria con Gemini
+
+1. Usar esta rama y reiniciar el backend si se vuelve a modificar código.
+   Desde `backend`, ejecutar
+   `.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8001`.
+   No iniciar una segunda instancia si el puerto ya está ocupado.
+   Comprobar la cabecera con
+   `(Invoke-WebRequest http://127.0.0.1:8001/health).Headers['X-Statia-Planning-Version']`:
+   debe devolver `6`. En las herramientas de red del navegador verificar
+   que las solicitudes de chat usan esa misma API.
+2. Recargar el frontend. Abrir la conversación existente del proyecto de
+   tesis; comprobar Contexto revisión 1, CSV de 3419 filas/ocho columnas y
+   PDF asociados. No borrar ni volver a cargar archivos para esta prueba.
+   Seleccionar Gemini y volver a autorizar extractos tras la recarga.
+3. Comprender archivos y preguntar «¿Qué contiene mi dataset?». Comprobar
+   que no aparecen planes ni ejecuciones. Enviar como mensaje nuevo el
+   texto literal del bloqueo, conservado en `REQUEST` dentro de
+   `backend/tests/test_frequency_contract.py` (empieza «Ahora sí, prepara
+   una única propuesta estadística descriptiva...»). No usar Reintentar
+   sobre el bloqueo anterior ya completado: su UUID devuelve legítimamente
+   la respuesta histórica por idempotencia.
+4. Debe aparecer una tarjeta para `sun_reaction`, frecuencias categóricas
+   como único producto, sin preguntas sobre productos ni grupos. Recargar
+   y verificar que se conserva. Aceptar; comprobar que aún no hay resultados.
+5. Preparar y confirmar la ejecución con su acción separada, revisando
+   explícitamente tipo/orden y ausencias documentadas. Comprobar una sola
+   tabla con categorías, frecuencias, porcentajes, denominador y ausencias,
+   sin gráficos ni otras variables. Recargar y verificar el mismo resultado.
+6. Si falla, guardar el estado HTTP y las categorías de
+   `X-Statia-Error`/`X-Statia-Validation`, además de versión del planificador.
+   Un fallo 502 de proveedor/validación se reintenta con **Reintentar**;
+   no se debe pedir redefinir un producto ya explícito. No compartir JWT,
+   credenciales ni cuerpos privados para diagnosticarlo.
+
+Texto exacto para el paso 3:
+
+```text
+Ahora sí, prepara una única propuesta estadística descriptiva para la variable sun_reaction del archivo nhanes_dermatology.csv.
+
+Utiliza el Contexto de tesis confirmado y las definiciones verificables del instrumento DEQ_J.pdf.
+
+Alcance: describir todos los registros disponibles, sin filtros, comparaciones ni agrupaciones.
+
+Procedimiento: distribución de frecuencias categóricas.
+
+Producto solicitado: exclusivamente una tabla de frecuencias absolutas y porcentajes por categoría, indicando el denominador utilizado y los valores ausentes.
+
+No incluir resúmenes globales adicionales, gráficos, otras variables ni pruebas inferenciales.
+
+Presenta la propuesta para revisarla y aceptarla. No ejecutes cálculos todavía y no modifiques el Contexto de tesis.
+```
+
+Reproducción local sin proveedores desde `backend`:
+`python -m pytest tests/test_frequency_contract.py -q`.
+Para repetir únicamente los recorridos con archivos propios, definir
+`$env:STATIA_TEST_INPUT_DIR='C:\Users\Melissa\Downloads'` en ese proceso y
+ejecutar `python -m pytest tests/test_frequency_contract.py -k 'reported_request or general_student' -q`.
+Esta variable pertenece exclusivamente al arnés de pruebas; no configura
+la aplicación ni se añade a `.env`. No hay dependencias ni migraciones nuevas.
+
+Limitaciones: el reconocedor sigue siendo una gramática acotada, no un
+intérprete universal de lenguaje natural. Las equivalencias solo se admiten
+si tienen cobertura demostrable en el catálogo. Una respuesta incompatible
+del proveedor puede seguir fallando de forma explícita y reintentable;
+no hay plan de respaldo inventado. La sesión real de Gemini, la conversación
+privada original y la persistencia/RLS remotas siguen pendientes de la
+validación del usuario. No se alteró el motor ni la publicación de resultados
+en este seguimiento. Tampoco hubo cambios visuales ni una nueva revisión
+visual autenticada; el renderizado de la tarjeta se comprobó en frontend
+con servicios simulados.
+
+Archivos de este seguimiento: `requested_scope.py` (cláusulas, exclusiones,
+estado y aclaraciones), `plan_capabilities.py` (equivalencias),
+`conversation.py` y `planning_validation.py` (diagnóstico y presentación
+coherente), `api/health.py` (versión activa), `test_frequency_contract.py`,
+`test_app.py`, `test_session6b.py`, `check_analysis_quality.py`, `frontend/src/test/chat.test.tsx`
+y este informe. Commit funcional local: `45c4ddd`,
+`fix(planificacion): conservar exclusiones y validar el contrato de frecuencias`.
+Commit de regresión: `2a061b7`,
+`test(planificacion): actualizar la regresión de versión del alcance`.
+La rama sigue siendo `fix/estabilizacion-instrumentos-ux-sesion9`.
+
+Validación final: los 31 módulos backend se ejecutaron en procesos aislados.
+La primera batería terminó con 703 pruebas aprobadas, una omitida y una
+aserción fallida: el test de reparación del alcance antiguo de Welch aún
+esperaba versión 5. Conservaba correctamente los productos y el historial;
+se actualizó la expectativa a versión 6 y se repitió la suite completa:
+18 aprobadas. Además, el caso parcial de Student se añadió durante la
+revisión; las suites finales de frecuencias, alcance y estabilidad de tesis
+pasaron juntas con 80 pruebas. La colección final consta de 706 casos:
+705 cubiertos y aprobados entre la batería general y las repeticiones
+dirigidas, uno omitido por ausencia de `backend/test_terra_statia_env.py`
+(evidencia histórica A/D local, no versionada). No se presenta esa omisión
+como una prueba real de Terra aprobada.
+
+También aprobaron 133 pruebas frontend, TypeScript, lint, formato, build,
+calidad Python y `pip check`. Se conservan los avisos anteriores de
+Starlette/TestClient y del tamaño de un fragmento JS. Los dos recorridos
+de dermatología y los dos de Student con archivos de Descargas pasaron
+localmente con proveedor simulado. No se repitieron suites SQL completas:
+no cambiaron contratos de persistencia, migraciones ni políticas; sí se
+ejecutó la regresión existente de rollback de proveedores de la batería
+backend. No se hizo una nueva medición RSS en Linux desde este host Windows.
+Revisión de diff y secretos completada; no se incluyeron archivos de usuarios,
+credenciales, logs privados ni resultados locales en Git. Árbol limpio al
+final tras el commit documental de esta entrega; sin push, PR, merge ni despliegue.
 
 ### Intención conversacional y alcance de una tabla de frecuencias
 
