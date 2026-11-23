@@ -9,10 +9,10 @@ ACTION_LABELS = {
 UUID_TEXT = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', re.I)
 NO_PROPOSALS = re.compile(r'\b(?:sin (?:crear |preparar |generar )?|no (?:quiero|necesito|deseo|prepares|generes|propongas|crees) )(?:(?:ningun[ao]?|nuev[oa]s?) )?(?:planes?|propuestas?)\b')
 PROPOSAL_REQUEST = re.compile(
-    r'\b(?:genera|prepara|elabora|crea|disena|plantea|propon|presenta|ofrece|dame|quiero|deseo|necesito|solicito|sugiere)'
-    r'(?:r|me)? (?:que (?:me )?(?:prepares|generes|propongas|plantees) )?(?:hasta |como maximo )?'
-    r'(?:(?P<count>una?|dos|tres|cuatro|\d{1,3}) )?(?:sol[ao] |unic[ao] |nuev[ao]s? )?'
-    r'(?:propuestas?|planes?|alternativas? (?:independientes? )?de analisis)\b'
+    r'\b(?:(?:genera|prepara|elabora|crea|disena|plantea|propon|presenta|ofrece|dame|quiero|deseo|necesito|solicito|sugiere)'
+    r'(?:r|me)?|deja(?:r|me)? list[ao]s?) (?:que (?:me )?(?:prepares|generes|propongas|plantees) )?(?:hasta |como maximo )?'
+    r'(?:(?P<count>una?|otr[ao]|dos|tres|cuatro|\d{1,3}) )?(?:sol[ao] |unic[ao] |nuev[ao]s? )?'
+    r'(?:propuestas?|planes?|alternativas? (?:independientes? )?(?:de analisis|estadisticas?|descriptivas?))\b'
 )
 
 
@@ -29,8 +29,27 @@ def proposal_limit(text):
         return None
     count = request['count']
     return min(4, max(1, int(count))) if count and count.isdecimal() else {
-        'un': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4,
+        'un': 1, 'una': 1, 'otro': 1, 'otra': 1, 'dos': 2, 'tres': 3, 'cuatro': 4,
     }.get(count, 4)
+
+
+def independent_proposal(text):
+    text = ' '.join(normalize(text).split())
+    request = PROPOSAL_REQUEST.search(text)
+    return (
+        request is not None and not NO_PROPOSALS.search(text)
+        and (request.start() == 0 or re.search(r'\b(?:otr[ao]|nuev[ao]s?)\b', request[0]))
+        and not re.search(r'\b(?:mismo analisis|(?:conserva|manten) (?:el alcance|los productos|las decisiones))\b', text)
+    )
+
+
+def informational_mode(text):
+    text = normalize(text)
+    if re.match(r'^que (?:contiene|incluye|hay en|columnas tiene|variables tiene)\b', text):
+        return 'understanding'
+    if re.match(r'^(?:que|cual(?:es)?|como|por que|en que)\b', text):
+        return 'methodology'
+    return None
 
 
 def statistical_request(text):
@@ -39,6 +58,8 @@ def statistical_request(text):
         return False
     if proposal_limit(text) is not None:
         return True
+    if informational_mode(text):
+        return False
     if re.search(r'preguntas?|codigos?|items?|opciones?', text) and re.search(r'instrumento|cuestionario|documento|pdf|docx', text) and not re.search(r'plan|ejecut|correlacion|anova|frecuencias de (?:la |las )?variable', text):
         return False
     if re.search(r'(?:que|cual|cuales|explica|describe|muestra|recupera|busca|identifica).*\b(?:preguntas?|codigos?|items?|opciones?)\b', text) and re.search(r'instrumento|cuestionario|documento|pdf|docx', text):
@@ -66,6 +87,8 @@ def interaction_mode(turn):
         return 'understanding'
     if NO_PROPOSALS.search(text):
         return 'methodology' if re.search(r'metodo|procedimiento|comparar opciones', text) else 'understanding'
+    if informational := informational_mode(text):
+        return informational
     if not statistical_request(text) and (turn.content.rstrip().endswith('?') or re.search(r'que (?:es|significa)|como funciona|explica|metodolog|contexto|objetivos.*guardad', text)):
         return 'methodology'
     return 'planning'

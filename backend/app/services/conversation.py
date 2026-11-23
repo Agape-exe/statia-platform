@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
 from app.services.gemini import build_context
-from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, interaction_mode, proposal_limit, technical_details_requested
+from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, independent_proposal, interaction_mode, proposal_limit, technical_details_requested
 from app.services.methodology import levels
 from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
@@ -33,6 +33,10 @@ def comparison_scope(conversation, turn, files):
         return conversation, None
     text = normalize(turn.content)
     data = dict(conversation.get('stage_data', {}))
+    if independent_proposal(turn.content):
+        data.pop('comparison_scope', None)
+        data.pop('pending_comparison_scope', None)
+        conversation = {**conversation, 'stage_data': data}
     pending = data.get('pending_comparison_scope')
     candidate = pending
     if not candidate and statistical_request(turn.content) and re.search(r'macho|hembra|sexos|sexo|male|female', text) and re.search(r'especie|species', text):
@@ -150,7 +154,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     if any(not f['metadata'].get('profile') and not f['metadata'].get('sheet_profiles') for f in datasets):
         raise HTTPException(422, 'Elige una hoja para cada libro XLSX antes de continuar.')
     discusses_results = not explicit_proposal and result_discussion(turn.content)
-    conversation, scope_result = (conversation, None) if alternative or discusses_results else comparison_scope(conversation, turn, files)
+    conversation, scope_result = (conversation, None) if alternative or discusses_results or mode in NON_PLANNING else comparison_scope(conversation, turn, files)
     if scope_result:
         return scope_result
     if action == 'keep_goal':
@@ -177,13 +181,18 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     except ValueError as exc:
         return static_result(conversation, 'clarification', str(exc))
     analysis_results = await saved_results_context(store, conversation, turn.content)
-    discussion = not explicit_proposal and mode != 'document' and bool(analysis_results) and turn.action == 'message' and (discusses_results or not statistical_request(turn.content))
-    scope = None if alternative or discussion or mode in NON_PLANNING or discusses_results else requested_scope(conversation, messages, turn)
+    discussion = not explicit_proposal and mode not in ('document', 'understanding') and bool(analysis_results) and turn.action == 'message' and (discusses_results or not statistical_request(turn.content))
+    plans_allowed = not (alternative or discussion or mode in NON_PLANNING or discusses_results)
+    scope = requested_scope(conversation, messages, turn, files) if plans_allowed else None
     if scope:
         data['requested_scope'] = scope
+    elif plans_allowed and independent_proposal(turn.content):
+        data.pop('requested_scope', None)
     conversation = {**conversation, 'stage_data': data}
     if scope and scope['unresolved']:
-        return reply_result(scope_question(scope), conversation, files=files, scope=scope)
+        result = reply_result(scope_question(scope), conversation, files=files, scope=scope)
+        result['metadata']['interaction_mode'] = mode
+        return result
     research = await current_context(store, project)
     context = build_context(project, conversation, messages, files, turn, settings, analysis_results, research)
     context['interaction_mode'] = mode
@@ -253,7 +262,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 raise ValueError('Esta consulta interpreta resultados guardados o revisa metodología del mismo análisis. Responde sin propuestas nuevas ni cambio de finalidad y sin exigir resolver aclaraciones pendientes.')
             if scope and 'posthoc' in scope.get('excluded_products', []):
                 for proposed in reply.proposals:
-                    if 'Sin comparaciones post hoc' not in proposed.expected_outputs:
+                    steps = proposed.components if proposed.procedure == 'integral' else [proposed]
+                    if any(step.procedure == 'group_comparison' for step in steps) and 'Sin comparaciones post hoc' not in proposed.expected_outputs:
                         proposed.expected_outputs.append('Sin comparaciones post hoc')
             reply = bind_confirmations(reply, data.get('confirmed_variable_types', []), files)
             from app.services.interpretation_guards import result_ids, validate_explanation
@@ -272,13 +282,6 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             break
         log_issues(assessment.issues, attempt + 1)
         validation_history.append({'attempt': attempt + 1, 'issues': [issue.safe_metadata() for issue in assessment.issues]})
-        if attempt and not explicit_proposal and not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
-            # No convertir sugerencias del modelo en requisitos del usuario.
-            # Sin alcance verificable tampoco se puede aprobar una sustitución.
-            scope = {'version': 1, 'products': [], 'unresolved': True, 'mode': 'analysis', 'source_requests': [str(turn.request_id)]}
-            conversation = {**conversation, 'stage_data': {**conversation.get('stage_data', {}), 'requested_scope': scope}}
-            reply = scope_question(scope)
-            break
         if attempt:
             retained = retain_valid_plans(reply, assessment, files, project, context)
             if retained:
@@ -293,7 +296,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 detail = 'El proveedor no pudo responder con evidencia suficiente. No se guardó la respuesta; puedes reintentar.'
             elif type_problems:
                 detail = 'El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000] + ' No se guardó una propuesta inválida; solicita una reformulación compatible.'
-            elif explicit_proposal and (reasons := list(dict.fromkeys(FAILURE_DETAILS[issue.category] for issue in assessment.issues if issue.category in FAILURE_DETAILS))):
+            elif reasons := list(dict.fromkeys(FAILURE_DETAILS[issue.category] for issue in assessment.issues if issue.category in FAILURE_DETAILS)):
                 detail = ' '.join(reasons) + ' No se guardó ninguna propuesta. Puedes reintentar.'
             else:
                 detail = 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.'
@@ -332,6 +335,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             tail = '\n\nFuentes de los fragmentos consultados: ' + ' | '.join(sources)
             reply.response = reply.response[:max(1, 12000 - len(tail))] + tail
     result = reply_result(reply, conversation, files=files, scope=scope)
+    if mode in NON_PLANNING and stage in ('goal', 'clarification', 'proposal', 'ready'):
+        result['stage'] = stage
     result['metadata']['technical_details'] = context['technical_details']
     result['metadata']['interaction_mode'] = mode
     result['metadata']['instrument_retrieval'] = [
@@ -357,7 +362,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
 
 
 def reply_result(reply: AssistantReply, conversation, *, files=None, scope=...):
-    validate_scope_reply(reply, conversation.get('stage_data', {}).get('requested_scope') if scope is ... else scope, files)
+    scope = conversation.get('stage_data', {}).get('requested_scope') if scope is ... else scope
+    validate_scope_reply(reply, scope, files)
     data = {**conversation.get('stage_data', {})}
     if reply.context_summary:
         data['context_summary'] = reply.context_summary
@@ -371,6 +377,7 @@ def reply_result(reply: AssistantReply, conversation, *, files=None, scope=...):
     data['title_provisional'] = provisional
     # El modelo solo sugiere; la aplicación decide las transiciones y nunca acepta planes.
     if reply.proposals:
+        metadata['requested_scope'] = scope
         data['canonical_objectives'] = True
         stage, kind = 'proposal', 'proposal'
     elif reply.questions:

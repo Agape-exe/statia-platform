@@ -216,8 +216,9 @@ async def decide(project_id: UUID, conversation_id: UUID, proposal_id: UUID, bod
             files = await linked_files(user.store, conversation)
             validate_reply(AssistantReply(response='Validación del plan', suggested_stage='proposal', proposals=[plan]),
                            files, await project_for(user, project_id), conversation.get('stage_data', {}))
-            from app.services.requested_scope import validate_plan_scope
-            validate_plan_scope(plan, conversation.get('stage_data', {}).get('requested_scope'), files)
+            from app.services.requested_scope import proposal_scope, validate_plan_scope
+            scope = await proposal_scope(user.store, proposal, conversation.get('stage_data', {}).get('requested_scope'))
+            validate_plan_scope(plan, scope, files)
         except (ValidationError, ValueError) as exc:
             from app.services.planning_errors import PlanningError
             if isinstance(exc, PlanningError) and exc.category in ('output_scope', 'output_capability', 'requested_scope', 'variable_type'):

@@ -438,6 +438,60 @@ describe('chat persistente y acciones', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /Mensaje/ })).toBeInTheDocument()
   })
+  it('muestra la tabla solicitada como propuesta solo después de la petición de plan', async () => {
+    detail.conversation.current_stage = 'goal'
+    detail.files = [dataset]
+    detail.messages.push({
+      id: 'comprension',
+      position: 2,
+      role: 'assistant',
+      content: 'El CSV contiene tres registros.',
+      message_type: 'dataset_summary',
+      metadata: { interaction_mode: 'understanding' },
+    })
+    vi.mocked(chatService.turn).mockImplementationOnce(async () => {
+      const frequencies = structuredClone(proposal)
+      frequencies.analysis_plan.expected_outputs = ['Frecuencias categóricas']
+      detail.conversation.current_stage = 'proposal'
+      detail.messages.push({
+        id: 'plan-frecuencias',
+        position: 4,
+        role: 'assistant',
+        content: 'Hay una propuesta lista para revisar.',
+        message_type: 'proposal',
+        metadata: { interaction_mode: 'planning' },
+      })
+      detail.proposals = [
+        { ...frequencies, source_message_id: 'plan-frecuencias' },
+      ]
+      return { status: 'completed' }
+    })
+    chat()
+    expect(
+      await screen.findByText('El CSV contiene tres registros.'),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Aceptar plan' }),
+    ).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.type(
+      screen.getByRole('textbox', { name: /Mensaje/ }),
+      'Prepara una propuesta de frecuencias. No ejecutes.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+    const card = await screen.findByRole('article', {
+      name: 'Propuesta: Describir notas',
+    })
+    await user.click(within(card).getByText('Productos esperados'))
+    expect(within(card).getByText('Frecuencias categóricas')).toBeVisible()
+    expect(
+      within(card).queryByText('Resúmenes globales'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(card).getByRole('button', { name: 'Aceptar plan' }),
+    ).toBeEnabled()
+    expect(analysisService.execute).not.toHaveBeenCalled()
+  })
   it('bloquea el selector mientras prepara un análisis y lo recupera al terminar', async () => {
     detail.conversation.current_stage = 'ready'
     detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]
