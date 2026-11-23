@@ -287,7 +287,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             if retained:
                 reply, partial = retained, True
                 break
-            if scope and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') and
+            if scope and not scope.get('constraints') and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') and
                              (not explicit_proposal or issue.plan_index is not None) for issue in assessment.issues):
                 reply = scope_question(scope, provider_failed=True)
                 break
@@ -296,6 +296,13 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 detail = 'El proveedor no pudo responder con evidencia suficiente. No se guardó la respuesta; puedes reintentar.'
             elif type_problems:
                 detail = 'El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000] + ' No se guardó una propuesta inválida; solicita una reformulación compatible.'
+            elif scope and scope.get('constraints') and (
+                violations := list(dict.fromkeys(
+                    issue.message for issue in assessment.issues
+                    if issue.category == 'requested_scope' and issue.plan_index is not None
+                ))
+            ):
+                detail = ' '.join(violations) + ' No se guardó la propuesta. Puedes reintentar.'
             elif reasons := list(dict.fromkeys(FAILURE_DETAILS[issue.category] for issue in assessment.issues if issue.category in FAILURE_DETAILS)):
                 detail = ' '.join(reasons) + ' No se guardó ninguna propuesta. Puedes reintentar.'
             else:

@@ -11,7 +11,7 @@ UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 def validate_proposal_text(reply):
     text = normalized(" ".join([reply.response, *reply.questions, *reply.warnings]))
     for sentence in re.split(r"[.!?]", text):
-        if re.search(r"\b(?:propuestas?|planes?|alternativas?)\b", sentence):
+        if re.search(r"\b(?:propuestas?|plan(?:es)?|alternativas?)\b", sentence):
             if (
                 not re.search(r"\bno\b", sentence)
                 and re.search(r"\b(?:acept|aprob|confirm)\w*", sentence)

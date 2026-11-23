@@ -7,12 +7,12 @@ ACTION_LABELS = {
     'files_ready': 'Comprender los archivos adjuntos', 'keep_goal': 'Continuar con la finalidad actual',
 }
 UUID_TEXT = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', re.I)
-NO_PROPOSALS = re.compile(r'\b(?:sin (?:crear |preparar |generar )?|no (?:quiero|necesito|deseo|prepares|generes|propongas|crees) )(?:(?:ningun[ao]?|nuev[oa]s?) )?(?:planes?|propuestas?)\b')
+NO_PROPOSALS = re.compile(r'\b(?:sin (?:crear |preparar |generar )?|no (?:quiero|necesito|deseo|prepares|generes|propongas|crees) )(?:(?:ningun[ao]?|nuev[oa]s?) )?(?:plan(?:es)?|propuestas?)\b')
 PROPOSAL_REQUEST = re.compile(
     r'\b(?:(?:genera|prepara|elabora|crea|disena|plantea|propon|presenta|ofrece|dame|quiero|deseo|necesito|solicito|sugiere)'
     r'(?:r|me)?|deja(?:r|me)? list[ao]s?) (?:que (?:me )?(?:prepares|generes|propongas|plantees) )?(?:hasta |como maximo )?'
     r'(?:(?P<count>una?|otr[ao]|dos|tres|cuatro|\d{1,3}) )?(?:sol[ao] |unic[ao] |nuev[ao]s? )?'
-    r'(?:propuestas?|planes?|alternativas? (?:independientes? )?(?:de analisis|estadisticas?|descriptivas?))\b'
+    r'(?:propuestas?|plan(?:es)?|alternativas? (?:independientes? )?(?:de analisis|estadisticas?|descriptivas?))\b'
 )
 
 

@@ -180,3 +180,18 @@ def test_missing_variable_clarification_does_not_change_known_scope(local):
     assert detail["messages"][-1]["metadata"]["questions"] == ["¿Qué columna del archivo corresponde a esa variable?"]
     assert len([msg for msg in detail["messages"] if msg["content"] == unknown]) == 1
     assert not store.data["analysis_proposals"] and not store.data["analysis_runs"]
+
+
+def test_invalid_output_on_a_resolved_scope_returns_specific_retryable_error(local):
+    client, store, provider = local
+    path, fid = prepare_chat(local, "thesis")
+    invalid = frequency_plan(fid, "sun_reaction")
+    invalid["expected_outputs"].append("Tablas y gráficos")
+    provider.replies.extend([reply(proposals=[invalid]), reply(proposals=[invalid])])
+    request_id = str(uuid4())
+    result = turn(client, path, content=REQUEST, request_id=request_id)
+    assert result.status_code == 502
+    assert "excluyó los gráficos" in result.json()["detail"]
+    detail = client.get(path).json()
+    assert detail["retry_turn"]["request_id"] == request_id and not detail["proposals"]
+    assert not store.data["analysis_runs"]
