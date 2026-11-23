@@ -57,6 +57,12 @@ def code_matches(text):
     )
 
 
+def search_query(query):
+    query = re.sub(r"\S+\.(?:pdf|docx)\b", "", query, flags=re.I)
+    # Un marcador de lista no puede formar un código con la frase anterior.
+    return re.sub(r"^[^\S\r\n]*\d+[.)](?=\s|$)", ":", query, flags=re.M)
+
+
 def readable_location(location):
     labels = {
         "document": "Cuerpo del documento",
@@ -75,7 +81,7 @@ def readable_location(location):
 
 def retrieve_instruments(files, query, authorized, *, budget=12000):
     results, candidates = {}, []
-    code_query = re.sub(r"\S+\.(?:pdf|docx)\b", "", query, flags=re.I)
+    code_query = search_query(query)
     requested_codes = codes(code_query)
     terms = tokens(code_query)
     topics = {} if requested_codes else requested_topics(word_text(code_query))

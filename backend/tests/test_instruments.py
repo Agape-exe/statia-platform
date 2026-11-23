@@ -14,7 +14,9 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from app.core.config import Settings
 from app.services.instrument_context import (
     PARTIAL_EVIDENCE,
+    codes,
     retrieve_instruments,
+    search_query,
     validate_document_claims,
 )
 from app.services.instrument_worker import inspect_instrument
@@ -236,6 +238,12 @@ def test_code_split_by_line_break_is_recovered_without_rewriting_evidence(extens
     found = retrieve_instruments([file_record(meta)], "Busca EDU030", True)["instrument"]
     assert "030: Participation?" in str(found["fragments_shared"])
     assert found["retrieval"] == "matched"
+
+
+@pytest.mark.parametrize("line_end", ["\n", "\r\n"])
+def test_query_does_not_join_a_sentence_to_an_ordered_list_but_keeps_explicit_codes(line_end):
+    query = line_end.join(["Consulta encuesta_v2.docx.", "1. Evidencia verificable.", "  2. Busca EDU.", "030"])
+    assert codes(search_query(query)) == {"edu030"}
 
 
 @pytest.mark.parametrize(

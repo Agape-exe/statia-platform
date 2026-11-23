@@ -26,6 +26,7 @@ from app.models.research_context import ResearchContext
 from app.services.conversation_text import interaction_mode
 from app.services.gemini import SYSTEM, GeminiProvider
 from app.services.instrument_context import PARTIAL_EVIDENCE
+from app.services.profiling import inspect_file
 from app.services.reply_contract import normalize_reply, parse_assistant_reply
 
 api = test_chat_api.api
@@ -259,6 +260,74 @@ def test_thematic_docx_turn_covers_distant_topics_and_validates_quotes_with_cons
     saved = client.get(path).json()["messages"][-1]
     assert "Do you own" not in saved["content"] and not saved["metadata"]["warnings"]
     assert context["research_context"]["revision"] == 1
+
+
+def test_numbered_document_query_uses_previously_persisted_fragments(api, monkeypatch):
+    client, store, provider = api
+    thesis_context(store, 1)
+    path = new(client, store)
+    assert turn(client, path, action="instrument_no").status_code == 200
+    attach_dataset(client, path)
+    store.data["project_files"][0]["created_at"] = "2026-11-21T12:05:00Z"
+    conversation = store.data["conversations"][0]
+    conversation["current_stage"] = "goal"
+    file_id = str(uuid4())
+    name = "encuesta.docx"
+    metadata = inspect_file(name, thematic_docx(), "instrument", Settings(_env_file=None))
+    metadata["text_excerpt"] = "Vista previa de una versión anterior sin los ítems."
+    record = {
+        "id": file_id,
+        "project_id": store.project_id,
+        "original_name": name,
+        "file_role": "instrument",
+        "file_type": "docx",
+        "storage_path": "original-privado.docx",
+        "created_at": "2026-11-21T12:00:00Z",
+        "metadata": metadata,
+    }
+    persisted = json.loads(json.dumps(record))
+    store.data["project_files"].append(persisted)
+    store.data["conversation_files"].append({"conversation_id": conversation["id"], "file_id": file_id})
+
+    async def unexpected_download(*args, **kwargs):
+        pytest.fail("El turno con extracción versionada debe usar los fragmentos ya persistidos.")
+
+    monkeypatch.setattr(store, "download", unexpected_download)
+    before = client.get(path).json()
+    assert any(file["id"] == file_id for file in before["files"])
+    requested = (
+        "Consulta los fragmentos autorizados del instrumento Word encuesta.docx.\n"
+        "Necesito identificar las preguntas relacionadas con:\n"
+        "1. El uso de dispositivos digitales para estudiar, trabajar o entretenerse.\n"
+        "2. El acceso y uso de internet, únicamente con evidencia verificable.\n"
+        "3. Las habilidades o competencias digitales de los estudiantes.\n"
+        "Indica el texto, las alternativas y la ubicación. No prepares propuestas estadísticas."
+    )
+    provider.replies.append(reply(response=f"«{DEVICE_QUESTION}»\n«{SKILLS_SCALE}»\n{PARTIAL_EVIDENCE}"))
+    result = turn(client, path, content=requested, share_instrument_text=True)
+    assert result.status_code == 200, result.text
+    assert len(provider.contexts) == 1
+    context, correction = provider.contexts[0]
+    assert correction is None and context["interaction_mode"] == "document"
+    assert context["research_context"]["revision"] == 1 and context["instrument_text_authorized"] is True
+    instrument = next(file["instrument"] for file in context["files"] if file["file_id"] == file_id)
+    assert instrument["retrieval"] == "matched" and instrument["retrieval_method"] == "thematic"
+    assert instrument["fragments_available"] == len(metadata["fragments"])
+    assert {DEVICE_QUESTION, INTERNET_QUESTION, SKILLS_QUESTION, SKILLS_SCALE} <= {
+        fragment["text"] for fragment in instrument["fragments_shared"]
+    }
+    assert store.data["chat_requests"][-1]["payload"]["content"] == requested
+    after = client.get(path).json()
+    assert after["messages"][: len(before["messages"])] == before["messages"]
+    assert SKILLS_SCALE in after["messages"][-1]["content"] and not after["proposals"]
+
+    absent = "Consulta el instrumento:\n1. Preguntas de atención médica.\n2. Preguntas de seguridad alimentaria."
+    assert turn(client, path, content=absent, share_instrument_text=True).status_code == 200
+    assert len(provider.contexts) == 1
+    blocked = client.get(path).json()["messages"][-1]
+    assert blocked["metadata"]["instrument_retrieval"][0]["retrieval"] == "no_match"
+    assert blocked["metadata"]["generation"]["source"] == "deterministic"
+    assert persisted == record
 
 
 def test_long_document_query_recovers_dotted_codes_across_pages_with_explicit_consent(api):

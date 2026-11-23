@@ -138,9 +138,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     from app.services.reply_contract import NON_PLANNING, normalize_reply
     mode = interaction_mode(turn)
     if action == 'message' and mode in ('planning', 'methodology') and any(f['file_role'] == 'instrument' for f in files) and not statistical_request(turn.content):
-        from app.services.instrument_context import codes
+        from app.services.instrument_context import codes, search_query
         asks_for_items = re.search(r'^(?:que|cual(?:es)?|identifica|busca|recupera|muestra|lista|indicame) (?:son )?(?:las? |los? )?(?:preguntas|items|enunciados)\b', normalized)
-        if asks_for_items or (codes(turn.content) and re.search(r'pregunta|codigo|opciones|que dice|que significa|busca|recupera', normalized)):
+        if asks_for_items or (codes(search_query(turn.content)) and re.search(r'pregunta|codigo|opciones|que dice|que significa|busca|recupera', normalized)):
             mode = 'document'
     if stage == 'upload_instrument' and action == 'message' and mode not in ('document', 'methodology') and not datasets:
         return static_result(conversation, stage, 'Adjunta tus instrumentos o elige «Continuar con los datasets» para seguir.')
