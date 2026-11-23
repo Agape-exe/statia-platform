@@ -119,8 +119,8 @@ export function AuthPage({ register = false }: { register?: boolean }) {
             {register && (
               <>
                 <small className="muted">
-                  Al menos {minimumPasswordLength} caracteres. Se aplican
-                  también los requisitos de Supabase.
+                  Mínimo {minimumPasswordLength} caracteres. Utiliza una
+                  contraseña segura.
                 </small>
                 <label>
                   Confirmar contraseña

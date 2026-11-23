@@ -6,9 +6,11 @@ import { Alert, Loading } from './ui'
 export function DatasetRows({
   projectId,
   file,
+  sheet,
 }: {
   projectId: string
   file: ProjectFile
+  sheet?: string
 }) {
   const [offset, setOffset] = useState(0)
   const [page, setPage] = useState<DataPage | null>(null)
@@ -17,8 +19,11 @@ export function DatasetRows({
   const [retry, setRetry] = useState(0)
   useEffect(() => {
     let active = true
-    chatService
-      .rows(projectId, file.id, offset)
+    const query =
+      file.file_type === 'xlsx'
+        ? chatService.rows(projectId, file.id, offset, sheet)
+        : chatService.rows(projectId, file.id, offset)
+    query
       .then((result) => {
         if (active) setPage(result)
       })
@@ -36,7 +41,7 @@ export function DatasetRows({
     return () => {
       active = false
     }
-  }, [projectId, file.id, offset, retry])
+  }, [projectId, file.id, file.file_type, offset, retry, sheet])
   function goTo(next: number) {
     setLoading(true)
     setError('')
@@ -68,11 +73,13 @@ export function DatasetRows({
         page && (
           <>
             <p role="status">
-              {page.sheet ? `Hoja: ${page.sheet}. ` : ''}
+              {file.file_type === 'xlsx' && page.sheet
+                ? `Hoja: ${page.sheet}. `
+                : ''}
               {page.rows.length
                 ? `Filas ${page.offset + 1}–${page.offset + page.rows.length} de ${page.total_rows}`
                 : `No hay registros en esta página. Total: ${page.total_rows}`}
-              .
+              . {page.columns.length} columnas.
             </p>
             {file.file_type === 'xlsx' && (
               <p className="muted">

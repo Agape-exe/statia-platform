@@ -38,6 +38,23 @@ export function emptyContext(): ResearchContextDocument {
   }
 }
 
+export function contextFingerprint(document: ResearchContextDocument): string {
+  const normalized = Object.fromEntries(
+    contextFields.map(({ key, list }) => [
+      key,
+      list
+        ? document[key].map((value) => value.trim()).filter(Boolean)
+        : document[key]?.trim() || null,
+    ]),
+  )
+  return JSON.stringify({
+    ...normalized,
+    additional_fields: Object.entries(document.additional_fields)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => [key, value?.trim() || null]),
+  })
+}
+
 export function parseResearchContext(text: string): ResearchContextDocument {
   if (new TextEncoder().encode(text).length > 100000)
     throw new Error('El JSON supera los 100 KB permitidos para importar.')

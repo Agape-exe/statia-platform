@@ -1,4 +1,6 @@
 import type { ProjectFile } from '../types/chat'
+import { instrumentReading } from '../lib/instrument'
+import { statisticalTypeLabel } from '../lib/chat-text'
 
 const physical: Record<string, string> = {
   empty: 'Vacía',
@@ -16,27 +18,19 @@ const source: Record<string, string> = {
   native_boolean: 'Booleano nativo',
   empty: 'Vacía',
 }
-const statistical: Record<string, string> = {
-  identifier: 'Identificador probable',
-  temporal: 'Temporal probable',
-  categorical_or_ordinal: 'Categórica u ordinal',
-  quantitative: 'Cuantitativa probable',
-  categorical: 'Categórica probable',
-  mixed: 'Mixta; requiere aclaración',
-  unknown: 'Sin datos para inferir',
-}
-
 export function DatasetCard({
   file,
   busy,
   onSheet,
   onDownload,
   expanded,
+  instrumentAuthorized,
 }: {
   file: ProjectFile
   busy: boolean
   onSheet?: (sheet: string) => void
   expanded?: boolean
+  instrumentAuthorized?: boolean
   onDownload: () => void
 }) {
   const { profile } = file.metadata
@@ -46,48 +40,114 @@ export function DatasetCard({
         {file.original_name}{' '}
         <span className="muted">
           {file.file_role === 'instrument'
-            ? 'Instrumento PDF'
+            ? `Instrumento ${file.file_type.toUpperCase()}`
             : profile
               ? `${profile.row_count} filas · ${profile.column_count} columnas`
-              : file.metadata.needs_sheet_selection
+              : file.metadata.needs_sheet_selection && file.file_type === 'xlsx'
                 ? `Selecciona una de sus ${file.metadata.sheets.length} hojas para continuar`
                 : 'Perfil no disponible'}
         </span>
+        {file.file_role === 'instrument' && (
+          <span className="file-status">
+            {instrumentReading(file)}
+            {instrumentAuthorized !== undefined &&
+              ` · ${instrumentAuthorized ? 'Lectura autorizada' : 'Contenido no compartido'}`}
+          </span>
+        )}
       </summary>
       <div className="dataset-body">
         <button className="btn secondary" disabled={busy} onClick={onDownload}>
           Descargar original
         </button>
         <p className="muted">
-          {(file.file_size / 1024).toFixed(1)} KB ·{' '}
-          {file.metadata.selected_sheet
-            ? `Hoja: ${file.metadata.selected_sheet}`
+          {(file.file_size / 1024).toFixed(1)} KB
+          {file.file_type === 'xlsx' && file.metadata.selected_sheet
+            ? ` · Hoja: ${file.metadata.selected_sheet}`
             : file.metadata.pages
-              ? `${file.metadata.pages} ${file.metadata.pages === 1 ? 'página' : 'páginas'}`
-              : ''}
+              ? ` · ${file.metadata.pages} ${file.metadata.pages === 1 ? 'página' : 'páginas'}`
+              : ` · ${file.file_type.toUpperCase()}`}
         </p>
-        {file.metadata.needs_sheet_selection && onSheet && (
-          <label>
-            Hoja de {file.original_name}
-            <select
-              disabled={busy}
-              value=""
-              onChange={(e) => {
-                if (e.target.value) onSheet(e.target.value)
-              }}
-            >
-              <option value="" disabled>
-                Elige una hoja
-              </option>
-              {file.metadata.sheets.map((sheet) => (
-                <option key={sheet}>{sheet}</option>
-              ))}
-            </select>
-          </label>
+        {file.file_type === 'xlsx' && file.metadata.sheet_profiles && (
+          <div className="table-scroll">
+            <table>
+              <caption>
+                Estructura del libro: hojas independientes, sin combinar
+              </caption>
+              <thead>
+                <tr>
+                  <th>Hoja</th>
+                  <th>Registros</th>
+                  <th>Columnas</th>
+                  <th>Ausentes</th>
+                  <th>Advertencias</th>
+                </tr>
+              </thead>
+              <tbody>
+                {file.metadata.sheet_profiles.map((entry) => (
+                  <tr key={entry.sheet}>
+                    <th scope="row">{entry.sheet}</th>
+                    <td>{entry.profile?.row_count ?? 'No disponible'}</td>
+                    <td>{entry.profile?.column_count ?? '—'}</td>
+                    <td>{entry.profile?.missing_count ?? '—'}</td>
+                    <td>
+                      {entry.warnings.join(' ') ||
+                        (entry.status === 'available'
+                          ? 'Tipos tentativos'
+                          : 'No examinable')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {file.file_type === 'xlsx' &&
+          file.metadata.needs_sheet_selection &&
+          onSheet && (
+            <label>
+              Hoja de {file.original_name}
+              <select
+                disabled={busy}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) onSheet(e.target.value)
+                }}
+              >
+                <option value="" disabled>
+                  Elige una hoja
+                </option>
+                {file.metadata.sheets.map((sheet) => (
+                  <option
+                    key={sheet}
+                    disabled={file.metadata.sheet_profiles?.some(
+                      (entry) =>
+                        entry.sheet === sheet && entry.status !== 'available',
+                    )}
+                  >
+                    {sheet}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        {file.file_role === 'instrument' && (
+          <p className="notice">
+            Lectura:{' '}
+            {file.metadata.extraction_status === 'extracted'
+              ? 'texto recuperado; no garantiza reproducir el diseño visual'
+              : file.metadata.extraction_status === 'partial'
+                ? 'extracción parcial'
+                : file.metadata.extraction_status === 'no_text'
+                  ? 'sin texto accesible; OCR no disponible'
+                  : 'extracto histórico parcial; se revisará el original al autorizar una consulta'}
+            . Archivo asociado no significa documento leído por el proveedor.
+          </p>
         )}
         {file.file_role === 'instrument' && file.metadata.text_excerpt && (
           <details>
-            <summary>Texto extraído del instrumento</summary>
+            <summary>
+              Vista previa del texto recuperado (hasta 16 000 caracteres)
+            </summary>
             <p className="instrument-excerpt">{file.metadata.text_excerpt}</p>
             <p className="muted">
               Compartir extractos con el proveedor requiere habilitarlo
@@ -160,10 +220,7 @@ export function DatasetCard({
                           column.inferred_type || column.physical_type
                         ] || column.physical_type}
                       </td>
-                      <td>
-                        {statistical[column.statistical_type] ||
-                          column.statistical_type}
-                      </td>
+                      <td>{statisticalTypeLabel(column.statistical_type)}</td>
                       <td>
                         {column.missing}
                         {!!column.ambiguous_missing &&

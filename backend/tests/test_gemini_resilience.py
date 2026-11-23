@@ -176,7 +176,7 @@ def test_transient_failure_keeps_turn_files_and_safe_replay(api, monkeypatch, co
     files = copy.deepcopy(store.data["project_files"])
     request_id = str(uuid4())
 
-    failed_response = turn(client, path, action="files_ready", request_id=request_id)
+    failed_response = turn(client, path, content="Quiero describir nota con un plan descriptivo", request_id=request_id)
     assert failed_response.headers["X-Gemini-Status"] == str(code)
     failed = client.get(path).json()
     assert failed["retry_turn"]["request_id"] == request_id
@@ -187,11 +187,16 @@ def test_transient_failure_keeps_turn_files_and_safe_replay(api, monkeypatch, co
     assert not failed["proposals"]
     assert store.objects == originals and store.data["project_files"] == files
 
-    assert turn(client, path, action="files_ready", request_id=request_id).status_code == 200
+    assert (
+        turn(client, path, content="Quiero describir nota con un plan descriptivo", request_id=request_id).status_code
+        == 200
+    )
     completed = client.get(path).json()
     assert len(completed["proposals"]) == 1
     assert len(completed["messages"]) == len(before["messages"]) + 2
-    assert turn(client, path, action="files_ready", request_id=request_id).json()["replayed"]
+    assert turn(client, path, content="Quiero describir nota con un plan descriptivo", request_id=request_id).json()[
+        "replayed"
+    ]
     assert client.get(path).json() == completed
     assert len(sdk.calls) == attempts + 1
 

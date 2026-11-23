@@ -8,16 +8,26 @@ Se guarda en stage_data JSONB v1; no modifica planes, resultados ni RPC históri
 import re
 
 from app.models.chat import AssistantReply
-from app.services.conversation_text import action_of
+from app.services.conversation_text import (
+    action_of,
+    independent_proposal,
+    informational_mode,
+    proposal_limit,
+)
 from app.services.plan_capabilities import (
     OUTPUTS,
+    SUMMARY_STATISTICS,
     normalized,
     output_request,
     validate_products,
 )
 from app.services.planning_errors import PlanningError
 
+SCOPE_RECOGNIZER_VERSION = 6
+
 LABELS = {
+    **SUMMARY_STATISTICS,
+    "numeric_summary": "N válido, media, mediana, DE muestral, mínimo y máximo",
     "global": "Resúmenes globales",
     "grouped": "Resúmenes por grupo",
     "frequencies": "Frecuencias categóricas",
@@ -37,7 +47,7 @@ LABELS = {
     "paired_change_interval": "Estimación del cambio con incertidumbre",
 }
 USER_ALIASES = {
-    **OUTPUTS,
+    **{alias: kinds for alias, kinds in OUTPUTS.items() if alias != "de"},
     "globales y por grupo": ("global", "grouped"),
     "frecuencias del grupo": ("group_frequencies",),
 }
@@ -53,6 +63,40 @@ NATURAL_PRODUCTS = (
     (r"\b(?:anova(?: de welch)?|f de welch)\b", "global_test"),
 )
 NEGATION = re.compile(r"\b(?:no (?:quiero|incluir|incluyas|solicito|necesito)|sin|excepto|excluir|excluye)\s+")
+FREQUENCIES = re.compile(r"\b(?:tabla de )?frecuencias(?: absolutas)?(?: y porcentajes)?\b")
+EXCLUSIONS = {
+    "no_filters": r"\b(?:sin filtros|todos los registros(?: disponibles)?|todas las observaciones)\b",
+    "no_groups": r"\b(?:sin|ni) agrupaci(?:on|ones)\b",
+    "no_charts": r"\b(?:sin|ni) graficos?\b",
+    "only_selected_variables": r"\b(?:sin|ni) otras variables\b",
+    "only_requested_outputs": r"\b(?:(?:solo (?:quiero |necesito )?|exclusivamente )una tabla|(?:sin|ni) (?:resultados|productos) adicionales)\b",
+}
+
+
+def request_clauses(text):
+    """Conserva la polaridad de una enumeración hasta otra instrucción u oración.
+
+    Una coma enumera productos: no cancela «sin»/«no incluir». Los marcadores
+    de sección describen la solicitud, no constituyen productos ejecutables.
+    Devuelve fragmentos positivos y excluidos para compartir una interpretación
+    entre productos y restricciones, sin consultar al proveedor.
+    """
+    positive, negative = [], []
+    for sentence in re.split(r"[;.!]|\b(?:pero|solo|unicamente|exclusivamente)\b", text):
+        excluded = False
+        for clause in sentence.split(","):
+            clause = re.sub(r"\b(?:productos?|resultados)(?: solicitados?| esperados?)?\s*:", "", clause)
+            match = NEGATION.search(clause)
+            if match:
+                if clause[: match.start()].strip():
+                    (negative if excluded else positive).append(clause[: match.start()])
+                negative.append(clause[match.end() :])
+                excluded = True
+            else:
+                if re.match(r"\s*(?:quiero|solicito|incluye|incluir|agrega|necesito)\b", clause):
+                    excluded = False
+                (negative if excluded else positive).append(clause)
+    return positive, negative
 
 
 def parse_products(text):
@@ -62,9 +106,18 @@ def parse_products(text):
         if re.search(pattern, residue):
             products.update(USER_ALIASES[alias])
             residue = re.sub(pattern, " ", residue)
+    if FREQUENCIES.search(residue):
+        if not products & {"frequencies", "grouped_frequencies", "group_frequencies"}:
+            products.add("frequencies")
+        residue = FREQUENCIES.sub(" ", residue)
     for pattern, product in NATURAL_PRODUCTS:
         if re.search(pattern, residue):
-            products.add(product)
+            if pattern != NATURAL_PRODUCTS[0][0] or not products & {
+                "frequencies",
+                "grouped_frequencies",
+                "group_frequencies",
+            }:
+                products.add(product)
             residue = re.sub(pattern, " ", residue)
     if re.search(r"describir todas las observaciones|describir los datos globalmente", text):
         products.add("global")
@@ -72,14 +125,23 @@ def parse_products(text):
         products.add("grouped")
     # «p global»/«contraste global» no describe el alcance de las medias.
     summary_scope = re.sub(r"\b(?:p|anova|contraste|prueba|estadistico(?: de prueba)?) global\b", "", text)
-    if "global" in products and re.search(r"por grupo|segun [\w`]+", text) and not re.search(r"global", summary_scope):
-        products.remove("global")
+    if (
+        re.search(r"por grupo|segun [\w`]+", text)
+        and not re.search(r"global", summary_scope)
+        and products & {"global", "mean", "sample_sd", "valid_n"}
+    ):
+        products.discard("global")
+        # N/media/DE por grupo ya pertenecen al resumen agrupado. No exigir
+        # además un descriptivo de todas las filas por reconocer cada nombre.
+        products.difference_update({"mean", "sample_sd", "valid_n"})
         products.add("grouped")
     return products, residue
 
 
 def product_request(text):
     literal = normalized(text)
+    if proposal_limit(text) is None and informational_mode(text):
+        return set(), set(), False, False
     if re.match(
         r"(?:que (?:es|son|significa)|como (?:funciona|se interpreta)|explica(?:me)?\b)", literal.lstrip("¿?¡! ")
     ):
@@ -88,15 +150,17 @@ def product_request(text):
         return set(), set(), False, False
     literal = re.sub(r"confirmo que `[^`]+` es cuantitativa (?:discreta|continua)[.;]?", "", literal).strip()
     # Separar exclusiones antes de reconocer productos; nunca acreditarlas como solicitudes.
-    positive, negative = [], []
-    for clause in re.split(r"[,;.!]|\b(?:pero|solo|unicamente)\b", literal):
-        match = NEGATION.search(clause)
-        if match:
-            positive.append(clause[: match.start()])
-            negative.append(clause[match.end() :])
-        else:
-            positive.append(clause)
+    positive, negative = request_clauses(literal)
+    positive = ["de muestral" if clause.strip() == "de" else clause for clause in positive]
     products, residue = parse_products(" ".join(positive))
+    if proposal_limit(text) is not None:
+        # La forma genérica de presentar los productos del plan no pide un
+        # gráfico concreto ni sustituye los productos estadísticos solicitados.
+        residue = re.sub(
+            r"\btablas y graficos(?: (?:esperados|previstos))?(?=\s*(?:$|[-:•]|\by (?:las )?limitaciones\b|no ejecutes\b))",
+            "",
+            residue,
+        )
     excluded, excluded_residue = parse_products(" ".join(negative))
     # Sin IC es una restricción ejecutable del descriptivo, no una solicitud de IC.
     if re.search(r"sin intervalos(?: de confianza)?", literal):
@@ -105,7 +169,9 @@ def product_request(text):
         excluded_residue = re.sub(r"intervalos(?: de confianza)?", "", excluded_residue)
     if re.search(r"(?:sin|no (?:quiero|incluir|incluyas)) (?:comparaciones )?post[ -]?hoc", literal):
         excluded.add("posthoc")
-    if re.search(r"sin inferencia|exclusivamente descriptiv|solo descriptiv", literal):
+    if re.search(r"sin inferencia|exclusivamente descriptiv|solo descriptiv", literal) or re.search(
+        r"\b(?:inferencia|pruebas inferenciales)\b", " ".join(negative)
+    ):
         excluded.update(
             {
                 "p_value",
@@ -132,9 +198,9 @@ def user_products(text):
     return products, uncertain, mentioned
 
 
-def requested_scope(conversation, messages, turn):
+def requested_scope(conversation, messages, turn, files=()):
     saved = conversation.get("stage_data", {}).get("requested_scope")
-    if saved and saved.get("recognizer_version") != 2:
+    if saved and saved.get("recognizer_version") != SCOPE_RECOGNIZER_VERSION:
         # Reparar únicamente cachés derivadas cuya evidencia completa aún está
         # disponible. Nunca inferir que se puede recortar un historial truncado.
         source_ids = set(saved.get("source_requests", []))
@@ -143,7 +209,7 @@ def requested_scope(conversation, messages, turn):
             saved = None
     scope = dict(saved) if saved else {"version": 1, "products": [], "unresolved": False, "mode": "analysis"}
     scope["source_requests"] = list(scope.get("source_requests", []))
-    scope["recognizer_version"] = 2
+    scope["recognizer_version"] = SCOPE_RECOGNIZER_VERSION
     if saved:
         watermark = saved.get("through_position", -1)
         candidates = [
@@ -170,7 +236,29 @@ def requested_scope(conversation, messages, turn):
         literal = normalized(message["content"])
         decision = literal.startswith(("confirmo alcance:", "cambio de alcance:"))
         products, excluded, uncertain, mentioned = product_request(message["content"])
-        if not mentioned:
+        count = proposal_limit(message["content"])
+        constraints = (
+            {name for name, pattern in EXCLUSIONS.items() if re.search(pattern, literal)}
+            if count or mentioned
+            else set()
+        )
+        _, negative = request_clauses(literal)
+        exclusions = " ".join(negative)
+        if count or mentioned:
+            for name, pattern in {
+                "no_filters": r"\bfiltros\b",
+                "no_groups": r"\bagrupaci(?:on|ones)\b",
+                "no_charts": r"\bgraficos?\b",
+                "only_selected_variables": r"\botras variables\b",
+            }.items():
+                if re.search(pattern, exclusions):
+                    constraints.add(name)
+        # Un producto exclusivo y completo delimita la nueva propuesta aunque
+        # la petición empiece con una introducción conversacional («Ahora sí»).
+        independent = independent_proposal(message["content"]) or (
+            count == 1 and products and not uncertain and "only_requested_outputs" in constraints
+        )
+        if not mentioned and not constraints and not independent:
             continue
         natural_decision = (
             scope["unresolved"]
@@ -180,11 +268,16 @@ def requested_scope(conversation, messages, turn):
                 re.search(r"\b(?:solo|unicamente)\b|^confirmo (?:que quiero|la descripcion|la descriptiva)", literal)
             )
         )
-        if decision or natural_decision:
+        if decision or natural_decision or independent:
             scope["products"], scope["unresolved"] = [], False
             scope["excluded_products"] = []
-            if literal.startswith("cambio de alcance:"):
+            scope["constraints"] = []
+            scope.pop("variables", None)
+            scope.pop("product_sources", None)
+            if independent or literal.startswith("cambio de alcance:"):
                 scope["required_methods"] = []
+            if independent:
+                scope["source_requests"] = []
         # Un contraste expresamente pedido no puede sustituirse por otro que
         # entregue productos parecidos. Las exclusiones no crean compromisos.
         positive = " ".join(
@@ -194,23 +287,45 @@ def requested_scope(conversation, messages, turn):
             scope["required_methods"] = sorted(set(scope.get("required_methods", [])) | {"welch_anova"})
         scope["products"] = sorted(set(scope["products"]) | products)
         scope["excluded_products"] = sorted(set(scope.get("excluded_products", [])) | excluded)
+        if constraints:
+            scope["constraints"] = sorted(set(scope.get("constraints", [])) | constraints)
+        if "only_selected_variables" in constraints or (
+            "only_requested_outputs" in constraints and products == {"frequencies"}
+        ):
+            matching = [
+                {"file_id": file["id"], "sheet": file["metadata"].get("selected_sheet"), "column": column["name"]}
+                for file in files
+                for column in file["metadata"].get("profile", {}).get("columns", [])
+                if re.search(r"(?<!\w)" + re.escape(normalized(column["name"])) + r"(?!\w)", literal)
+            ]
+            if matching:
+                scope["variables"] = matching
         if set(scope["products"]) & set(scope["excluded_products"]):
             uncertain = True
         scope["unresolved"] = scope["unresolved"] or uncertain
-        if "alternativas independientes" in literal:
-            scope["mode"] = "alternatives"
-        elif "mismo analisis" in literal or decision:
+        if "mismo analisis" in literal or decision or count == 1:
             scope["mode"] = "analysis"
+        elif "alternativas independientes" in literal or count and count > 1:
+            scope["mode"] = "alternatives"
         request_id = message.get("metadata", {}).get("request_id")
         if not request_id and message["content"] == turn.content and turn.action == "message":
             request_id = str(turn.request_id)
         if request_id and request_id not in scope["source_requests"]:
             scope["source_requests"].append(request_id)
+        if request_id and products:
+            provenance = dict(scope.get("product_sources", {}))
+            for product in products:
+                provenance[product] = list(dict.fromkeys([*provenance.get(product, []), request_id]))[-30:]
+            scope["product_sources"] = provenance
     scope["source_requests"] = scope["source_requests"][-30:]
     scope["through_position"] = max(
         [scope.get("through_position", -1), *[m["position"] for m in candidates if isinstance(m.get("position"), int)]]
     )
-    return scope if scope["products"] or scope.get("excluded_products") or scope["unresolved"] else None
+    return (
+        scope
+        if scope["products"] or scope.get("excluded_products") or scope.get("constraints") or scope["unresolved"]
+        else None
+    )
 
 
 def validate_plan_scope(plan, scope, files):
@@ -221,8 +336,23 @@ def validate_plan_scope(plan, scope, files):
             "requested_scope", "El usuario debe confirmar el alcance antes de recibir propuestas definitivas."
         )
     from app.services.statistics.methods import named_methods
+    from app.services.statistics.preparation import plan_filters
 
-    methods = set().union(*(named_methods(s) for s in (plan.components if plan.procedure == "integral" else [plan])))
+    steps = plan.components if plan.procedure == "integral" else [plan]
+    constraints = set(scope.get("constraints", []))
+    if "no_filters" in constraints and (plan_filters(plan) or plan.comparison and plan.comparison.strata):
+        raise PlanningError("requested_scope", "Usa todos los registros y conserva la solicitud sin filtros.")
+    if "no_groups" in constraints and any(v.role == "group" for step in steps for v in step.variables):
+        raise PlanningError("requested_scope", "El usuario pidió un análisis sin agrupaciones.")
+    if variables := scope.get("variables"):
+        wanted = {(v["file_id"], v["sheet"], v["column"]) for v in variables}
+        if {(v.file_id, v.sheet, v.column) for v in plan.variables} != wanted:
+            raise PlanningError("requested_scope", "Usa exclusivamente las variables solicitadas en la propuesta.")
+    if "no_charts" in constraints and any(
+        re.search(r"\b(?:graficos?|png|histogramas?)\b", normalized(text)) for text in plan.expected_outputs
+    ):
+        raise PlanningError("requested_scope", "El usuario excluyó los gráficos de los productos esperados.")
+    methods = set().union(*(named_methods(s) for s in steps))
     if not set(scope.get("required_methods", [])) <= methods:
         raise PlanningError(
             "requested_scope",
@@ -230,8 +360,40 @@ def validate_plan_scope(plan, scope, files):
         )
     validate_products(plan, files)  # Conserva también las ligaduras a componentes.
     declared = {kind for text in plan.expected_outputs for kind in OUTPUTS.get(output_request(text)[1], ())}
+    if "only_requested_outputs" in constraints and scope["products"] == ["frequencies"]:
+        if len(plan.expected_outputs) != 1 or declared != {"frequencies"} or plan.components or plan.joins:
+            raise PlanningError("requested_scope", "Incluye únicamente la tabla de frecuencias categóricas solicitada.")
+    from app.services.plan_capabilities import DEFAULT_OUTPUTS
+
+    if (
+        plan.procedure in {"descriptive", "exploratory"}
+        and not plan.components
+        and any(output_request(text)[1] in DEFAULT_OUTPUTS for text in plan.expected_outputs)
+    ):
+        # El motor del descriptivo simple ya entrega estos productos. Comprobar
+        # la cobertura real antes de acreditar un alias, sin cambiar el método.
+        for product in set(scope["products"]) & {"global", "grouped", "frequencies", "grouped_frequencies"}:
+            validate_products(plan.model_copy(update={"expected_outputs": [LABELS[product]]}), files)
+            declared.add(product)
+    if (
+        "global" in scope["products"]
+        and "frequencies" in declared
+        and plan.procedure in {"descriptive", "exploratory"}
+        and not plan.components
+    ):
+        from app.services.plan_capabilities import product_coverage
+
+        _, groups, measures, categories, covered = product_coverage(plan, files)
+        if not groups and measures and measures <= categories and measures <= covered["frequencies"]:
+            # En una selección exclusivamente categórica, las frecuencias de
+            # todas las observaciones son su descripción global, sin otro método.
+            declared.add("global")
+    if "global" in declared or "numeric_summary" in declared:
+        declared.update(SUMMARY_STATISTICS)
+    if set(SUMMARY_STATISTICS) <= declared:
+        declared.add("numeric_summary")
+        declared.add("global")
     excluded = set(scope.get("excluded_products", []))
-    steps = plan.components if plan.procedure == "integral" else [plan]
     if {"global_test", "correlation_coefficient", "p_value"} <= excluded and any(
         s.procedure not in {"descriptive", "exploratory"} for s in steps
     ):
@@ -271,6 +433,24 @@ def validate_scope_reply(reply, scope, files):
             "requested_scope",
             "La finalidad conserva productos pendientes; explica la limitación y solicita una decisión explícita sin afirmar que está resuelta.",
         )
+    elif {"no_filters", "no_groups"} <= set(scope.get("constraints", [])) and any(
+        re.search(r"\b(?:deseas|prefieres|quieres)\b.{0,95}\b(?:por grupo|agrup(?:ar|adas|ados))\b", normalized(q))
+        for q in reply.questions
+    ):
+        raise PlanningError("requested_scope", "Ya se indicó utilizar todos los registros sin agrupaciones.")
+    elif (
+        scope["products"]
+        and not scope["unresolved"]
+        and any(
+            re.search(
+                r"que productos?.*(?:definir|deseas|quieres)|(?:define|especifica) (?:el|los) productos?", normalized(q)
+            )
+            for q in reply.questions
+        )
+    ):
+        raise PlanningError(
+            "requested_scope", "Los productos ya están especificados; no solicites definirlos nuevamente."
+        )
 
 
 def scope_question(scope, *, provider_failed=False):
@@ -290,13 +470,26 @@ def scope_question(scope, *, provider_failed=False):
         if products
         else "No podemos verificar qué productos debe incluir la propuesta. "
     )
+    question = "No pude interpretar todo el alcance de la solicitud. Indica qué producto adicional o cambio deseas, conservando los productos y restricciones ya reconocidos."
     return AssistantReply(
         response=detail
         + "No se guardó una propuesta que reduzca ese alcance. Necesitamos aclararlo o generar componentes que lo cubran.",
         suggested_stage="clarification",
-        questions=[
-            "¿Deseas describir todas las observaciones, resumirlas por grupo o combinar ambos alcances? Indica también cualquier producto adicional o exclusión que debamos conservar."
-        ],
+        questions=[question],
         clarification_required=True,
         confirmation_required=False,
     )
+
+
+async def proposal_scope(store, proposal, fallback=None):
+    """Lee el alcance de la respuesta que creó la tarjeta. Admite planes legados."""
+    if source := proposal.get("source_message_id"):
+        rows = await store.rows(
+            "messages",
+            {"id": source, "conversation_id": proposal["conversation_id"], "role": "assistant"},
+            select="metadata",
+            limit=1,
+        )
+        if rows and "requested_scope" in rows[0]["metadata"]:
+            return rows[0]["metadata"]["requested_scope"]
+    return fallback

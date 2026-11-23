@@ -6,6 +6,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = [
+    "app/services/instruments.py",
+    "app/services/instrument_worker.py",
+    "app/services/instrument_context.py",
+    "app/services/reply_contract.py",
+    "tests/test_instruments.py",
+    "tests/test_thesis_stability.py",
+    "app/services/workbook.py",
+    "tests/test_excel_multihoja.py",
     "app/services/descriptive_feasibility.py",
     "tests/test_hotfix_final.py",
     "app/services/data_preview.py",
@@ -15,6 +23,7 @@ TARGETS = [
     "tests/test_session6.py",
     "tests/test_inferential_products.py",
     "tests/test_requested_scope.py",
+    "tests/test_frequency_contract.py",
     "app/services/requested_scope.py",
     "tests/test_plan_capabilities.py",
     "tests/test_provider_rollback.py",

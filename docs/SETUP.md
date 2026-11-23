@@ -1,5 +1,23 @@
 # Configuración local
 
+Sesión 09: [estabilización documental y rediseño](SESSION9_REPORT.md). Sin nuevas
+dependencias, migraciones ni variables. Reiniciar API y Vite si no están en modo
+recarga. El consentimiento aparece al asociar instrumentos y se modifica junto al
+compositor; no se activa automáticamente. Se solicita de nuevo al añadir instrumentos,
+cambiar proveedor o recargar/salir del asistente. La elección solo afecta a turnos futuros.
+
+Para inspeccionar el diseño sin sesión remota, abrir con Vite activo
+`http://localhost:5173/visual/index.html?screen=dashboard`. La misma entrada admite
+`screen=asistente`, `contexto`, `datos`, `resultados`, `login` o `registro`. Usa componentes
+reales con fixtures sintéticas, bloquea llamadas de red y no forma parte de `dist`.
+No valida proveedores, RLS o persistencia remotos. No usarla para datos reales.
+
+**Migración 009:** el usuario confirma que ya se aplicó manualmente en el Supabase
+de validación. No se vuelve a ejecutar durante esta sesión; se conserva el archivo.
+Antes de futuros despliegues debe conciliarse con el historial de migraciones y
+verificarse el entorno de destino. Esto actualiza el requisito pendiente descrito
+históricamente en la Sesión 08; no es una comprobación remota realizada aquí.
+
 Sesión 6B: ver [Welch, vista de registros y validación final](SESSION6B_REPORT.md).
 Sin variables nuevas, migraciones ni cambios de configuración remota.
 
@@ -88,6 +106,73 @@ Requiere migración remota, sesiones de usuario y credenciales Gemini autorizada
 5. Probar cuota/error transitorio, clave ausente, formato inválido, archivo grande, PDF escaneado y sesión vencida. Reintentar sin mensajes duplicados ni respuestas simuladas. Los planes no deben mostrar resultados inferenciales.
 
 ## Problemas frecuentes
+
+### Instrumentos Word/PDF y tesis — Sesión 08
+
+La versión local admite instrumentos PDF y DOCX en General y Tesis. DOC antiguo,
+DOCM, archivos cifrados y objetos activos no son formatos admitidos: convertir
+una copia a DOCX sin contraseña/objetos o PDF. El original aceptado permanece
+privado, descargable y reutilizable dentro del mismo proyecto.
+
+Reinstalar `backend/requirements-dev.txt` para incorporar `defusedxml` (Python
+puro; sin OCR ni conversores del sistema). No hay variables nuevas.
+
+**Requisito de esquema para DOCX:** la migración local
+`supabase/migrations/202611200009_instrument_docx.sql` amplía exclusivamente los
+CHECK de tipo/rol y el MIME del bucket privado existente. El usuario confirma que
+ya se aplicó manualmente en su entorno de validación. No volver a ejecutarla;
+conciliar el historial de migraciones antes de futuros despliegues y revisar otros
+destinos en una fase autorizada. La Sesión 08 la preparó localmente y la Sesión 09
+no ejecuta operaciones remotas. No volver a ejecutar migraciones anteriores.
+PDF y los archivos históricos conservan sus referencias.
+
+Al asociar instrumentos, elegir «Permitir consultar fragmentos» solo después de
+revisar el contenido y el proveedor indicado. «Continuar sin compartir» conserva
+el archivo privado sin enviarlo. La franja junto al compositor permite cambiar la
+elección; las opciones de privacidad siguen disponibles. La autorización
+está vinculada al proyecto, conversación y proveedor; cambiar de proveedor
+requiere autorizar otra vez. No se comparten originales. Desactivar la opción
+evita nueva recuperación documental, pero los mensajes anteriores siguen en el
+historial compartido. Una consulta sin autorización informa el límite sin llamar
+al proveedor. Especificar el código o términos buscados ayuda a recuperar texto
+alejado del comienzo; el asistente indica documento y ubicación de los fragmentos.
+
+Límites documentales: hasta 10 MB comprimidos y el máximo de archivo configurado;
+30 MB expandidos por defecto, 500 entradas DOCX, expansión máxima 200:1 por entrada,
+8 MiB por parte XML interpretada, 80 páginas PDF, 240 000 caracteres recuperados
+(incluye solapamientos), 600 fragmentos. Un proceso de extracción por semáforo,
+20 segundos, RSS observada del hijo hasta 192 MiB y API+hijo hasta 450 MiB.
+La monitorización cada 100 ms no garantiza que no haya picos entre mediciones;
+la instancia Render real sigue pendiente de medir. Mantener un worker.
+
+PDF escaneado puede carecer de texto; no hay OCR. PDF multicolumna/tablas puede
+perder orden. Word recupera párrafos, tablas, encabezados/pies, notas y comentarios;
+no reproduce páginas, numeración automática ni imágenes y avisa de lectura parcial.
+La vista previa local sigue limitada a 16 000 caracteres; la búsqueda usa todos los
+fragmentos conservados. Por turno se recuperan hasta diez fragmentos y 12 000
+caracteres en total. No encontrar un código no prueba que no exista fuera de lo
+recuperable. Instrumentos históricos se amplían temporalmente desde el original
+solo cuando se autoriza compartir, sin reescribir su metadata histórica.
+
+Contexto muestra revisión confirmada y borrador modificado; revisar/guardar se
+habilita con cambios reales. Un 409 conserva el borrador y exige revisar la versión
+guardada; el chat no escribe Contexto. Resultados añade una vista local optativa
+para declarar categorías de no información; no modifica resultados ni descargas.
+
+Comprobaciones, causas y pendientes: [informe de Sesión 08](SESSION8_REPORT.md).
+
+### Excel multihoja — Sesión 07
+
+Reiniciar backend y frontend; no requiere migraciones, dependencias ni variables
+nuevas. El asistente recibe la estructura global del libro antes de seleccionar
+una hoja para planes. En Datos, abrir «Ver datos» o «Consultar metadatos y perfil»
+para cargar el selector «Hoja visible». Cambiarlo solo actualiza la vista; la
+hoja del asistente conserva su protección histórica. Los perfiles de archivos
+antiguos se amplían temporalmente al consultar, sin reescribirlos.
+
+Validaciones locales, límites y comprobaciones externas pendientes:
+[informe de Sesión 07](SESSION7_REPORT.md). Medición sintética de memoria:
+desde backend ejecutar `./.venv/Scripts/python scripts/measure_workbook_memory.py`.
 
 ### Comprobar perfilado y continuidad corregidos
 

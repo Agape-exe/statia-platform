@@ -79,6 +79,11 @@ def test_save_revision_and_conflict_preserve_current_context(api):
     response = client.put(path, json=body)
     assert response.status_code == 200
     assert response.json()["context"]["revision"] == 1
+    same = client.put(path, json={**body, "expected_revision": 1})
+    assert same.status_code == 200 and same.json()["context"]["revision"] == 1
+    assert store.data["research_contexts"][0]["revision"] == 1
+    # Una revisión obsoleta sigue en conflicto aunque el contenido coincida.
+    assert client.put(path, json=body).status_code == 409
     assert (
         client.put(path, json={**body, "document": document(research_title="Sobrescritura obsoleta")}).status_code
         == 409

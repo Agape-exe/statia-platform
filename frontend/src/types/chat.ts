@@ -69,12 +69,15 @@ export interface Message {
   content: string
   message_type: string
   metadata: {
+    technical_details?: boolean
     selected_provider?: AssistantProviderId
     generation?: Generation | null
     source?: string
     event?: string
     questions?: string[]
     warnings?: string[]
+    clarification_required?: boolean
+    interaction_mode?: 'understanding' | 'document' | 'methodology' | 'planning'
     request_id?: string
     analysis_run_id?: string
     execution_preparation?: import('./analysis').ExecutionPreparation | null
@@ -112,8 +115,18 @@ export interface ProjectFile {
   file_size: number
   metadata: {
     sheets: string[]
-    selected_sheet?: string
+    selected_sheet?: string | null
+    workbook_profile_version?: number
+    sheet_profiles?: {
+      sheet: string
+      status: 'available' | 'unavailable'
+      warnings: string[]
+      profile?: NonNullable<ProjectFile['metadata']['profile']>
+    }[]
     needs_sheet_selection?: boolean
+    extraction_status?: 'extracted' | 'partial' | 'no_text'
+    extracted_chars?: number
+    instrument_extraction_version?: number
     text_excerpt?: string
     pages?: number
     warnings?: string[]

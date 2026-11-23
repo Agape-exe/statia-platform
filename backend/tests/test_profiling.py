@@ -101,7 +101,7 @@ def test_pdf_no_text_is_retained_without_ocr():
     profile = inspect_file('instrumento.pdf', out.getvalue(), 'instrument', Settings())
     assert profile['pages'] == 1
     assert not profile['text_excerpt']
-    assert 'OCR' in profile['warnings'][0]
+    assert any('OCR' in warning for warning in profile['warnings'])
 
 
 def test_filename_cannot_escape_path():

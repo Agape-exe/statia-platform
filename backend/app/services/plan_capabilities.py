@@ -25,7 +25,21 @@ la misma familia si sus alcances son distintos (global, agrupado y frecuencias);
 no añadas inferencia para cumplir una cuota de procedimientos. Si falta alcance,
 pregunta sin propuestas definitivas. No conviertas errores
 de cobertura en avisos ni borres productos solicitados sin decisión del usuario.
+Para una descriptiva univariada cuantitativa sin agrupador, «Resúmenes globales»
+significa resumir las observaciones de la variable y hoja seleccionadas; no todo
+el libro ni otras variables. Produce N válido, media, mediana, DE muestral, mínimo
+y máximo. Esos seis nombres también son productos explícitos del catálogo.
+No pidas aclarar ese alcance si ya están identificadas variable y hoja.
 """
+
+SUMMARY_STATISTICS = {
+    "valid_n": "N válido",
+    "mean": "Media",
+    "median": "Mediana",
+    "sample_sd": "DE muestral",
+    "minimum": "Mínimo",
+    "maximum": "Máximo",
+}
 
 DEFAULT_OUTPUTS = frozenset(
     {
@@ -41,6 +55,21 @@ DEFAULT_OUTPUTS = frozenset(
     }
 )
 OUTPUTS = {
+    **{
+        normalized_name: (kind,)
+        for normalized_name, kind in (
+            ("n valido", "valid_n"),
+            ("media", "mean"),
+            ("mediana", "median"),
+            ("de muestral", "sample_sd"),
+            ("desviacion estandar muestral", "sample_sd"),
+            ("desviacion estandar", "sample_sd"),
+            ("de", "sample_sd"),
+            ("minimo", "minimum"),
+            ("maximo", "maximum"),
+            ("n valido, media, mediana, de muestral, minimo y maximo", "numeric_summary"),
+        )
+    },
     "resumenes globales": ("global",),
     "resumen global": ("global",),
     "descriptivos globales": ("global",),
@@ -49,6 +78,8 @@ OUTPUTS = {
     "descriptivos por grupo": ("grouped",),
     "resumenes agrupados": ("grouped",),
     "frecuencias categoricas": ("frequencies",),
+    "tabla de frecuencias absolutas y porcentajes por categoria": ("frequencies",),
+    "tabla de frecuencias absolutas y porcentajes": ("frequencies",),
     "frecuencias categoricas globales": ("frequencies",),
     "frecuencias categoricas por grupo": ("grouped_frequencies",),
     "frecuencias de la variable de agrupacion": ("group_frequencies",),
@@ -301,6 +332,23 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                 "El plan original se conserva y no se recortan productos automáticamente.",
             )
         for kind in kinds:
+            if kind in SUMMARY_STATISTICS or kind == "numeric_summary":
+                quantitative = (
+                    {
+                        (f["id"], f["metadata"].get("selected_sheet"), c["name"])
+                        for f in files or []
+                        for c in f["metadata"].get("profile", {}).get("columns", [])
+                        if c.get("statistical_type") == "quantitative"
+                    }
+                    if decisions is None
+                    else {key(d.variable) for d in decisions if d.statistical_type in {"continuous", "discrete"}}
+                )
+                if not measures or not measures <= quantitative or not measures <= covered["global"]:
+                    raise PlanningError(
+                        "output_capability",
+                        "Las medidas descriptivas solicitadas requieren un descriptivo cuantitativo global para todas sus variables, sin agrupador.",
+                    )
+                continue
             if kind == "no_posthoc":
                 steps = plan.components if plan.procedure == "integral" else [plan]
                 if any(requests_posthoc(s.method) for s in steps):

@@ -44,8 +44,9 @@ def test_profile_selection_and_one_understanding_turn(local, mode, kind):
     if kind == "multi":
         assert file["metadata"]["sheets"] == ["Notas", "Otra"]
         assert file["metadata"]["needs_sheet_selection"] and "profile" not in file["metadata"]
-        assert turn(client, path, action="files_ready").status_code == 422
-        assert not provider.contexts
+        provider.replies = [reply(response="El libro contiene Notas y Otra, con perfiles independientes.")]
+        assert turn(client, path, action="files_ready").status_code == 200
+        assert len(provider.contexts[0][0]["files"][0]["workbook_sheets"]) == 2
         selected = client.put(f"/projects/{store.project_id}/files/{fid}/sheet", json={"title": "Notas"})
         assert selected.status_code == 200
         file = selected.json()
@@ -59,8 +60,8 @@ def test_profile_selection_and_one_understanding_turn(local, mode, kind):
     request_id = str(uuid4())
     assert turn(client, path, action="files_ready", request_id=request_id).status_code == 200
     assert turn(client, path, action="files_ready", request_id=request_id).json()["replayed"]
-    assert len(provider.contexts) == 1
-    assert provider.contexts[0][0]["files"][0]["selected_sheet"] == ("tabla" if kind == "csv" else "Notas")
+    assert len(provider.contexts) == (2 if kind == "multi" else 1)
+    assert provider.contexts[-1][0]["files"][0]["selected_sheet"] == ("tabla" if kind == "csv" else "Notas")
     assert len(client.get(path).json()["files"]) == 1 and original in store.objects.values()
 
 

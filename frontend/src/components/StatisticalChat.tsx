@@ -5,6 +5,8 @@ import {
   MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
 import { chatService } from '../services/chat'
 import { ApiError } from '../lib/api'
@@ -31,6 +33,7 @@ import { Alert, Loading } from './ui'
 import { Modal } from './Modal'
 import { ChatMarkdown } from './ChatMarkdown'
 import { DatasetCard } from './DatasetCard'
+import { InstrumentAccess } from './InstrumentAccess'
 import { ComponentStates } from './ComponentStates'
 import { ProposalCard } from './ProposalCard'
 import { ExecutionReview } from './ExecutionReview'
@@ -71,7 +74,16 @@ export function StatisticalChat({ project }: { project: Project }) {
   const [removing, setRemoving] = useState(false)
   const [reuseIds, setReuseIds] = useState<string[]>([])
   const [samples, setSamples] = useState(false)
-  const [instrumentText, setInstrumentText] = useState(false)
+  const [instrumentConsent, setInstrumentConsent] = useState<
+    Record<string, boolean>
+  >({})
+  const instrumentConsentKey = `${project.id}:${selected}:${detail?.conversation.assistant_provider ?? 'gemini'}`
+  const instrumentText = instrumentConsent[instrumentConsentKey] === true
+  const setInstrumentText = (allowed: boolean) =>
+    setInstrumentConsent((current) => ({
+      ...current,
+      [instrumentConsentKey]: allowed,
+    }))
   const [compact, setCompact] = useState(
     () => window.matchMedia('(max-width: 1100px)').matches,
   )
@@ -307,9 +319,12 @@ export function StatisticalChat({ project }: { project: Project }) {
     if (
       !current ||
       pending ||
+      (current.files.some((file) => file.file_role === 'instrument') &&
+        instrumentConsent[instrumentConsentKey] === undefined) ||
       ['instrument', 'reuse'].includes(current.conversation.current_stage) ||
-      !current.files.some((file) => file.metadata.profile) ||
-      current.files.some((file) => file.metadata.needs_sheet_selection)
+      !current.files.some(
+        (file) => file.metadata.profile || file.metadata.sheet_profiles,
+      )
     )
       return
     await submitTurn(current.conversation.id, {
@@ -325,6 +340,7 @@ export function StatisticalChat({ project }: { project: Project }) {
   const upload = (files: File[]) =>
     perform(async () => {
       const failures: string[] = []
+      let instrumentAdded = false
       for (const file of files) {
         try {
           setBusyLabel(`Subiendo ${file.name}…`)
@@ -332,31 +348,46 @@ export function StatisticalChat({ project }: { project: Project }) {
             project.id,
             selectedRef.current,
             file,
-            file.name.toLowerCase().endsWith('.pdf') ? 'instrument' : 'dataset',
+            /\.(pdf|docx|doc)$/i.test(file.name) ? 'instrument' : 'dataset',
           )
+          if (/\.(pdf|docx)$/i.test(file.name)) instrumentAdded = true
         } catch (caught) {
           failures.push(
             `${file.name}: ${caught instanceof Error ? caught.message : 'No se pudo subir.'}`,
           )
         }
       }
+      if (instrumentAdded)
+        setInstrumentConsent((current) => {
+          const next = { ...current }
+          delete next[instrumentConsentKey]
+          return next
+        })
       const current = await refresh()
       if (failures.length) throw new Error(failures.join('\n'))
-      if (files.some((file) => !file.name.toLowerCase().endsWith('.pdf')))
+      if (
+        !instrumentAdded &&
+        files.some((file) => !/\.(pdf|docx|doc)$/i.test(file.name))
+      )
         await understandIfReady(current)
     })
 
   const conversation = detail?.conversation
-  const visible = (value: string) =>
-    visibleChatText(value, detail?.files || projectFiles, [
-      ...(detail?.messages.flatMap((message) =>
-        message.metadata.analysis_run_id
-          ? [message.metadata.analysis_run_id]
-          : [],
-      ) || []),
-      ...(latestRun ? [latestRun.id] : []),
-      ...(detail?.latest_analysis_run ? [detail.latest_analysis_run.id] : []),
-    ])
+  const visible = (value: string, technical = false) =>
+    visibleChatText(
+      value,
+      detail?.files || projectFiles,
+      [
+        ...(detail?.messages.flatMap((message) =>
+          message.metadata.analysis_run_id
+            ? [message.metadata.analysis_run_id]
+            : [],
+        ) || []),
+        ...(latestRun ? [latestRun.id] : []),
+        ...(detail?.latest_analysis_run ? [detail.latest_analysis_run.id] : []),
+      ],
+      technical,
+    )
   const answerReuse = (content: string) =>
     perform(() =>
       submitTurn(selectedRef.current, {
@@ -432,6 +463,11 @@ export function StatisticalChat({ project }: { project: Project }) {
         setConversations((current) =>
           current.map((item) => (item.id === updated.id ? updated : item)),
         )
+        setInstrumentConsent((current) => {
+          const next = { ...current }
+          delete next[`${project.id}:${conversation.id}:${providerChange}`]
+          return next
+        })
         setProviderChange(null)
         await refresh(updated.id)
       } catch (caught) {
@@ -669,7 +705,29 @@ export function StatisticalChat({ project }: { project: Project }) {
               <PanelLeftOpen size={21} />
             )}
           </button>
-          <span>{project.name}</span>
+          <span>Asistente estadístico</span>
+          {conversation && (
+            <>
+              <button
+                className="icon-btn"
+                aria-label="Renombrar"
+                title="Renombrar conversación"
+                disabled={disabled}
+                onClick={() => setRename(visible(conversation.title))}
+              >
+                <Pencil size={16} aria-hidden="true" />
+              </button>
+              <button
+                className="icon-btn danger-text"
+                aria-label="Eliminar"
+                title="Eliminar conversación"
+                disabled={disabled}
+                onClick={() => setRemoving(true)}
+              >
+                <Trash2 size={16} aria-hidden="true" />
+              </button>
+            </>
+          )}
           <button
             className="icon-btn"
             ref={createProviderButton}
@@ -772,22 +830,6 @@ export function StatisticalChat({ project }: { project: Project }) {
                   }
                 }}
               />
-              <div className="chat-actions">
-                <button
-                  className="btn secondary"
-                  disabled={disabled}
-                  onClick={() => setRename(visible(conversation.title))}
-                >
-                  Renombrar
-                </button>
-                <button
-                  className="btn secondary danger-text"
-                  disabled={disabled}
-                  onClick={() => setRemoving(true)}
-                >
-                  Eliminar
-                </button>
-              </div>
             </header>
             <div
               className="transcript"
@@ -907,28 +949,62 @@ export function StatisticalChat({ project }: { project: Project }) {
                     ) : (
                       <article
                         key={message.id}
-                        className={`chat-message ${message.role}`}
+                        className={`chat-message ${message.role} ${message.metadata.source === 'deterministic' || message.metadata.generation?.source === 'deterministic' || message.message_type === 'event' ? 'system-message' : ''} ${message.metadata.warnings?.length ? 'has-warning' : ''}`}
                       >
                         <strong>
                           {message.role === 'user'
                             ? 'Tú'
                             : message.role === 'assistant'
                               ? 'Statia'
-                              : message.metadata.event === 'provider_selected'
-                                ? 'Statia'
-                                : 'Estado del plan'}
+                              : message.metadata.file_ids?.length
+                                ? 'Archivos asociados'
+                                : message.metadata.proposal_id &&
+                                    message.metadata.status
+                                  ? 'Estado del plan'
+                                  : 'Statia'}
                         </strong>
-                        {messageProvenance(message) && (
-                          <small className="message-provenance">
-                            {messageProvenance(message)}
-                          </small>
-                        )}
+                        {message.role === 'assistant' &&
+                          message.metadata.interaction_mode ===
+                            'methodology' && (
+                            <small className="message-provenance">
+                              Orientación metodológica
+                            </small>
+                          )}
+                        {message.role === 'assistant' &&
+                          message.metadata.interaction_mode === 'planning' &&
+                          message.metadata.clarification_required && (
+                            <small className="message-provenance">
+                              Aclaración para preparar el plan
+                            </small>
+                          )}
+                        {!message.metadata.file_ids?.length &&
+                          messageProvenance(message) &&
+                          messageProvenance(message) !== 'Statia' && (
+                            <small
+                              className="message-provenance"
+                              title={
+                                message.metadata.generation?.model ||
+                                message.generation?.model ||
+                                undefined
+                              }
+                            >
+                              {messageProvenance(message)}
+                            </small>
+                          )}
                         {message.role === 'assistant' ? (
                           <ChatMarkdown>
-                            {visible(message.content)}
+                            {visible(
+                              message.content,
+                              message.metadata.technical_details,
+                            )}
                           </ChatMarkdown>
                         ) : (
-                          <p>{visible(message.content)}</p>
+                          <p>
+                            {visible(
+                              message.content,
+                              message.metadata.technical_details,
+                            )}
+                          </p>
                         )}
                         {!!message.metadata.questions?.length && (
                           <ul>
@@ -1050,28 +1126,24 @@ export function StatisticalChat({ project }: { project: Project }) {
                 ) && (
                   <p className="notice" role="status">
                     Selecciona una hoja de cada Excel pendiente en los archivos
-                    relacionados que se muestran abajo. Después continuaremos
-                    con la comprensión. No se combinan hojas.
+                    relacionados para preparar planes sobre ella. La comprensión
+                    considera el libro completo. No se combinan hojas.
                   </p>
                 )}
                 {detail.files.length > 0 && (
                   <details
                     className="historical-card"
                     aria-label="Archivos relacionados"
-                    open={
-                      detail.files.some(
-                        (file) => file.metadata.needs_sheet_selection,
-                      ) || undefined
-                    }
+                    open
                   >
                     <summary>
                       Archivos relacionados ({detail.files.length})
                     </summary>
-                    <h3>Archivos relacionados</h3>
                     {detail.files.map((file) => (
                       <DatasetCard
                         key={file.id}
                         file={file}
+                        instrumentAuthorized={instrumentText}
                         busy={disabled}
                         expanded={file.metadata.needs_sheet_selection}
                         onSheet={(sheet) =>
@@ -1129,7 +1201,10 @@ export function StatisticalChat({ project }: { project: Project }) {
                     Continuar con los datasets
                   </button>
                 )}
-                {detail.files.some((file) => file.metadata.profile) &&
+                {detail.files.some(
+                  (file) =>
+                    file.metadata.profile || file.metadata.sheet_profiles,
+                ) &&
                   [
                     'upload_dataset',
                     'understanding',
@@ -1137,13 +1212,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                   ].includes(conversation.current_stage) && (
                     <button
                       className="btn primary"
-                      disabled={
-                        disabled ||
-                        !!pending ||
-                        detail.files.some(
-                          (file) => file.metadata.needs_sheet_selection,
-                        )
-                      }
+                      disabled={disabled || !!pending}
                       onClick={() => send('files_ready')}
                     >
                       {conversation.stage_data.context_summary
@@ -1234,6 +1303,14 @@ export function StatisticalChat({ project }: { project: Project }) {
                 </button>
               )
             )}
+            <InstrumentAccess
+              key={instrumentConsentKey}
+              files={detail.files}
+              provider={selectedProvider}
+              decision={instrumentConsent[instrumentConsentKey]}
+              busy={disabled || !!pending}
+              onDecide={setInstrumentText}
+            />
             <ChatComposer
               key={conversation.id}
               text={text}

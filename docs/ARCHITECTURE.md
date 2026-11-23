@@ -1,5 +1,39 @@
 # Arquitectura
 
+## Estabilización documental y presentación — Sesión 09
+
+La extracción privada PDF/DOCX conserva sus límites, fragmentos y metadatos
+originales. `instrument_context` construye un índice léxico temporal por consulta:
+normaliza Unicode, acentos y separadores de presentación de referencias
+alfanuméricas, sin quitar ceros ni aproximar números. Prioriza códigos y documentos,
+reserva fragmentos contiguos para alternativas/celdas y comparte como máximo diez
+fragmentos y 12 000 caracteres. Las citas conservan el texto; las ubicaciones DOCX
+se presentan como cuerpo, encabezados, pies o notas, manteniendo la metadata interna.
+No hay embeddings, búsquedas remotas, OCR, nuevas tablas ni modificación de originales.
+
+Se distinguen autorización ausente, extracción sin texto y búsqueda sin coincidencias;
+las tres rutas se resuelven localmente sin invocar al proveedor y registran el estado
+de recuperación. Las consultas explícitas de códigos pueden realizarse antes de
+adjuntar datasets. La consulta documental/metodológica puede titular un chat todavía
+sin nombre mediante el mensaje auténtico, sin inventar finalidad estadística ni
+sobrescribir títulos manuales o conversaciones históricas en lote.
+
+`InstrumentAccess` presenta la elección contextual y su modificación junto al
+compositor. La elección vive en memoria por proyecto/conversación/proveedor; salir
+del asistente o recargar exige volver a autorizar. Añadir un instrumento o cambiar
+de proveedor exige una nueva elección. Las cargas mixtas esperan esta decisión;
+cada turno envía su bandera explícita, validada por el backend. Un reintento conserva
+su payload original; primero se descarta ese reintento para cambiar opciones. No se
+reenvían mensajes automáticamente al autorizar. Los estados de lectura proceden de
+metadata del servidor y no acreditan que un proveedor haya leído el documento completo.
+
+La identidad visual usa tokens CSS índigo/lavanda/perla compartidos por todas las
+pantallas. `AnalysisResultCard` conserva tablas y PNG históricos: cambia la contención,
+etiquetas de presentación y ampliación del mismo recurso privado, nunca sus cálculos.
+La entrada `frontend/visual/index.html` sirve exclusivamente para revisión local con
+componentes reales y servicios sintéticos, sin acceso de red y fuera del build público.
+Evidencia y límites: [SESSION9_REPORT](SESSION9_REPORT.md).
+
 El [frontend multiproveedor de Sesión 5B](MULTIPROVIDER_FRONTEND.md) obtiene el catálogo
 desde `services/chat`, confirma el cambio y envía `expected_provider`. La selección
 local solo se confirma mediante respuestas del servidor; 409 recarga el detalle y un
@@ -46,7 +80,7 @@ Etapas: `reuse → instrument → upload_instrument → upload_dataset → under
 
 Tesis requiere aclaraciones metodológicas; general permite explorar sin conocimientos previos. Finalidad y resumen de entendimiento persisten además del historial. `current_context` relee el documento confirmado de tesis antes de contextualizar Gemini y `build_context` añade su revisión y fecha; general recibe null. La migración aditiva 006 protege `research_contexts` con RLS y un RPC invoker con revisión esperada. Editar/importar requiere revisar y confirmar; el chat no tiene una operación de escritura de Contexto. Los mensajes nuevos registran la revisión usada sin modificar snapshots históricos. Ver [THESIS_CONTEXT](THESIS_CONTEXT.md). Un cambio de finalidad queda pendiente en `stage_data.goal_change`; solo la acción del usuario crea otro chat, conservando el anterior y ofreciendo reutilización. Renombrar manualmente desactiva títulos automáticos.
 
-`profiling.py` lee CSV/JSON/XLSX/PDF sin modificar ni combinar originales. Limita bytes, filas, columnas, celdas, hojas, páginas y expansión; un perfilado por proceso. XLSX comprueba ZIP y usa lectura incremental. pypdf limita streams y decodificación; sin texto conserva el PDF y comunica que no hay OCR. Varias hojas requieren elección; después el perfil queda congelado para no alterar referencias de planes.
+`profiling.py` lee CSV/JSON/XLSX/PDF sin modificar ni combinar originales. Limita bytes, filas, columnas, celdas, hojas, páginas y expansión; un perfilado por proceso. XLSX comprueba ZIP y usa lectura incremental. pypdf limita streams y decodificación; sin texto conserva el PDF y comunica que no hay OCR. El libro se comprende globalmente antes de elegir una hoja para planes; esa elección queda congelada para no alterar referencias históricas.
 
 El perfil calcula tipos físicos, tipos estadísticos tentativos, faltantes, duplicados, cardinalidades, distribuciones, min/max/media y pequeñas muestras. El significado es una hipótesis: un número puede ser identificador o escala.
 
@@ -183,3 +217,109 @@ conserva el único disparo existente de comprensión tras carga/selección.
 conocidos del perfil, tanto al generar como al aceptar. La cardinalidad de subconjuntos
 filtrados sigue validándose con datos reales durante preparación. No cambia el motor
 ni los planes históricos. Ver [validación y límites](HOTFIX_FINAL_REPORT.md).
+
+## Excel multihoja (Sesión 07)
+
+`workbook.py` abre cada subida una vez con `read_only=True`, procesa hojas
+secuencialmente y conserva `workbook_profile_version=1` / `sheet_profiles` en
+JSONB existente. Cada entrada registra hoja, estado, advertencias y un perfil
+v2 independiente si es examinable. No exige esquemas comunes. Una hoja vacía,
+sin encabezados tabulares o fuera de límites no inventa conteos ni impide
+examinar otras dentro del presupuesto. Conserva 30 hojas, límites configurados
+de bytes/expansión/filas/columnas/celdas y añade un máximo agregado de
+`min(400000, MAX_ROWS * MAX_COLUMNS)` celdas de registros por inspección global.
+La revalidación de una hoja explícita solo perfila esa hoja.
+
+La comprensión envía `workbook_sheets` al proveedor compartido por Gemini y
+Terra: estructura, tipos tentativos, ausencias y avisos, sin muestras ni valores
+de otras hojas. Si el contexto no alcanza, conserva todas las hojas y conteos,
+reduce detalles de columnas y declara `columns_omitted`; la hoja ejecutable no
+se recorta. Si aún no cabe, responde 413. No presupone relaciones ni combina
+hojas. Generar/aceptar/ejecutar mantiene la validación de `selected_sheet`.
+
+`GET files/{id}/rows?sheet=...` y `GET files/{id}/profile?sheet=...` son consultas
+privadas sin mutaciones. Sin parámetro mantienen la hoja histórica. Datos
+conserva una selección local por archivo, reutiliza perfiles disponibles y
+remonta la tabla al cambiar de hoja para reiniciar paginación y descartar
+respuestas tardías. El original sigue descargándose íntegro. `PUT .../sheet`
+conserva el rechazo 409 una vez fijado el perfil y revalida ese estado dentro
+del semáforo antes de escribir (un worker por proceso, como en SETUP).
+
+Los libros antiguos se amplían de forma efímera al consultar perfiles o
+comprender archivos; no se persisten ni reemplazan su perfil, selección, hashes
+u otros metadatos históricos. El navegador reutiliza esa respuesta durante la
+vista; una nueva consulta de un libro antiguo puede requerir otra lectura. La
+interpretación de resultados históricos no exige volver a descargar el libro.
+No hay nueva tabla, migración, caché global de originales ni credenciales nuevas.
+
+El catálogo de productos reconoce N válido, media, mediana, DE muestral, mínimo
+y máximo y comprueba que exista cobertura cuantitativa descriptiva global. No
+convierte N/media/DE por grupo en una solicitud global adicional. La caché de
+alcance usa recognizer_version=3 y solo se reconstruye con evidencia completa
+del usuario. Se conserva el límite de solicitudes y la única corrección existente;
+no se cambian fórmulas ni el motor. Ver [informe de validación](SESSION7_REPORT.md).
+
+
+## Instrumentos y estabilidad de tesis (Sesión 08)
+
+`instruments.py` unifica PDF/pypdf y Word DOCX/ZIP+defusedxml. Valida bytes,
+contenedor OPC, partes principales, namespaces, CRC, entradas, expansión y
+compresión. Rechaza DTD/entidades incluso en XML UTF-16, macros, objetos activos,
+cifrado y formatos incompatibles. No extrae a disco, no ejecuta documentos ni
+resuelve relaciones externas. `instrument_worker.py` procesa originales por
+stdio en un hijo cancelable con timeout/RSS observada; reutiliza únicamente
+la terminación de procesos existente, sin cambiar el motor estadístico.
+
+Metadatos aditivos JSONB: `instrument_extraction_version`, `extraction_status`,
+`extracted_chars`, `fragments` (texto, ubicación y desplazamiento), advertencias
+y páginas/partes. `text_excerpt` conserva una vista previa compatible de 16 000
+caracteres. El límite total recuperado es 240 000 caracteres con solapamientos
+y 600 fragmentos; nunca acredita que imágenes, orden visual o etiquetas de
+numeración estén íntegros. PDF conserva ubicación por página; DOCX por parte
+y párrafo. El archivo original sigue en el mismo bucket privado y con JWT/RLS.
+La migración 009 es necesaria por los CHECK/MIME que antes solo admitían PDF;
+no modifica políticas, tablas ni registros históricos. No se ejecutó en remoto.
+
+`instrument_context.py` busca términos/códigos sin embeddings, red ni significado
+inferido. Comparte solo fragmentos autorizados por `share_instrument_text`, hasta
+diez/12 000 caracteres por turno, con ubicaciones y omisiones. Las coincidencias
+de distintos códigos/documentos preceden a vecinos con posibles opciones. El
+proveedor recibe texto como dato no confiable y debe distinguir literal/paráfrasis/
+inferencia. Se rechazan códigos sin evidencia y citas literales entre «» no
+recuperadas; estos controles finitos no acreditan toda la semántica de una respuesta.
+Sin consentimiento o coincidencias documentales, responde el servidor sin llamada
+al proveedor. Con autorización, los originales históricos pueden reextraerse
+efémeramente; no se sobrescriben sus metadatos. Mensajes ya enviados siguen
+formando parte del historial; revocar el envío nuevo no borra ese historial.
+
+Los modos `understanding`, `document`, `methodology` y `planning` distinguen
+consultas de propuestas. Los primeros no aplican alcance pendiente de planes ni
+cuotas de recomendaciones y descartan planes no solicitados antes del contrato
+interno, tanto en Gemini como Terra. `reply_contract.py` normaliza un único paso
+redundante solo si coinciden procedimiento (o envoltura integral), método exacto,
+referencias/roles/orden y ausencia de dependencias; luego se ejecutan todos los
+validadores existentes. Un método distinto no se convierte. Los alias descriptivos
+por defecto acreditan productos explícitos solo tras comprobar cobertura real.
+Comprensión no define finalidad ni guarda planes. Resultados existentes tampoco
+suprimen la recuperación de una consulta documental.
+
+Se reserva hasta 4000 caracteres del presupuesto total del proveedor para la
+corrección semántica ya existente; el resto del contexto indispensable debe caber
+o se devuelve 413. Las categorías distinguen validación de respuesta/documento y
+de planificación; los errores de transporte/formato/cuota conservan sus códigos.
+No cambian cuotas, reintentos, idempotencia, catálogos ni fórmulas.
+
+`current_context` sigue leyendo la revisión vigente confirmada en cada turno de
+tesis. La UI compara el borrador normalizado, no el orden de claves adicionales,
+y muestra revisión y cambios pendientes. La API devuelve la revisión existente
+si recibe el mismo documento y la revisión esperada; las escrituras nuevas siguen
+el RPC con control de conflictos. No hay guardado desde chat ni dependencia de
+Contexto para General.
+
+La presentación oculta trazas técnicas por defecto sin modificar IDs persistidos.
+Una solicitud expresa puede mostrar IDs de ejecuciones verificados. La vista
+`ResponseMeaning` requiere selección local del investigador sobre categorías de
+no información, comprueba que la tabla de frecuencias esté completa y distingue
+valores presentes/respuestas sustantivas/ausencias registradas. No reescribe
+resultados, porcentajes, gráficos ni exportaciones y no transmite esa selección al
+proveedor. Detalles y pendientes: [Sesión 08](SESSION8_REPORT.md).

@@ -132,9 +132,9 @@ class MemoryStore:
             if not c.get('title_manual'):
                 c['title'] = result.get('title') or c['title']
             c['active_request_id'] = None
-            await self.insert('messages', {'conversation_id': cid, 'role': 'assistant', 'content': result['content'], 'message_type': result['message_type'], 'metadata': result.get('metadata', {})})
+            message = (await self.insert('messages', {'conversation_id': cid, 'role': 'assistant', 'content': result['content'], 'message_type': result['message_type'], 'metadata': result.get('metadata', {})}))[0]
             for plan in result.get('proposals', []):
-                await self.insert('analysis_proposals', {'conversation_id': cid, 'title': plan['title'], 'objective': plan['objective'], 'analysis_plan': plan, 'status': 'proposed'})
+                await self.insert('analysis_proposals', {'conversation_id': cid, 'title': plan['title'], 'objective': plan['objective'], 'analysis_plan': plan, 'status': 'proposed', 'source_message_id': message['id']})
             for fid in result.get('link_file_ids', []):
                 await self.insert('conversation_files', {'conversation_id': cid, 'file_id': fid, 'project_id': c['project_id']})
             await self.update('chat_requests', {'conversation_id': cid, 'request_id': data['p_request']}, {'status': 'completed'})
@@ -322,7 +322,7 @@ def test_structured_failure_never_persists_plan_and_retry_is_idempotent(api, mon
     client.app.state.provider = GeminiProvider(Settings(_env_file=None, gemini_api_key='clave-ficticia'))
     rid = str(uuid4())
     before = client.get(path).json()
-    response = turn(client, path, action='files_ready', request_id=rid)
+    response = turn(client, path, content='Quiero describir nota con un plan descriptivo', request_id=rid)
     assert response.status_code == 502
     assert response.headers['X-Statia-Error'] == ('gemini_schema' if failure == 'schema_400' else 'gemini_invalid_response')
     failed = client.get(path).json()
@@ -330,11 +330,11 @@ def test_structured_failure_never_persists_plan_and_retry_is_idempotent(api, mon
     assert len(failed['messages']) == len(before['messages']) + 1
     assert failed['messages'][-1]['role'] == 'user'
     assert failed['retry_turn']['request_id'] == rid
-    assert turn(client, path, action='files_ready', request_id=rid).status_code == 200
+    assert turn(client, path, content='Quiero describir nota con un plan descriptivo', request_id=rid).status_code == 200
     completed = client.get(path).json()
     assert len(completed['proposals']) == 1
     assert len(completed['messages']) == len(before['messages']) + 2
-    assert turn(client, path, action='files_ready', request_id=rid).json()['replayed']
+    assert turn(client, path, content='Quiero describir nota con un plan descriptivo', request_id=rid).json()['replayed']
     assert len(client.get(path).json()['messages']) == len(completed['messages'])
     assert len(sdk.calls) == 2
 
@@ -347,7 +347,7 @@ def test_invalid_columns_correct_once_and_never_persist_invalid_plan(api):
     invalid_plan = plan(fid)
     invalid_plan['variables'][0]['column'] = 'inexistente'
     provider.replies.extend([reply(proposals=[invalid_plan]), reply(proposals=[invalid_plan])])
-    response = turn(client, path, action='files_ready')
+    response = turn(client, path, content='Quiero describir nota con un plan descriptivo')
     assert response.status_code == 502
     assert not client.get(path).json()['proposals']
     assert 'Columna inexistente' in provider.contexts[1][1]
@@ -382,7 +382,7 @@ def test_paged_history_and_acceptance_revalidates_stored_columns(api):
     turn(client, path, action='instrument_no')
     fid = attach_dataset(client, path)
     provider.replies.append(reply(proposals=[plan(fid)], suggested_stage='proposal'))
-    assert turn(client, path, action='files_ready').status_code == 200
+    assert turn(client, path, content='Quiero describir nota con un plan descriptivo').status_code == 200
     proposal = store.data['analysis_proposals'][0]
     proposal['analysis_plan']['variables'][0]['column'] = 'columna_borrada'
     assert client.patch(path + '/proposals/' + proposal['id'], json={'status': 'accepted'}).status_code == 422

@@ -5,6 +5,7 @@ import {
   contextFields,
   emptyContext,
   parseResearchContext,
+  contextFingerprint,
 } from '../lib/research-context'
 import { errorMessage } from '../lib/errors'
 import type {
@@ -30,6 +31,31 @@ export function ThesisContext({ projectId }: { projectId: string }) {
   const [importNotice, setImportNotice] = useState('')
   const [notice, setNotice] = useState('')
   const [retry, setRetry] = useState(0)
+
+  function currentDocument() {
+    const cleaned = { ...draft }
+    for (const field of contextFields) {
+      if (field.list)
+        cleaned[field.key] = draft[field.key]
+          .map((item) => item.trim())
+          .filter(Boolean)
+      else cleaned[field.key] = draft[field.key]?.trim() || null
+    }
+    return parseResearchContext(
+      JSON.stringify({
+        ...cleaned,
+        additional_fields: JSON.parse(extras) as unknown,
+      }),
+    )
+  }
+  let changed = true
+  try {
+    changed =
+      contextFingerprint(currentDocument()) !==
+      contextFingerprint(saved?.document ?? emptyContext())
+  } catch {
+    /* Un borrador inválido sigue siendo un cambio que requiere revisión. */
+  }
 
   useEffect(() => {
     let active = true
@@ -76,16 +102,8 @@ export function ThesisContext({ projectId }: { projectId: string }) {
   function prepareReview(event: FormEvent) {
     event.preventDefault()
     try {
-      const cleaned = { ...draft }
-      for (const field of contextFields)
-        if (field.list)
-          cleaned[field.key] = draft[field.key].filter((item) => item.trim())
-      const document = parseResearchContext(
-        JSON.stringify({
-          ...cleaned,
-          additional_fields: JSON.parse(extras) as unknown,
-        }),
-      )
+      const document = currentDocument()
+      if (!changed) return
       setReview(document)
       setError(null)
     } catch (err) {
@@ -152,18 +170,39 @@ export function ThesisContext({ projectId }: { projectId: string }) {
           {notice}
         </div>
       )}
-      <p className="muted">
+      <p className="context-version">
         {saved
-          ? `Revisión ${saved.revision} · ${new Date(saved.updated_at).toLocaleString('es-PE')}`
-          : 'Todavía no hay contexto guardado.'}{' '}
-        Todos los campos son opcionales. Deja vacía la información desconocida;
-        no necesitas formular hipótesis si tu estudio no las tiene.
+          ? `Contexto confirmado · Revisión ${saved.revision}`
+          : 'Todavía no hay contexto guardado.'}
+        {saved && (
+          <small>
+            Actualizado el {new Date(saved.updated_at).toLocaleString('es-PE')}
+          </small>
+        )}
       </p>
-      <p className="muted">
-        El contexto confirmado se comparte con el asistente para orientar
-        recomendaciones. Revisa su contenido y evita incluir datos personales,
-        contraseñas o información confidencial.
+      <p
+        role="status"
+        className={`context-edit-state ${changed ? 'draft-changed' : ''}`}
+      >
+        {changed
+          ? 'Borrador modificado; los cambios aún no están guardados.'
+          : saved
+            ? 'Sin cambios pendientes.'
+            : 'Completa o importa el contexto para revisarlo.'}
       </p>
+      <details className="context-guidance">
+        <summary>Campos opcionales y uso del contexto</summary>
+        <p className="muted">
+          Todos los campos son opcionales. Deja vacía la información
+          desconocida; no necesitas formular hipótesis si tu estudio no las
+          tiene.
+        </p>
+        <p className="muted">
+          El contexto confirmado se comparte con el asistente para orientar
+          recomendaciones. Revisa su contenido y evita incluir datos personales,
+          contraseñas o información confidencial.
+        </p>
+      </details>
       <details className="context-import">
         {importNotice && (
           <div className="notice" role="status">
@@ -268,7 +307,7 @@ export function ThesisContext({ projectId }: { projectId: string }) {
         </fieldset>
         <button
           className="btn primary"
-          disabled={busy || !loaded}
+          disabled={busy || !loaded || !changed}
           type="submit"
         >
           Revisar antes de guardar

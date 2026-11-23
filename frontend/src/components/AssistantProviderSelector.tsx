@@ -49,8 +49,9 @@ export function AssistantProviderSelector({
             disabled={!item.enabled || !item.configured}
           >
             {item.name}
-            {item.experimental ? ' · Experimental' : ''} · {item.model} ·{' '}
-            {providerAvailability(item)}
+            {item.experimental ? ' · Experimental' : ''}
+            {(!item.enabled || !item.configured) &&
+              ` · ${providerAvailability(item)}`}
           </option>
         ))}
       </select>
@@ -87,8 +88,8 @@ export function ProviderDisclosure({
       {providerName(provider)} recibirá los próximos mensajes y el contexto
       compartido de esta conversación. Este contexto puede incluir historial
       anterior, perfiles de datasets, Contexto de tesis y resultados agregados.
-      Se conservan tus opciones para compartir muestras pequeñas y extractos
-      PDF.
+      Las muestras pequeñas conservan su ajuste. Los instrumentos PDF y DOCX
+      requieren autorización para el proveedor de destino.
       {provider === 'openai' && ' Terra es experimental.'}
     </p>
   )

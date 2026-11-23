@@ -8,6 +8,30 @@ from app.services.planning_errors import PlanningError
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 
 
+def validate_proposal_text(reply):
+    text = normalized(" ".join([reply.response, *reply.questions, *reply.warnings]))
+    for sentence in re.split(r"[.!?]", text):
+        if re.search(r"\b(?:propuestas?|plan(?:es)?|alternativas?)\b", sentence):
+            if (
+                not re.search(r"\bno\b", sentence)
+                and re.search(r"\b(?:acept|aprob|confirm)\w*", sentence)
+                and re.search(r"\b(?:en|desde) (?:el )?(?:modulo )?contexto\b", sentence)
+            ):
+                raise PlanningError(
+                    "response_content",
+                    "Las propuestas estadísticas se aceptan en el asistente. En Contexto se guarda el documento de investigación.",
+                )
+            claim = re.search(
+                r"\b(?:(?:he|hemos|se ha|se han) (?:preparado|generado|creado|elaborado)|(?:prepare|genere|cree|elabore)|"
+                r"(?:preparamos|generamos|creamos|elaboramos)|(?:quedaron|estan) (?:listas?|disponibles?))\b",
+                sentence,
+            )
+            if not reply.proposals and claim and not re.search(r"\b(?:no|nunca)\s*$", sentence[: claim.start()]):
+                raise PlanningError(
+                    "proposal_missing", "No anuncies propuestas listas si no devuelves sus objetos estructurados."
+                )
+
+
 def result_ids(context):
     ids = set()
     for result in (context or {}).get("analysis_results", []):
@@ -20,6 +44,15 @@ def validate_explanation(text, context):
     context = context or {}
     literal = normalized(text)
     known = result_ids(context)
+    research = context.get("research_context")
+    if research and context.get("project_mode") == "thesis":
+        document = research.get("document", {})
+        if document.get("general_objective") or document.get("specific_objectives"):
+            if re.search(r"objetivos?.{0,80}(?:no (?:estan? |se han? )?guardad|todavia no.{0,15}guardad)", literal):
+                raise PlanningError(
+                    "response_content",
+                    "El Contexto vigente ya contiene objetivos confirmados. Reconoce su revisión; no afirmes que faltan guardar.",
+                )
     for match in re.finditer(r"\brun_id`?\s*[:=]?\s*`?(" + UUID + r")", text, re.I):
         if match[1] not in known:
             raise PlanningError(

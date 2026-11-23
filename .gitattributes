@@ -1,5 +1,7 @@
 # Formato reproducible entre Windows y CI Linux.
 frontend/** text eol=lf
+# Las figuras sintéticas conservan sus bytes PNG entre Windows y Linux.
+frontend/src/test/fixtures/*.png binary
 *.py text eol=lf
 *.md text eol=lf
 *.sql text eol=lf

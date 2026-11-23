@@ -10,6 +10,8 @@ from datetime import date, datetime
 from fastapi import HTTPException
 from openpyxl import load_workbook
 
+from app.services.workbook import validate_archive
+
 
 def invalid(message):
     raise HTTPException(422, message)
@@ -29,7 +31,7 @@ def cell(value):
     return str(value)
 
 
-def preview_rows(file, data, settings, offset, limit):
+def preview_rows(file, data, settings, offset, limit, sheet=None):
     if not data or len(data) > settings.max_file_bytes:
         raise HTTPException(413, "El original supera el límite permitido para consultar registros.")
     if file["file_role"] != "dataset" or file["file_type"] not in {"csv", "xlsx", "json"}:
@@ -37,17 +39,14 @@ def preview_rows(file, data, settings, offset, limit):
     book = None
     try:
         kind = file["file_type"]
-        sheet = file["metadata"].get("selected_sheet")
+        sheet = sheet if sheet is not None else file["metadata"].get("selected_sheet")
         if kind == "xlsx":
             if not sheet:
                 invalid("Selecciona una hoja del XLSX en el asistente antes de ver sus datos.")
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                if (
-                    len(archive.infolist()) > 500
-                    or sum(x.file_size for x in archive.infolist()) > settings.max_expanded_bytes
-                ):
-                    invalid("El XLSX supera el límite de contenido expandido.")
+            validate_archive(data, settings)
             book = load_workbook(io.BytesIO(data), read_only=True, data_only=False, keep_links=False)
+            if len(book.sheetnames) > 30:
+                invalid("El libro supera las 30 hojas permitidas.")
             if sheet not in book.sheetnames:
                 invalid("La hoja seleccionada no existe en el original.")
             tab = book[sheet]
@@ -56,6 +55,8 @@ def preview_rows(file, data, settings, offset, limit):
             iterator = tab.iter_rows(values_only=True)
             headers = list(next(iterator, []))
         elif kind == "csv":
+            if sheet not in (None, "tabla"):
+                invalid("La hoja solicitada no existe en esta tabla.")
             text = data.decode("utf-8-sig")
             try:
                 delimiter = csv.Sniffer().sniff(text[:16000], delimiters=",;\t").delimiter
@@ -64,6 +65,8 @@ def preview_rows(file, data, settings, offset, limit):
             iterator = csv.reader(io.StringIO(text), delimiter=delimiter, strict=True)
             headers = next(iterator, [])
         else:
+            if sheet not in (None, "tabla"):
+                invalid("La hoja solicitada no existe en esta tabla.")
             # Conservar la representación de números JSON sin pérdida de precisión JS.
             objects = json.loads(
                 data.decode("utf-8-sig"),

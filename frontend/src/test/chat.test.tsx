@@ -157,6 +157,113 @@ function chat() {
   )
 }
 
+it('identifica la asociación de un CSV sin etiquetarla como evento de un plan o de Excel', async () => {
+  detail.conversation.current_stage = 'goal'
+  detail.files = [dataset]
+  detail.messages.push({
+    id: 'attachment',
+    role: 'system',
+    position: 2,
+    content: 'Archivo asociado a la conversación.',
+    message_type: 'event',
+    metadata: { file_ids: [dataset.id] },
+  })
+  chat()
+  expect(
+    await screen.findByText('Archivos asociados', { selector: 'strong' }),
+  ).toBeVisible()
+  expect(screen.queryByText('Estado del plan')).not.toBeInTheDocument()
+  await userEvent.click(
+    screen.getByText(dataset.original_name, {
+      selector: 'summary',
+      exact: false,
+    }),
+  )
+  expect(screen.getByText(/KB · CSV/)).toBeVisible()
+  expect(screen.queryByText(/Hoja: tabla/)).not.toBeInTheDocument()
+})
+
+const instrument: ProjectFile = {
+  id: 'document',
+  original_name: 'escala.docx',
+  file_type: 'docx',
+  file_role: 'instrument',
+  file_size: 500,
+  metadata: { sheets: [], extraction_status: 'partial', warnings: [] },
+}
+
+it('solicita consentimiento contextual, lo aplica inmediatamente y permite revocarlo sin reenviar mensajes', async () => {
+  detail.files = [instrument]
+  detail.conversation.current_stage = 'goal'
+  chat()
+  const user = userEvent.setup()
+  const allow = await screen.findByRole('button', {
+    name: 'Permitir consultar fragmentos',
+  })
+  expect(chatService.turn).not.toHaveBeenCalled()
+  await user.click(allow)
+  await user.type(
+    screen.getByRole('textbox', { name: 'Mensaje para Statia' }),
+    'Busca EDU030',
+  )
+  await user.click(screen.getByRole('button', { name: /^Enviar$/ }))
+  await waitFor(() => expect(chatService.turn).toHaveBeenCalledTimes(1))
+  expect(
+    vi.mocked(chatService.turn).mock.calls[0][2].share_instrument_text,
+  ).toBe(true)
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Cambiar autorización' }),
+    ).toBeEnabled(),
+  )
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Cambiar autorización' }))
+  await user.click(
+    screen.getByRole('button', { name: 'Continuar sin compartir' }),
+  )
+  await user.type(
+    screen.getByRole('textbox', { name: 'Mensaje para Statia' }),
+    'Busca EDU050',
+  )
+  await user.click(screen.getByRole('button', { name: /^Enviar$/ }))
+  await waitFor(() => expect(chatService.turn).toHaveBeenCalledTimes(2))
+  expect(
+    vi.mocked(chatService.turn).mock.calls[1][2].share_instrument_text,
+  ).toBe(false)
+  expect(screen.getByLabelText('Acceso a instrumentos')).toHaveTextContent(
+    'Contenido no compartido',
+  )
+})
+
+it('una carga mixta espera la elección documental y distingue instrumentos de datos', async () => {
+  detail.conversation.current_stage = 'upload_dataset'
+  vi.mocked(chatService.upload).mockImplementation(
+    async (_project, _chat, file, role) => {
+      const record = {
+        ...(role === 'instrument' ? instrument : dataset),
+        original_name: file.name,
+      }
+      detail.files.push(record)
+      return record
+    },
+  )
+  chat()
+  await screen.findByRole('textbox')
+  await userEvent.upload(screen.getByLabelText('Archivos para adjuntar'), [
+    new File(['text'], 'instrumento.docx'),
+    new File(['nota\n1'], 'datos.csv'),
+  ])
+  await screen.findByRole('button', { name: 'Permitir consultar fragmentos' })
+  expect(chatService.turn).not.toHaveBeenCalled()
+  expect(
+    vi.mocked(chatService.upload).mock.calls.map((call) => call[3]),
+  ).toEqual(['instrument', 'dataset'])
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Continuar sin compartir' }),
+  )
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
 describe('chat persistente y acciones', () => {
   it('consulta pendientes desde el resultado sin enviar un turno y mantiene el estado parcial al recargar', async () => {
     detail.conversation.current_stage = 'ready'
@@ -252,6 +359,69 @@ describe('chat persistente y acciones', () => {
     ).toBeInTheDocument()
     expect(document.querySelectorAll('.proposal-card li:empty')).toHaveLength(0)
   })
+  it('distingue la orientación y las aclaraciones de las propuestas persistidas', async () => {
+    detail.files = [structuredClone(dataset)]
+    detail.messages.push(
+      {
+        id: 'metodo',
+        position: 2,
+        role: 'assistant',
+        content: 'Las frecuencias describen categorías.',
+        message_type: 'dataset_summary',
+        metadata: { interaction_mode: 'methodology' },
+      },
+      {
+        id: 'aclaracion',
+        position: 3,
+        role: 'assistant',
+        content: 'Confirma qué representa la escala.',
+        message_type: 'question',
+        metadata: {
+          interaction_mode: 'planning',
+          clarification_required: true,
+        },
+      },
+      {
+        id: 'planes',
+        position: 4,
+        role: 'assistant',
+        content: 'Hay 2 propuestas listas para revisar.',
+        message_type: 'proposal',
+        metadata: { interaction_mode: 'planning' },
+      },
+    )
+    detail.proposals = [
+      { ...structuredClone(proposal), source_message_id: 'planes' },
+      {
+        ...structuredClone(proposal),
+        id: 'pr2',
+        title: 'Distribución de notas',
+        source_message_id: 'planes',
+      },
+    ]
+    const view = chat()
+    expect(await screen.findByText('Orientación metodológica')).toBeVisible()
+    expect(screen.getByText('Aclaración para preparar el plan')).toBeVisible()
+    expect(
+      screen.getAllByRole('article', { name: /^Propuesta:/ }),
+    ).toHaveLength(2)
+    const card = screen.getByRole('article', {
+      name: 'Propuesta: Describir notas',
+    })
+    await userEvent.click(
+      within(card).getByText('Revisar dataset y variables (1)'),
+    )
+    expect(within(card).getByText(/Categórica u ordinal/)).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Ejecutar análisis' }),
+    ).not.toBeInTheDocument()
+    view.unmount()
+    chat()
+    expect(
+      await screen.findAllByRole('article', { name: /^Propuesta:/ }),
+    ).toHaveLength(2)
+    expect(analysisService.execute).not.toHaveBeenCalled()
+  })
   it('prepara la propuesta aceptada en el mismo chat sin abrir el formulario técnico', async () => {
     detail.conversation.current_stage = 'ready'
     detail.proposals = [{ ...structuredClone(proposal), status: 'accepted' }]
@@ -267,6 +437,60 @@ describe('chat persistente y acciones', () => {
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /Mensaje/ })).toBeInTheDocument()
+  })
+  it('muestra la tabla solicitada como propuesta solo después de la petición de plan', async () => {
+    detail.conversation.current_stage = 'goal'
+    detail.files = [dataset]
+    detail.messages.push({
+      id: 'comprension',
+      position: 2,
+      role: 'assistant',
+      content: 'El CSV contiene tres registros.',
+      message_type: 'dataset_summary',
+      metadata: { interaction_mode: 'understanding' },
+    })
+    vi.mocked(chatService.turn).mockImplementationOnce(async () => {
+      const frequencies = structuredClone(proposal)
+      frequencies.analysis_plan.expected_outputs = ['Frecuencias categóricas']
+      detail.conversation.current_stage = 'proposal'
+      detail.messages.push({
+        id: 'plan-frecuencias',
+        position: 4,
+        role: 'assistant',
+        content: 'Hay una propuesta lista para revisar.',
+        message_type: 'proposal',
+        metadata: { interaction_mode: 'planning' },
+      })
+      detail.proposals = [
+        { ...frequencies, source_message_id: 'plan-frecuencias' },
+      ]
+      return { status: 'completed' }
+    })
+    chat()
+    expect(
+      await screen.findByText('El CSV contiene tres registros.'),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Aceptar plan' }),
+    ).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('textbox', { name: /Mensaje/ }))
+    await user.paste(
+      'Ahora sí, prepara una única propuesta estadística descriptiva para la variable sun_reaction del archivo nhanes_dermatology.csv.\n\nUtiliza el Contexto de tesis confirmado y las definiciones verificables del instrumento DEQ_J.pdf.\n\nAlcance: describir todos los registros disponibles, sin filtros, comparaciones ni agrupaciones.\n\nProcedimiento: distribución de frecuencias categóricas.\n\nProducto solicitado: exclusivamente una tabla de frecuencias absolutas y porcentajes por categoría, indicando el denominador utilizado y los valores ausentes.\n\nNo incluir resúmenes globales adicionales, gráficos, otras variables ni pruebas inferenciales.\n\nPresenta la propuesta para revisarla y aceptarla. No ejecutes cálculos todavía y no modifiques el Contexto de tesis.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+    const card = await screen.findByRole('article', {
+      name: 'Propuesta: Describir notas',
+    })
+    await user.click(within(card).getByText('Productos esperados'))
+    expect(within(card).getByText('Frecuencias categóricas')).toBeVisible()
+    expect(
+      within(card).queryByText('Resúmenes globales'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(card).getByRole('button', { name: 'Aceptar plan' }),
+    ).toBeEnabled()
+    expect(analysisService.execute).not.toHaveBeenCalled()
   })
   it('bloquea el selector mientras prepara un análisis y lo recupera al terminar', async () => {
     detail.conversation.current_stage = 'ready'
@@ -619,11 +843,14 @@ describe('chat persistente y acciones', () => {
     await user.upload(screen.getByLabelText('Archivos para adjuntar'), [
       new File(['a\n1'], 'nuevo.csv', { type: 'text/csv' }),
       new File(['%PDF-'], 'instrumento.pdf', { type: 'application/pdf' }),
+      new File(['synthetic'], 'escala.DOCX', {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
     ])
-    await waitFor(() => expect(chatService.upload).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(chatService.upload).toHaveBeenCalledTimes(3))
     expect(
       vi.mocked(chatService.upload).mock.calls.map((call) => call[3]),
-    ).toEqual(['dataset', 'instrument'])
+    ).toEqual(['dataset', 'instrument', 'instrument'])
   })
 
   it('acepta un plan estructurado y muestra sus limitaciones', async () => {
@@ -1008,7 +1235,7 @@ it.each(['general', 'thesis'] as const)(
 )
 
 it.each(['general', 'thesis'] as const)(
-  'muestra las hojas pendientes y comprende solo tras seleccionar en %s',
+  'comprende el libro completo antes de seleccionar la hoja de planes en %s',
   async (mode) => {
     detail.conversation.current_stage = 'upload_dataset'
     const excel: ProjectFile = {
@@ -1020,6 +1247,21 @@ it.each(['general', 'thesis'] as const)(
         sheets: ['Notas', 'Otra'],
         selected_sheet: undefined,
         needs_sheet_selection: true,
+        workbook_profile_version: 1,
+        sheet_profiles: [
+          {
+            sheet: 'Notas',
+            status: 'available',
+            profile: dataset.metadata.profile,
+            warnings: [],
+          },
+          {
+            sheet: 'Otra',
+            status: 'available',
+            profile: dataset.metadata.profile,
+            warnings: [],
+          },
+        ],
       },
     }
     vi.mocked(chatService.upload).mockImplementation(async () => {
@@ -1061,9 +1303,9 @@ it.each(['general', 'thesis'] as const)(
     expect(
       within(select).getByRole('option', { name: 'Otra' }),
     ).toBeInTheDocument()
-    expect(chatService.turn).not.toHaveBeenCalled()
-    await user.selectOptions(select, 'Notas')
     await waitFor(() => expect(chatService.turn).toHaveBeenCalledOnce())
+    await user.selectOptions(select, 'Notas')
+    await waitFor(() => expect(chatService.turn).toHaveBeenCalledTimes(2))
     expect(chatService.sheet).toHaveBeenCalledOnce()
     expect(
       screen.queryByRole('combobox', { name: 'Hoja de Notas.xlsx' }),

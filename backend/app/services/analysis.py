@@ -18,6 +18,7 @@ from app.services.execution_preparation import (
     originals_for,
     preparation_context,
 )
+from app.services.requested_scope import proposal_scope
 from app.services.statistics.catalog import CATALOG
 from app.services.statistics.preparation import AnalysisError, validate_spec
 
@@ -151,9 +152,24 @@ async def execute(store, identity, project, conversation, proposal, body, settin
                 job["preparation_fingerprint"] = body.preparation_fingerprint
             output = await run_calculation(job)
             del job, originals
-            result = AnalysisResult.model_validate(output["result"]).model_dump(mode="json")
+            calculated = AnalysisResult.model_validate(output["result"])
+            scope = await proposal_scope(store, proposal) or {}
+            constraints = set(scope.get("constraints", []))
+            only_frequencies = scope.get("products") == ["frequencies"] and "only_requested_outputs" in constraints
+            charts = output["charts"]
+            if only_frequencies or "no_charts" in constraints:
+                charts = {}
+                for component in calculated.components:
+                    component.charts = []
+                    if only_frequencies:
+                        component.tables = [
+                            table
+                            for table in component.tables
+                            if {"Categoría", "Frecuencia", "Porcentaje válido"} <= set(table.columns)
+                        ]
+            result = calculated.model_dump(mode="json")
             resources = await asyncio.to_thread(
-                build_exports, result, {name: base64.b64decode(data) for name, data in output["charts"].items()}
+                build_exports, result, {name: base64.b64decode(data) for name, data in charts.items()}
             )
             if sum(len(data) for data, _ in resources.values()) > 24 * 1024 * 1024:
                 raise HTTPException(413, "Los recursos exceden 24 MB por ejecución. Reduce los componentes del plan.")

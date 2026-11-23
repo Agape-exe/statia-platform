@@ -136,7 +136,7 @@ export function ChatComposer({
           multiple
           hidden
           aria-label="Archivos para adjuntar"
-          accept=".csv,.xlsx,.json,.pdf"
+          accept=".csv,.xlsx,.json,.pdf,.docx,.doc"
           onChange={(event) => {
             const files = Array.from(event.target.files || [])
             event.target.value = ''
@@ -147,7 +147,7 @@ export function ChatComposer({
           type="button"
           className="icon-btn attachment-button"
           aria-label="Adjuntar archivos"
-          title="Adjuntar CSV, XLSX, JSON o PDF (10 MB por archivo por defecto)"
+          title="Adjuntar CSV, XLSX, JSON, PDF o DOCX (10 MB por archivo por defecto)"
           disabled={disabled || !!pending}
           onClick={() => fileInput.current?.click()}
         >
@@ -202,13 +202,14 @@ export function ChatComposer({
             <p>
               Se envían mensajes y resúmenes de columnas. Evita información
               personal o secretos. Los archivos completos permanecen en el
-              almacenamiento privado.
+              almacenamiento privado. Los mensajes anteriores siguen formando
+              parte del historial.
             </p>
             <label className="checkbox-label">
               <input
                 type="checkbox"
                 checked={samples}
-                disabled={disabled}
+                disabled={disabled || !!pending}
                 onChange={(event) => onSamples(event.target.checked)}
               />
               Compartir muestras pequeñas sin identificadores detectados
@@ -217,10 +218,10 @@ export function ChatComposer({
               <input
                 type="checkbox"
                 checked={instrumentText}
-                disabled={disabled}
+                disabled={disabled || !!pending}
                 onChange={(event) => onInstrumentText(event.target.checked)}
               />
-              Compartir extractos de instrumentos PDF
+              Compartir extractos de instrumentos PDF y DOCX
             </label>
             <small>
               La detección de datos sensibles es parcial. Revisa tus archivos
@@ -232,6 +233,9 @@ export function ChatComposer({
           Enter envía · Shift + Enter añade una línea
         </span>
       </div>
+      <span className="attachment-hint">
+        Instrumentos: PDF, DOCX · Datos: CSV, XLSX, JSON
+      </span>
     </form>
   )
 }

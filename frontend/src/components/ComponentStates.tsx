@@ -1,20 +1,6 @@
 import { Link } from 'react-router-dom'
 import { componentStatus, type ComponentPreparation } from '../types/analysis'
-const methodNames: Record<string, string> = {
-  descriptive: 'Estadística descriptiva',
-  pearson: 'Correlación de Pearson (inferencia)',
-  spearman: 'Correlación de Spearman (inferencia)',
-  student_t: 't de Student',
-  welch_t: 't de Welch',
-  anova: 'ANOVA',
-  welch_anova: 'ANOVA de Welch',
-  paired_t: 't pareada',
-  mann_whitney: 'Mann–Whitney',
-  wilcoxon: 'Wilcoxon',
-  kruskal: 'Kruskal–Wallis',
-  chi_square: 'Chi-cuadrado',
-  fisher_exact: 'Fisher exacto',
-}
+import { methodNames } from '../lib/analysis-methods'
 
 export function ComponentStates({
   components,

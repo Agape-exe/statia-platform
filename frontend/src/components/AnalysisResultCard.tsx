@@ -12,6 +12,8 @@ import { Alert, Loading } from './ui'
 import { formatResult } from '../lib/analysis-format'
 import { ComponentStates } from './ComponentStates'
 import { PendingComponentsReview } from './PendingComponentsReview'
+import { ResponseMeaning } from './ResponseMeaning'
+import { Modal } from './Modal'
 
 function StatisticalTable({ table }: { table: ResultTable }) {
   return (
@@ -44,6 +46,7 @@ function StatisticalTable({ table }: { table: ResultTable }) {
           ))}
         </tbody>
       </table>
+      <ResponseMeaning table={table} />
     </div>
   )
 }
@@ -52,13 +55,16 @@ function PrivateChart({
   projectId,
   runId,
   artifact,
+  title,
 }: {
   projectId: string
   runId: string
   artifact: AnalysisArtifact
+  title: string
 }) {
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
+  const [enlarged, setEnlarged] = useState(false)
   useEffect(() => {
     let active = true
     let objectUrl = ''
@@ -85,15 +91,40 @@ function PrivateChart({
       {error ? (
         <Alert>{error}</Alert>
       ) : url ? (
-        <img
-          src={url}
-          alt={`Gráfico estadístico: ${artifact.name}`}
-          loading="lazy"
-        />
+        <img src={url} alt={`Gráfico de ${title}`} loading="lazy" />
       ) : (
         <p role="status">Cargando gráfico privado…</p>
       )}
-      <figcaption>{artifact.name}</figcaption>
+      <figcaption>{title}</figcaption>
+      {url && (
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => setEnlarged(true)}
+        >
+          Ampliar gráfico
+        </button>
+      )}
+      {enlarged && (
+        <Modal
+          title={title}
+          onClose={() => setEnlarged(false)}
+          className="analysis-modal"
+        >
+          <p className="muted">
+            Gráfico original guardado. Puedes desplazarte para consultar sus
+            etiquetas; no se vuelve a calcular.
+          </p>
+          <div
+            className="chart-original"
+            tabIndex={0}
+            role="region"
+            aria-label="Gráfico a tamaño original"
+          >
+            <img src={url} alt={`Gráfico de ${title}`} />
+          </div>
+        </Modal>
+      )}
     </figure>
   )
 }
@@ -213,7 +244,7 @@ export function AnalysisResultCard({
             </span>
           </div>
           <h3>{run.title}</h3>
-          <p role="status">
+          <p role="status" className="sr-only">
             {run.status === 'partial'
               ? 'Análisis ejecutado parcialmente'
               : run.status === 'completed'
@@ -228,9 +259,10 @@ export function AnalysisResultCard({
           )}
           <p className="muted">
             {new Date(run.created_at).toLocaleString('es-PE')} ·{' '}
-            {run.artifact_count} recursos
+            {run.artifact_count}{' '}
+            {run.artifact_count === 1 ? 'recurso' : 'recursos'}
           </p>
-          {run.result && (
+          {run.result && run.result.components.length > 1 && (
             <p>{run.result.components.map((c) => c.title).join(' · ')}</p>
           )}
           {run.error && <Alert>{run.error}</Alert>}
@@ -333,7 +365,12 @@ export function AnalysisResultCard({
                               } as Record<string, string>
                             )[k] || k}
                           </dt>
-                          <dd>{formatResult(v)}</dd>
+                          <dd>
+                            {k === 'file_id'
+                              ? run.result?.files.find((file) => file.id === v)
+                                  ?.name || 'Archivo original del análisis'
+                              : formatResult(v)}
+                          </dd>
                         </div>
                       ))}
                     </dl>
@@ -341,7 +378,14 @@ export function AnalysisResultCard({
                   {component.tables.map((item, i) => (
                     <StatisticalTable key={i} table={item} />
                   ))}
-                  <details>
+                  <details
+                    open={
+                      component.warnings.length > 0 ||
+                      component.assumptions.some((assumption) =>
+                        ['pending', 'violated'].includes(assumption.status),
+                      )
+                    }
+                  >
                     <summary>Supuestos y advertencias</summary>
                     <ul>
                       {component.assumptions.map((a, i) => (
@@ -371,7 +415,7 @@ export function AnalysisResultCard({
                     </ul>
                   </details>
                   <div className="statistical-charts">
-                    {component.charts.map((name) => {
+                    {component.charts.map((name, chartIndex) => {
                       const artifact = run.artifacts.find(
                         (a) => a.name === name,
                       )
@@ -381,9 +425,13 @@ export function AnalysisResultCard({
                           projectId={projectId}
                           runId={runId}
                           artifact={artifact}
+                          title={`${component.title} · Gráfico ${chartIndex + 1}`}
                         />
                       ) : (
-                        <p key={name}>Gráfico no disponible: {name}</p>
+                        <p key={name}>
+                          Gráfico no disponible. Consulta los recursos
+                          individuales o vuelve a cargar el resultado.
+                        </p>
                       )
                     })}
                   </div>

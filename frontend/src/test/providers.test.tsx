@@ -214,7 +214,7 @@ describe('selector multiproveedor con HTTP controlado', () => {
     expect(await ready()).toHaveValue('gemini')
     expect(
       screen.getByRole('option', {
-        name: /Terra.*Experimental.*gpt-6.1-terra.*Disponible/,
+        name: /Terra.*Experimental/,
       }),
     ).toBeEnabled()
     expect(screen.getByText('gemini-catalogo · Disponible')).toBeInTheDocument()
@@ -285,7 +285,9 @@ describe('selector multiproveedor con HTTP controlado', () => {
       expect(dialog).toHaveTextContent(
         'historial anterior, perfiles de datasets, Contexto de tesis y resultados agregados',
       )
-      expect(dialog).toHaveTextContent('muestras pequeñas y extractos PDF')
+      expect(dialog).toHaveTextContent(
+        'instrumentos PDF y DOCX requieren autorización',
+      )
       expect(select).toHaveValue(from)
       expect(requests('/provider', 'PATCH')).toHaveLength(0)
       await confirm()
@@ -298,7 +300,9 @@ describe('selector multiproveedor con HTTP controlado', () => {
       expect(
         await screen.findByText('Cambio de proveedor · Statia'),
       ).toBeInTheDocument()
-      expect(screen.getByText('Gemini — gemini-historico')).toBeInTheDocument()
+      expect(
+        screen.getByText('Gemini', { selector: '.message-provenance' }),
+      ).toHaveAttribute('title', 'gemini-historico')
       expect(requests('/turns')).toHaveLength(0)
     },
   )
@@ -598,7 +602,7 @@ describe('selector multiproveedor con HTTP controlado', () => {
     })
     expect(screen.getByRole('combobox')).toHaveValue('gemini')
   })
-  it('conserva controles de muestras/PDF y los envía realmente al cambiar proveedor', async () => {
+  it('conserva muestras y exige autorizar extractos para el nuevo proveedor', async () => {
     mount()
     await ready()
     await userEvent.click(screen.getByText('Información compartida con Gemini'))
@@ -616,7 +620,7 @@ describe('selector multiproveedor con HTTP controlado', () => {
     ).toBeChecked()
     expect(
       screen.getByRole('checkbox', { name: /Compartir extractos/ }),
-    ).toBeChecked()
+    ).not.toBeChecked()
     expect(
       screen.getByText(/Evita información personal o secretos/),
     ).toBeInTheDocument()
@@ -628,7 +632,7 @@ describe('selector multiproveedor con HTTP controlado', () => {
     await waitFor(() => expect(requests('/turns')).toHaveLength(1))
     expect(JSON.parse(String(requests('/turns')[0][1]?.body))).toMatchObject({
       share_samples: true,
-      share_instrument_text: true,
+      share_instrument_text: false,
     })
   })
   it('mantiene el selector etiquetado y la confirmación en vista móvil', async () => {
@@ -662,22 +666,16 @@ describe('procedencia histórica independiente de la selección', () => {
         generation: { provider: 'gemini', model: 'modelo-antiguo' },
         selected_provider: 'openai',
       },
-      'Gemini — modelo-antiguo',
+      'Gemini',
     ],
-    [
-      { generation: { provider: 'openai', model: 'gpt-6.1-terra' } },
-      'Terra — gpt-6.1-terra',
-    ],
-    [
-      { generation: { provider: 'gemini', model: null } },
-      'Gemini — modelo histórico no registrado',
-    ],
+    [{ generation: { provider: 'openai', model: 'gpt-6.1-terra' } }, 'Terra'],
+    [{ generation: { provider: 'gemini', model: null } }, 'Gemini'],
     [
       { generation: { source: 'deterministic' }, selected_provider: 'openai' },
-      'Acción determinista de Statia',
+      'Información del sistema',
     ],
-    [{ selected_provider: 'openai' }, 'Modelo histórico no registrado'],
-    [{}, 'Modelo histórico no registrado'],
+    [{ selected_provider: 'openai' }, 'Statia'],
+    [{}, 'Statia'],
     [
       { event: 'provider_selected', source: 'deterministic' },
       'Cambio de proveedor · Statia',
@@ -697,9 +695,9 @@ describe('procedencia histórica independiente de la selección', () => {
     const message = fixture().messages[0]
     message.metadata = {}
     message.generation = { provider: 'openai', model: 'modelo-registrado' }
-    expect(messageProvenance(message)).toBe('Terra — modelo-registrado')
+    expect(messageProvenance(message)).toBe('Terra')
     message.message_type = 'event'
-    expect(messageProvenance(message)).toBe('Evento de Statia')
+    expect(messageProvenance(message)).toBe('Información del sistema')
     message.role = 'user'
     expect(messageProvenance(message)).toBeNull()
   })
