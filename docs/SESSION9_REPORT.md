@@ -12,6 +12,129 @@ hicieron push, PR, merge, despliegues, cambios remotos ni llamadas reales a prov
 
 ## Seguimiento de la validación manual
 
+### Intención conversacional y alcance de una tabla de frecuencias
+
+Se reprodujeron las tres incidencias en una conversación nueva de la API
+local con Auth, almacenamiento y proveedor simulados. Se usaron
+nhanes_dermatology.csv y DEQ_J.pdf disponibles en Descargas. El perfil
+detectó 3 419 registros y 8 columnas, y el PDF aportó 5 fragmentos. Su
+SHA-256 coincidió con el PDF público del CDC. La tesis conservó Contexto
+revisión 1. No se leyó el historial remoto de
+la conversación original. [Cuestionario DEQ del CDC](https://wwwn.cdc.gov/nchs/data/nhanes/public/2017/questionnaires/DEQ_J.pdf).
+
+| Incidencia | Causa reproducida en fbfe927 |
+| --- | --- |
+| A. Comprensión anuncia un plan | La intención ya era comprensión y el contrato descartaba planes. El validador omitía una frase completa si contenía «no». «Porcentajes no ponderados» dejaba pasar el anuncio «he preparado la propuesta» con cero tarjetas. |
+| B. Frecuencias exige resúmenes globales | «Frecuencias categóricas» aportaba el producto explícito. «Propuesta descriptiva» activaba la equivalencia léxica a resúmenes globales. «Frecuencias absolutas y porcentajes» quedaba parcialmente sin reconocer y marcaba el alcance como ambiguo. Los dos productos figuraron en el mismo turno fuente. |
+| C. Vuelve a preguntar por grupos | El estado ambiguo activaba la respuesta local de aclaración antes de la segunda llamada al proveedor. La plantilla preguntaba siempre si se quería agrupar y no registraba que ya se habían pedido todos los registros sin agrupaciones. |
+
+La reproducción controlada dejó cero propuestas durante la comprensión y
+volcó ambos productos al preparar la solicitud. El Contexto solo llegó como
+documento de investigación y su revisión. Las respuestas del proveedor, el
+mensaje de acción de comprensión y los objetivos del Contexto no fueron
+fuentes de los productos requeridos. Se identificó también un riesgo de
+continuidad en conversaciones existentes. El estado acumulaba productos
+entre planes independientes y se consultaba el alcance más reciente al
+aceptar una tarjeta anterior.
+
+Tras el ajuste, con los mismos archivos, el anuncio sin tarjetas se
+rechazó y la corrección del proveedor simulado entregó una comprensión
+informativa. El turno de frecuencias registró un solo producto, la
+columna solicitada y las exclusiones. Persistió una tarjeta, sin
+aclaraciones ni ejecuciones. El código de producción no contiene reglas
+para archivos, disciplinas ni nombres de variables específicos.
+
+- Las preguntas sobre contenido pasan por comprensión y las consultas de
+  significado, posibles métodos y diferencias por conversación
+  metodológica. Las consultas documentales mantienen su ruta y permiso.
+  Comprensión y conversación no cambian a un plan ni consumen una
+  aclaración de comparación pendiente. Los comandos de análisis y las
+  solicitudes de propuestas conservan su ruta de planificación.
+- Los marcadores de alcance provienen de mensajes del usuario. Se guarda
+  la procedencia por producto, se distingue una propuesta nueva de una
+  continuación y se conserva la recuperación de solicitudes fallidas.
+  Las cachés anteriores se reconstruyen a partir de la evidencia
+  disponible. Los productos reconocidos o declarados por el proveedor
+  no sustituyen la solicitud del usuario.
+- Una tabla de frecuencias puede incluir categorías, recuentos,
+  porcentajes, denominador y ausencias. La mención de un descriptivo
+  en ese contexto no agrega un resumen global. Las exclusiones
+  explícitas de agrupación, filtros, variables adicionales, productos
+  y gráficos se validan junto con el contrato previo. Las preguntas
+  sobre variables o decisiones indispensables siguen disponibles. Un
+  plan que contradice una exclusión ya resuelta produce un diagnóstico
+  específico y se puede reintentar con el mismo identificador.
+- El alcance se congela en el mensaje de origen de cada tarjeta nueva.
+  Aceptar valida contra ese alcance, aunque otro turno prepare un plan
+  distinto. Los planes anteriores sin alcance de origen conservan la
+  lectura compatible. No hay migraciones ni cambios al contrato Plan v1.
+- Aceptar todavía deja cero ejecuciones. La ejecución mantiene sus
+  confirmaciones y llama al motor existente. La capa de publicación
+  omite los gráficos excluidos y, en una solicitud exclusiva de
+  frecuencias, publica una tabla coherente con el alcance. El cálculo
+  interno puede producir artefactos descartados antes de guardar. Se
+  conservan advertencias, denominador, ausencias y resultados históricos.
+
+Las regresiones HTTP cubren comprensión en ambos tipos de proyecto,
+preguntas libres y metodológicas, Contexto amplio, solicitud exclusiva,
+rechazo previo, una decisión realmente necesaria y un reintento con el
+mismo identificador. También ejecutan el motor real sobre datos
+sintéticos tras aceptación y confirmación. La prueba verifica una tabla,
+ausencias, denominador, ausencia de PNG y repetición idempotente. El test
+de frontend verifica el paso de una respuesta de comprensión sin
+tarjeta a una tarjeta con exactamente el producto persistido. Las
+regresiones previas revalidan alternativas parciales, tipos, consultas
+documentales e inferencia existente.
+
+La batería general de backend pasó con 682 pruebas aprobadas y una omitida.
+Tras ampliar las formas explícitas de pedir un plan y afinar el diagnóstico
+de alcance ya resuelto, se ejecutaron las suites afectadas sobre el código
+final y pasaron 154 pruebas. En frontend pasaron 133 pruebas, TypeScript,
+lint, formato y build. Las seis suites PGlite, los controles de calidad de
+Python y la comprobación de dependencias también pasaron. Se mantienen los
+avisos existentes del cliente de pruebas y del tamaño de un fragmento JS.
+
+Los commits locales son `639a40b` para separar conversación, requisitos y
+alcance de cada tarjeta, y `6ae5a58` para conservar el diagnóstico al fallar
+un plan con restricciones resueltas. La entrega permanece en
+`fix/estabilizacion-instrumentos-ux-sesion9`.
+
+#### Procedimiento para revalidar con Gemini real
+
+Realizar este recorrido en una sesión de validación autorizada para
+invocar Gemini. En este seguimiento todas sus respuestas fueron simuladas.
+
+1. Reiniciar la API local con esta rama para cargar los cambios. Abrir
+   el proyecto de tesis de exposición solar, comprobar revisión 1 y
+   verificar que el CSV y PDF estén asociados a la conversación. Seleccionar
+   Gemini. La comprensión de metadatos no requiere compartir el texto
+   documental. Conceder ese permiso solo si se quiere consultar el PDF.
+2. Pulsar **Comprender los archivos adjuntos**. Confirmar que se muestran
+   estructura y advertencias, y que el turno no anuncia ni agrega
+   tarjetas y no produce resultados. Preguntar «¿Qué contiene mi
+   dataset?» y «¿Qué procedimientos podrían utilizarse para esta
+   variable?». Deben ser respuestas informativas sin tarjetas nuevas.
+3. Enviar como mensaje nuevo «Prepara una única propuesta descriptiva de
+   frecuencias categóricas de sun_reaction con todos los registros. Solo
+   quiero una tabla con categorías, frecuencias absolutas y porcentajes,
+   denominador y valores ausentes. Sin filtros, sin comparaciones ni
+   agrupaciones, sin gráficos, sin otras variables, sin pruebas
+   inferenciales y sin resultados adicionales. No ejecutes antes de aceptar».
+4. Revisar la única tarjeta. Debe citar la columna exacta y presentar
+   solo **Frecuencias categóricas** como producto. No debe volver a
+   preguntar por agrupaciones ni mencionar que la propuesta se acepta
+   en Contexto. Recargar y comprobar que siguen la tarjeta y el historial.
+5. Aceptar en su tarjeta. Verificar que el enlace de preparación es una
+   acción aparte y aún no hay ejecución. Si el recorrido incluye
+   resultados, verificar las decisiones sobre tipo y ausencias, preparar
+   y confirmar explícitamente el cálculo. Revisar la única tabla con N
+   válido, ausentes y porcentajes sobre valores presentes, sin PNG.
+6. Rechazar una propuesta de prueba y pedir otra con un alcance
+   independiente. Verificar la separación de productos. Si aparece un
+   fallo real, registrar solo su categoría en **X-Statia-Validation**
+   y repetir mediante **Reintentar**, comprobando que el mensaje conserva
+   su identificador y se guarda una sola vez.
+
 ### T3 — Planificación estadística y tarjetas de revisión (22 de noviembre de 2026)
 
 La validación manual reportó que los recorridos PDF y DOCX avanzaron. El
