@@ -12,6 +12,127 @@ hicieron push, PR, merge, despliegues, cambios remotos ni llamadas reales a prov
 
 ## Seguimiento de la validación manual
 
+### T3 — Planificación estadística y tarjetas de revisión (22 de noviembre de 2026)
+
+La validación manual reportó que los recorridos PDF y DOCX avanzaron. El
+seguimiento de T3 usó variantes de los mensajes reportados, una copia pública
+de los archivos y proveedores simulados. No se inspeccionó el cuerpo privado
+devuelto por Gemini ni la respuesta HTTP original de los fallos.
+
+#### S9-PLAN-01 — Anuncio de propuestas sin tarjetas
+
+En la versión bc3fae5, «Genera hasta tres alternativas de análisis estadístico
+descriptivo basadas en los objetivos confirmados del Contexto» se clasificaba
+como metodología. El clasificador no reconocía el verbo inicial como petición
+de plan y encontraba la mención de Contexto. En ese modo, el parser descartaba
+los objetos de propuesta aunque el proveedor los devolviera. También se
+reprodujo un segundo camino: si la respuesta solo anunciaba tres propuestas,
+la prosa podía pasar sin que el servidor exigiera un objeto revisable.
+
+El endpoint persiste las propuestas junto al mensaje de origen y las devuelve
+al consultar la conversación. La interfaz presenta tarjetas a partir de esas
+filas. Ambos caminos reproducidos explican cómo podía aparecer el anuncio sin
+tarjetas. La evidencia disponible no distingue si Gemini devolvió una lista
+vacía o si un turno clasificado como metodología descartó la lista original.
+El aviso genérico de evidencia pertenece a la rama de errores no planificadores.
+
+#### S9-PLAN-02 — Validación de una propuesta individual
+
+Una variante con «tablas y gráficos» y «No ejecutes cálculos todavía» activaba
+la aclaración de alcance en el reconocedor anterior. Trataba «gráficos» como
+un producto no especificado aunque la frase solo pedía describir los
+entregables. Este bloqueo local es distinto del 502 que reportó el usuario.
+El mismo mensaje genérico del 502 se reprodujo, por separado, omitiendo una
+columna seleccionada en el objetivo y devolviendo una propuesta de tesis con
+metodología sin confirmar. Cada causa tiene su propia categoría. El texto
+genérico original no permite confirmar cuál falló en la llamada real.
+
+El objetivo y las columnas exactas deben ser coherentes y el plan debe
+incluir su procedimiento, justificación, requisitos, limitaciones y salidas
+verificables. En un descriptivo, las comprobaciones posteriores de ausencias y
+tipos pueden figurar en requisitos y limitaciones. La aceptación sigue
+sujeta a los filtros, relaciones y decisiones metodológicas que correspondan
+al procedimiento. Contexto confirmado orienta el plan y no confirma por sí
+solo independencia, pareamiento ni orden de una escala.
+
+#### Corrección y comprobaciones
+
+- Una petición explícita entra a planificación y establece el máximo de
+  propuestas. La instrucción de aplazar cálculos conserva la solicitud de
+  preparación. La discusión metodológica conserva su contrato sin propuestas.
+- El backend valida cada alternativa y utiliza el número de planes
+  efectivamente validados para el aviso. Si hay dos válidas y una inválida,
+  puede conservar las dos con un aviso parcial. Una frase de éxito sin
+  propuestas estructuradas se rechaza. Una aclaración imprescindible puede
+  devolverse sin planes. La aceptación se hace en el asistente y el guardado
+  del documento de investigación se hace en Contexto.
+- Los adaptadores comprueban por separado el esquema de cada propuesta en
+  solicitudes explícitas. Una alternativa incompleta entra a la corrección
+  acotada y el diagnóstico conserva su posición. Plan v1, el esquema de
+  transporte y SQL siguen siendo compatibles. Los fallos del turno conservan
+  el mensaje y su identificador para un reintento idempotente.
+- La propuesta usa los nombres y tipos completos del perfil de la hoja
+  seleccionada. El resumen global del libro puede omitir detalle. En una
+  regresión omitió 34 columnas y un plan sobre la última columna omitida
+  fue recuperado y aceptado. El presupuesto de contexto se conserva.
+- La vista distingue orientación metodológica, aclaración para preparar un
+  plan y tarjetas persistidas. En la tarjeta se muestran los tipos de perfil
+  de las columnas. Pendiente de aceptación, aceptado, rechazado y ejecución
+  mantienen sus estados y acciones. Se revisó en navegador la tarjeta con
+  sus variables y el paso de pendiente a aceptada en la vista sintética.
+
+En el recorrido local con los archivos públicos, la revisión 1 permaneció
+intacta. Tras un turno documental con evidencia, el asistente presentó
+tres planes para revisar y luego una propuesta individual. El perfil de
+«Form Responses 1» conservó 492 filas y 46 columnas, incluso cuando el
+resumen global omitió 23 en ese turno. Una columna de uso de portátil
+conservó el tipo mixto y quedó fuera de los resúmenes numéricos propuestos.
+Aceptar y rechazar guardó las decisiones y dejó cero ejecuciones.
+
+La primera batería completa de backend tuvo 677 pruebas aprobadas, una
+omitida por falta de evidencia local A/D de Terra y un fallo de conservación
+del historial al cambiar de proveedor. Se corrigió limitando el nuevo aviso
+de tarjetas a las solicitudes explícitas. En el código final pasaron esa
+regresión y las 277 pruebas de las suites relevantes. También pasaron 132
+pruebas de frontend, las seis suites locales PGlite, el tipado, lint, formato,
+build y la comprobación de dependencias. Se conservan los avisos de
+deprecación de Starlette y de tamaño de un fragmento JS de Vite.
+
+Los commits locales del ajuste son `cc6a09e` para planificación y contratos,
+`95744a1` para la presentación y `cf90031` para conservar las explicaciones
+de los turnos sin petición explícita. Se entrega en la rama de Sesión 09.
+
+#### Repetir T3 sin llamadas a proveedores
+
+1. Desde **backend**, ejecuta las regresiones de tesis, perfiles y
+   persistencia con los dobles de proveedor.
+
+   ~~~powershell
+   .\.venv\Scripts\python.exe -m pytest -q tests/test_thesis_stability.py tests/test_excel_multihoja.py tests/test_chat_api.py
+   ~~~
+
+2. Desde **frontend**, activa Vite con **npm run dev** y abre
+   **/visual/index.html?screen=asistente** en la URL local de Vite.
+   Continúa sin compartir, abre **Revisar dataset y variables** y
+   comprueba que la tarjeta tenga objetivo, procedimiento, nombres
+   de columnas y tipos. Acepta la propuesta de prueba y abre el plan
+   aceptado. La ejecución debe seguir disponible como acción aparte.
+   Recarga la vista para restablecer el escenario sintético.
+3. Ejecuta **npm test** desde **frontend** para verificar que las
+   tarjetas regresan al remontar el chat y que las aclaraciones no
+   se muestran como planes ejecutables.
+4. Para cotejar el fallo histórico en modo de solo lectura, revisa en
+   **Red** el GET del detalle de la conversación y compara los objetos
+   de **proposals** con el identificador del mensaje anunciado en
+   **source_message_id**. Si conservas el 502 de T3, anota únicamente
+   la categoría de **X-Statia-Validation**. No reenvíes el mensaje
+   ni exportes encabezados completos.
+
+Queda pendiente cotejar los dos turnos históricos del proyecto privado y
+la categoría del 502 original. No se ejecutó un proveedor real ni se
+cambiaron documentos, resultados históricos, Supabase remoto o el motor
+estadístico.
+
 ### T2 — Consulta numerada con un DOCX ya asociado (22 de noviembre de 2026)
 
 Se reprodujo el fallo con el mensaje exacto de la validación. La API lo
