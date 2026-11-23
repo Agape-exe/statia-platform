@@ -78,6 +78,8 @@ OUTPUTS = {
     "descriptivos por grupo": ("grouped",),
     "resumenes agrupados": ("grouped",),
     "frecuencias categoricas": ("frequencies",),
+    "tabla de frecuencias absolutas y porcentajes por categoria": ("frequencies",),
+    "tabla de frecuencias absolutas y porcentajes": ("frequencies",),
     "frecuencias categoricas globales": ("frequencies",),
     "frecuencias categoricas por grupo": ("grouped_frequencies",),
     "frecuencias de la variable de agrupacion": ("group_frequencies",),

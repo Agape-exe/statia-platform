@@ -474,9 +474,9 @@ describe('chat persistente y acciones', () => {
       screen.queryByRole('button', { name: 'Aceptar plan' }),
     ).not.toBeInTheDocument()
     const user = userEvent.setup()
-    await user.type(
-      screen.getByRole('textbox', { name: /Mensaje/ }),
-      'Prepara una propuesta de frecuencias. No ejecutes.',
+    await user.click(screen.getByRole('textbox', { name: /Mensaje/ }))
+    await user.paste(
+      'Ahora sí, prepara una única propuesta estadística descriptiva para la variable sun_reaction del archivo nhanes_dermatology.csv.\n\nUtiliza el Contexto de tesis confirmado y las definiciones verificables del instrumento DEQ_J.pdf.\n\nAlcance: describir todos los registros disponibles, sin filtros, comparaciones ni agrupaciones.\n\nProcedimiento: distribución de frecuencias categóricas.\n\nProducto solicitado: exclusivamente una tabla de frecuencias absolutas y porcentajes por categoría, indicando el denominador utilizado y los valores ausentes.\n\nNo incluir resúmenes globales adicionales, gráficos, otras variables ni pruebas inferenciales.\n\nPresenta la propuesta para revisarla y aceptarla. No ejecutes cálculos todavía y no modifiques el Contexto de tesis.',
     )
     await user.click(screen.getByRole('button', { name: 'Enviar' }))
     const card = await screen.findByRole('article', {

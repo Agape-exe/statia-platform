@@ -23,6 +23,7 @@ TARGETS = [
     "tests/test_session6.py",
     "tests/test_inferential_products.py",
     "tests/test_requested_scope.py",
+    "tests/test_frequency_contract.py",
     "app/services/requested_scope.py",
     "tests/test_plan_capabilities.py",
     "tests/test_provider_rollback.py",

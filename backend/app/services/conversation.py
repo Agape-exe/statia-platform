@@ -189,6 +189,13 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     elif plans_allowed and independent_proposal(turn.content):
         data.pop('requested_scope', None)
     conversation = {**conversation, 'stage_data': data}
+    if scope:
+        import logging
+        logging.getLogger(__name__).info(
+            'Planning scope version=%s products=%s excluded=%s constraints=%s unresolved=%s route=%s',
+            scope['recognizer_version'], ','.join(scope['products']), ','.join(scope.get('excluded_products', [])),
+            ','.join(scope.get('constraints', [])), scope['unresolved'],
+            'scope_clarification' if scope['unresolved'] else 'provider')
     if scope and scope['unresolved']:
         result = reply_result(scope_question(scope), conversation, files=files, scope=scope)
         result['metadata']['interaction_mode'] = mode
@@ -333,6 +340,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         count = len(reply.proposals)
         ready = 'Hay una propuesta lista para revisar.' if count == 1 else f'Hay {count} propuestas listas para revisar.'
         reply.response = ready + ' Puedes aceptar o rechazar cada propuesta en su tarjeta.'
+        # Las decisiones indispensables ya se validaron. La elección se hace en
+        # las tarjetas persistidas, no mediante una pregunta del proveedor que
+        # puede referirse a alternativas que no existen.
+        reply.questions = []
     if mode in NON_PLANNING:
         reply.detected_goal = reply.suggested_title = None
         reply.goal_change = False

@@ -65,7 +65,10 @@ def retain_valid_plans(reply, assessment, files, project, context):
         # Resumen acotado; las listas completas permanecen intactas en cada plan.
         'selected_variables': list(variables.values())[:60],
         'involved_file_ids': sorted({v.file_id for v in variables.values()}),
-        'questions': reply.questions, 'warnings': ['Respuesta parcial: se muestran únicamente las alternativas validadas disponibles.'], 'clarification_required': False,
+        # El sobre ya descartó aclaraciones imprescindibles. No reciclar una
+        # pregunta opcional de elección que aún enumera planes rechazados.
+        'questions': ['¿Quieres solicitar más alternativas después?'] if reply.questions else [],
+        'warnings': ['Respuesta parcial: se muestran únicamente las alternativas validadas disponibles.'], 'clarification_required': False,
         'context_summary': None, 'suggested_title': None, 'detected_goal': None,
         'goal_change_reason': None, 'suggested_stage': 'proposal', 'confirmation_required': True,
     })
