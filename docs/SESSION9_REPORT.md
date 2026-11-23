@@ -12,6 +12,134 @@ hicieron push, PR, merge, despliegues, cambios remotos ni llamadas reales a prov
 
 ## Seguimiento de la validación manual
 
+### T2 — Consulta numerada con un DOCX ya asociado (22 de noviembre de 2026)
+
+Se reprodujo el fallo con el mensaje exacto de la validación. La API lo
+clasificó como consulta documental, cargó los instrumentos asociados y recibió
+el consentimiento explícito del turno. La búsqueda podía reconocer los tres
+temas del mensaje. El detector de referencias interpretó el punto final y el
+salto antes de los marcadores «2.» y «3.» como separadores de códigos. Así
+formó «entretenerse2» y «verificable3» con las palabras finales de los dos
+primeros puntos de la lista.
+
+La presencia de esas referencias activó la búsqueda estricta por código y
+desactivó la temática. Ninguno de los 117 fragmentos incluía esos códigos. Todos
+quedaron fuera antes de puntuar y aplicar los límites de envío. Con cero
+fragmentos seleccionados, el turno se completó como «no_match», con origen
+determinista y sin invocar al proveedor ni llegar a validar una respuesta.
+La consulta de las pruebas anteriores expresaba los mismos temas en prosa y
+carecía del patrón de lista que disparó el defecto.
+
+El normalizador de consultas ahora separa los marcadores numéricos de lista
+antes de detectar referencias. La clasificación por código usa la misma
+normalización. Los códigos reales conservan sus equivalencias y el buscador
+sigue reconociendo referencias partidas por saltos de línea en la evidencia.
+El texto original del mensaje, el consentimiento, el vocabulario bilingüe, los
+límites y las validaciones de citas se conservan.
+
+El turno lee los vínculos de conversation_files y las filas de project_files
+del mismo proyecto. Usa metadata.fragments de la extracción versionada en cada
+consulta. No depende de un índice persistido ni de la vista previa de 16 000
+caracteres. Para instrumentos sin versión, la lectura autorizada puede
+reconstruir los fragmentos temporalmente desde el original privado. Los
+registros con versión 1 no requieren nueva carga, extracción ni migración
+para esta corrección.
+
+Con el mensaje exacto y la misma instantánea JSON de los archivos públicos,
+en una conversación de tesis ya creada con revisión 1, la API real devolvió
+estos resultados usando el almacén y proveedor simulados:
+
+| Recuperador | Fragmentos disponibles | Fragmentos seleccionados | Llamadas al doble |
+| --- | ---: | ---: | ---: |
+| 6ac3b06 | 117 | 0 | 0 |
+| Corregido | 117 | 10 | 1 |
+
+En la repetición corregida se seleccionaron los índices 24–26, 30, 34 y 46–50
+y el backend validó una cita literal. La regresión automatizada usa filas
+versionadas ya asociadas, una conversación con historial y una vista previa
+deliberadamente ajena a la evidencia. Falla con el recuperador anterior.
+Con la corrección comprueba el contexto de revisión 1, la llegada al doble,
+la integridad del historial y que no se descarga el original. Una segunda
+consulta numerada sobre temas ausentes se resuelve como «no_match», sin
+invocar al doble. Las regresiones cubren LF, CRLF y códigos auténticos
+partidos. No se añadieron registros de producción.
+
+El commit local `35b5e36` incluye la corrección y las regresiones. Pasaron 85
+pruebas dirigidas y 242 en las suites relevantes de backend. También pasaron
+calidad Python, dependencias, TypeScript, lint, formato y build del frontend.
+El procedimiento de solo lectura se ejecutó con la instantánea pública y
+confirmó igualdad del SHA-256 y de los fragmentos extraídos.
+
+Se comprobó que la configuración local del frontend usa el puerto 8001 y
+que, durante el diagnóstico, el servidor escuchaba en él sin recarga
+automática. La respuesta histórica no identifica por sí sola la revisión
+del proceso que la produjo. Queda pendiente el cotejo de las filas y del
+original privados de la conversación real. No se invocó a Gemini ni a Terra.
+
+#### Comprobar la conversación existente en modo de solo lectura
+
+1. Abre la conversación existente sin enviar otro mensaje. En la pestaña
+   **Red** de las herramientas del navegador, localiza el GET de
+   /projects/{proyecto}/conversations/{conversación} y guarda solo su
+   respuesta JSON en **.local/session9/t2-conversacion.json** desde la raíz del
+   repo. Guarda el texto exacto del mensaje en **.local/session9/t2-consulta.txt**
+   como UTF-8. Mantén las copias en local y excluidas de Git. No hace falta
+   guardar cabeceras, tokens o un archivo HAR.
+2. Para cotejar la extracción, puedes descargar el original con
+   **Descargar original** y guardarlo como **.local/session9/t2-original.docx**.
+   Este paso es opcional.
+3. Desde **backend**, ejecuta el bloque. Lee los metadatos privados
+   que hayas guardado e imprime únicamente estados, recuentos y resultados
+   de comparación. No vuelve a enviar el turno ni contacta al proveedor.
+
+~~~powershell
+@'
+import hashlib
+import json
+from pathlib import Path
+
+from app.core.config import Settings
+from app.services.instrument_context import retrieve_instruments
+from app.services.profiling import inspect_file
+
+folder = Path('../.local/session9')
+detail = json.loads((folder / 't2-conversacion.json').read_text(encoding='utf-8-sig'))
+query = (folder / 't2-consulta.txt').read_text(encoding='utf-8-sig')
+files = [f for f in detail['files'] if f['file_role'] == 'instrument']
+for authorized in (False, True):
+    outcomes = retrieve_instruments(files, query, authorized)
+    print('Permiso:', authorized, 'Instrumentos asociados:', len(files))
+    for outcome in outcomes.values():
+        print(outcome['retrieval'], outcome['fragments_available'],
+              len(outcome['fragments_shared']), outcome.get('retrieval_method', ''),
+              'vista previa legada:', outcome['legacy_excerpt_only'])
+original = folder / 't2-original.docx'
+if original.is_file() and len(files) == 1 and files[0]['file_type'] == 'docx':
+    raw = original.read_bytes()
+    stored = files[0]['metadata']
+    digest = stored.get('content_sha256')
+    fresh = inspect_file(original.name, raw, 'instrument', Settings(_env_file=None))
+    print('SHA-256 igual:', digest == hashlib.sha256(raw).hexdigest() if digest else 'sin hash')
+    print('Fragmentos identicos:', stored.get('fragments') == fresh['fragments'])
+'@ | .\.venv\Scripts\python.exe -
+~~~
+
+4. Espera «not_authorized» y cero fragmentos compartidos con permiso
+   falso. Con permiso verdadero y los metadatos de la copia pública,
+   se espera «matched», 117 disponibles y 10 seleccionados.
+   Si el registro privado arroja otro resultado, comprueba la versión de la
+   extracción y compara el hash y los fragmentos con el original descargado.
+   Ejecuta la prueba HTTP local de la conversación persistida para confirmar
+   el enrutamiento sin enviar mensajes a la conversación real:
+
+   ~~~powershell
+   .\.venv\Scripts\python.exe -m pytest -q tests/test_thesis_stability.py -k previously_persisted
+   ~~~
+
+El proceso local sin recarga debe reiniciarse para cargar el código corregido.
+Recargar solo la página no actualiza el proceso Python. La comprobación
+anterior usa directamente el código del árbol de trabajo.
+
 ### T2 — Recuperación bilingüe de un instrumento Word (22 de noviembre de 2026)
 
 T1 con el PDF resultó satisfactoria según la validación manual reportada. Para T2
