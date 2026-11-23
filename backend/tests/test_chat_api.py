@@ -132,9 +132,9 @@ class MemoryStore:
             if not c.get('title_manual'):
                 c['title'] = result.get('title') or c['title']
             c['active_request_id'] = None
-            await self.insert('messages', {'conversation_id': cid, 'role': 'assistant', 'content': result['content'], 'message_type': result['message_type'], 'metadata': result.get('metadata', {})})
+            message = (await self.insert('messages', {'conversation_id': cid, 'role': 'assistant', 'content': result['content'], 'message_type': result['message_type'], 'metadata': result.get('metadata', {})}))[0]
             for plan in result.get('proposals', []):
-                await self.insert('analysis_proposals', {'conversation_id': cid, 'title': plan['title'], 'objective': plan['objective'], 'analysis_plan': plan, 'status': 'proposed'})
+                await self.insert('analysis_proposals', {'conversation_id': cid, 'title': plan['title'], 'objective': plan['objective'], 'analysis_plan': plan, 'status': 'proposed', 'source_message_id': message['id']})
             for fid in result.get('link_file_ids', []):
                 await self.insert('conversation_files', {'conversation_id': cid, 'file_id': fid, 'project_id': c['project_id']})
             await self.update('chat_requests', {'conversation_id': cid, 'request_id': data['p_request']}, {'status': 'completed'})

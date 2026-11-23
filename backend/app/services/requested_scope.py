@@ -8,7 +8,7 @@ Se guarda en stage_data JSONB v1; no modifica planes, resultados ni RPC históri
 import re
 
 from app.models.chat import AssistantReply
-from app.services.conversation_text import action_of
+from app.services.conversation_text import action_of, proposal_limit
 from app.services.plan_capabilities import (
     OUTPUTS,
     SUMMARY_STATISTICS,
@@ -108,6 +108,14 @@ def product_request(text):
             positive.append(clause)
     positive = ["de muestral" if clause.strip() == "de" else clause for clause in positive]
     products, residue = parse_products(" ".join(positive))
+    if proposal_limit(text) is not None:
+        # La forma genérica de presentar los productos del plan no pide un
+        # gráfico concreto ni sustituye los productos estadísticos solicitados.
+        residue = re.sub(
+            r"\btablas y graficos(?: (?:esperados|previstos))?(?=\s*(?:$|[-:•]|\by (?:las )?limitaciones\b|no ejecutes\b))",
+            "",
+            residue,
+        )
     excluded, excluded_residue = parse_products(" ".join(negative))
     # Sin IC es una restricción ejecutable del descriptivo, no una solicitud de IC.
     if re.search(r"sin intervalos(?: de confianza)?", literal):
@@ -147,7 +155,7 @@ def user_products(text):
 
 def requested_scope(conversation, messages, turn):
     saved = conversation.get("stage_data", {}).get("requested_scope")
-    if saved and saved.get("recognizer_version") != 3:
+    if saved and saved.get("recognizer_version") != 4:
         # Reparar únicamente cachés derivadas cuya evidencia completa aún está
         # disponible. Nunca inferir que se puede recortar un historial truncado.
         source_ids = set(saved.get("source_requests", []))
@@ -156,7 +164,7 @@ def requested_scope(conversation, messages, turn):
             saved = None
     scope = dict(saved) if saved else {"version": 1, "products": [], "unresolved": False, "mode": "analysis"}
     scope["source_requests"] = list(scope.get("source_requests", []))
-    scope["recognizer_version"] = 3
+    scope["recognizer_version"] = 4
     if saved:
         watermark = saved.get("through_position", -1)
         candidates = [
@@ -210,10 +218,11 @@ def requested_scope(conversation, messages, turn):
         if set(scope["products"]) & set(scope["excluded_products"]):
             uncertain = True
         scope["unresolved"] = scope["unresolved"] or uncertain
-        if "alternativas independientes" in literal:
-            scope["mode"] = "alternatives"
-        elif "mismo analisis" in literal or decision:
+        count = proposal_limit(message["content"])
+        if "mismo analisis" in literal or decision or count == 1:
             scope["mode"] = "analysis"
+        elif "alternativas independientes" in literal or count and count > 1:
+            scope["mode"] = "alternatives"
         request_id = message.get("metadata", {}).get("request_id")
         if not request_id and message["content"] == turn.content and turn.action == "message":
             request_id = str(turn.request_id)

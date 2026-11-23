@@ -296,7 +296,7 @@ def test_repeated_request_repairs_old_scope_only_from_complete_user_evidence(loc
     detail = client.get(path).json()
     assert len(detail["proposals"]) == 1
     scope = detail["conversation"]["stage_data"]["requested_scope"]
-    assert "global" not in scope["products"] and scope["recognizer_version"] == 3
+    assert "global" not in scope["products"] and scope["recognizer_version"] == 4
     assert old_message == frozen
 
 

@@ -7,16 +7,38 @@ ACTION_LABELS = {
     'files_ready': 'Comprender los archivos adjuntos', 'keep_goal': 'Continuar con la finalidad actual',
 }
 UUID_TEXT = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', re.I)
+NO_PROPOSALS = re.compile(r'\b(?:sin (?:crear |preparar |generar )?|no (?:quiero|necesito|deseo|prepares|generes|propongas|crees) )(?:(?:ningun[ao]?|nuev[oa]s?) )?(?:planes?|propuestas?)\b')
+PROPOSAL_REQUEST = re.compile(
+    r'\b(?:genera|prepara|elabora|crea|disena|plantea|propon|presenta|ofrece|dame|quiero|deseo|necesito|solicito|sugiere)'
+    r'(?:r|me)? (?:que (?:me )?(?:prepares|generes|propongas|plantees) )?(?:hasta |como maximo )?'
+    r'(?:(?P<count>una?|dos|tres|cuatro|\d{1,3}) )?(?:sol[ao] |unic[ao] |nuev[ao]s? )?'
+    r'(?:propuestas?|planes?|alternativas? (?:independientes? )?de analisis)\b'
+)
 
 
 def normalize(text):
     return ''.join(c for c in unicodedata.normalize('NFD', text.lower()) if unicodedata.category(c) != 'Mn').strip(' .!¿?¡\n')
 
 
+def proposal_limit(text):
+    text = ' '.join(normalize(text).split())
+    if NO_PROPOSALS.search(text):
+        return None
+    request = PROPOSAL_REQUEST.search(text)
+    if not request:
+        return None
+    count = request['count']
+    return min(4, max(1, int(count))) if count and count.isdecimal() else {
+        'un': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4,
+    }.get(count, 4)
+
+
 def statistical_request(text):
     text = normalize(text)
-    if re.search(r'sin propuestas|sin planes|no (?:quiero|necesito|deseo) (?:planes|propuestas)', text):
+    if NO_PROPOSALS.search(text):
         return False
+    if proposal_limit(text) is not None:
+        return True
     if re.search(r'preguntas?|codigos?|items?|opciones?', text) and re.search(r'instrumento|cuestionario|documento|pdf|docx', text) and not re.search(r'plan|ejecut|correlacion|anova|frecuencias de (?:la |las )?variable', text):
         return False
     if re.search(r'(?:que|cual|cuales|explica|describe|muestra|recupera|busca|identifica).*\b(?:preguntas?|codigos?|items?|opciones?)\b', text) and re.search(r'instrumento|cuestionario|documento|pdf|docx', text):
@@ -34,12 +56,16 @@ def interaction_mode(turn):
         return 'understanding'
     if turn.action != 'message':
         return 'planning'
+    if proposal_limit(text) is not None:
+        return 'planning'
     if re.search(r'^(?:comprende|comprender|ayudame a comprender|quiero comprender|necesito comprender|revisa|identifica|describe) (?:los |mis |estos |las )?(?:archivos|adjuntos|datasets|columnas|hojas)', text) and not re.search(r'\bplan|propuesta|ejecut', text):
         return 'understanding'
     if re.search(r'instrumento|cuestionario|documento|\bpdf\b|\bdocx\b', text) and re.search(r'\?|^(?:que|cual|puedes|podrias|dime|explica|describe|muestra|recupera|busca|identifica|consulta)|necesito.*(?:preguntas|codigos|opciones)', text) and not statistical_request(text):
         return 'document'
-    if re.search(r'sin propuestas|sin planes|solo (?:necesito |quiero )?(?:una )?(?:comprension|descripcion de los archivos)', text):
+    if re.search(r'solo (?:necesito |quiero )?(?:una )?(?:comprension|descripcion de los archivos)', text):
         return 'understanding'
+    if NO_PROPOSALS.search(text):
+        return 'methodology' if re.search(r'metodo|procedimiento|comparar opciones', text) else 'understanding'
     if not statistical_request(text) and (turn.content.rstrip().endswith('?') or re.search(r'que (?:es|significa)|como funciona|explica|metodolog|contexto|objetivos.*guardad', text)):
         return 'methodology'
     return 'planning'

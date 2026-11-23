@@ -1,7 +1,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 Stage = Literal['reuse', 'instrument', 'upload_instrument', 'upload_dataset', 'understanding', 'clarification', 'goal', 'proposal', 'ready']
 ProviderId = Literal['gemini', 'openai']
@@ -133,6 +133,8 @@ class Plan(StrictModel):
 
 
 class AssistantReply(StrictModel):
+    _invalid_plan_positions: tuple[int, ...] = PrivateAttr(default=())
+
     response: str = Field(min_length=1, max_length=12000)
     suggested_stage: Literal['understanding', 'clarification', 'goal', 'proposal']
     detected_goal: str | None = Field(default=None, max_length=2000)

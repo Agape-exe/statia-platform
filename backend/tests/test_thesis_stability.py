@@ -442,6 +442,173 @@ def test_confirmed_context_false_denial_corrected_and_current_revision_sent(api)
     assert store.data["research_contexts"][0]["revision"] == 3
 
 
+ASK_THREE = (
+    "Genera hasta tres alternativas de análisis estadístico descriptivo basadas en "
+    "los objetivos confirmados del Contexto y las variables existentes."
+)
+ASK_ONE = (
+    "Prepara una única propuesta descriptiva de los patrones de uso. Incluye columnas exactas, "
+    "tipos de variables, ausencias, tablas y gráficos y limitaciones metodológicas. "
+    "No ejecutes cálculos todavía."
+)
+
+
+def planning_workspace(api):
+    client, store, provider = api
+    thesis_context(store, 1)
+    context = store.data["research_contexts"][0]["document"]
+    context["specific_objectives"] = ["Describir mediciones y categorías de participación."]
+    path = new(client, store)
+    assert turn(client, path, action="instrument_yes").status_code == 200
+    upload_instrument(client, path, "docx", ["CA31: ¿Cómo participa?"])
+    assert turn(client, path, action="instruments_done").status_code == 200
+    dataset = client.post(
+        path + "/files",
+        files={
+            "file": (
+                "respuestas.csv",
+                b"rango,mixta,modalidad,ambito\n1,10,habitual,uno\n2,otra,ocasional,dos\n3,15,habitual,uno\n"
+                b"1,otra,ocasional,dos\n2,10,habitual,uno\n3,15,ocasional,dos\n",
+            )
+        },
+        data={"file_role": "dataset"},
+    )
+    assert dataset.status_code == 201, dataset.text
+    return path, dataset.json()["id"]
+
+
+def frequency_plan(fid, column):
+    option = plan(fid, thesis=True)
+    option.update(
+        title=f"Distribución de {column}",
+        objective=f"Describir la distribución de `{column}`.",
+        method=f"Frecuencias de `{column}`",
+        requirements=["Informar ausencias por variable y conservar las respuestas mixtas como categorías."],
+        expected_outputs=["Frecuencias categóricas"],
+    )
+    option["variables"][0]["column"] = column
+    return option
+
+
+@pytest.mark.parametrize("invalid", [None, "column_reference", "internal_contract"])
+def test_thesis_explicit_alternatives_persist_only_valid_reviewable_plans(api, monkeypatch, invalid):
+    client, store, provider = api
+    path, fid = planning_workspace(api)
+    original_context = copy.deepcopy(store.data["research_contexts"])
+    options = [frequency_plan(fid, name) for name in ("rango", "modalidad", "ambito")]
+    payload = reply(
+        response="He preparado tres propuestas descriptivas.", proposals=options, suggested_stage="proposal"
+    )
+    if invalid == "column_reference":
+        options[-1]["variables"][0]["column"] = "inexistente"
+    if invalid == "internal_contract":
+        del options[-1]["requirements"]
+
+    # La doble respuesta atraviesa el mismo parser de contratos de los proveedores.
+    async def generate(context, correction=None):
+        provider.contexts.append((context, correction))
+        return parse_assistant_reply(
+            json.dumps(payload), context["interaction_mode"], validate_plans_separately="proposal_limit" in context
+        )
+
+    monkeypatch.setattr(provider, "generate", generate)
+    request_id = str(uuid4())
+    result = turn(client, path, content=ASK_THREE, request_id=request_id)
+    assert result.status_code == 200, result.text
+    expected = 2 if invalid else 3
+    detail = client.get(path).json()
+    message = detail["messages"][-1]
+    assert f" {expected} " in message["content"] and "Contexto" not in message["content"]
+    assert len(detail["proposals"]) == expected
+    assert all(row["status"] == "proposed" and row["source_message_id"] == message["id"] for row in detail["proposals"])
+    context = provider.contexts[0][0]
+    assert context["interaction_mode"] == "planning" and context["proposal_limit"] == 3
+    assert context["research_context"]["revision"] == 1
+    assert context["research_context"]["document"]["specific_objectives"]
+    assert context["research_context"]["document"]["methodological_design"]
+    columns = {col["name"]: col for file in context["files"] if file["role"] == "dataset" for col in file["columns"]}
+    assert columns["rango"]["statistical_type"] == "categorical_or_ordinal"
+    assert columns["mixta"]["inferred_type"] == columns["mixta"]["statistical_type"] == "mixed"
+    assert not store.data["analysis_runs"] and store.data["research_contexts"] == original_context
+    if invalid:
+        assert len(provider.contexts) == 2 and invalid in provider.contexts[-1][1]
+        assert message["metadata"]["planning_validation"]["partial"]
+
+    first, second, *_ = detail["proposals"]
+    assert client.patch(path + "/proposals/" + first["id"], json={"status": "accepted"}).status_code == 200
+    assert client.patch(path + "/proposals/" + second["id"], json={"status": "rejected"}).status_code == 200
+    assert turn(client, path, content=ASK_THREE, request_id=request_id).json()["replayed"]
+    reloaded = client.get(path).json()
+    assert {row["id"]: row["status"] for row in reloaded["proposals"]} == {
+        row["id"]: ("accepted" if row == first else "rejected" if row == second else "proposed")
+        for row in detail["proposals"]
+    }
+    assert len([msg for msg in reloaded["messages"] if msg["content"] == ASK_THREE]) == 1
+    assert not store.data["analysis_runs"] and store.data["research_contexts"] == original_context
+
+
+@pytest.mark.parametrize(
+    "failure", ["proposal_missing", "response_content", "objective_variables", "essential_clarification"]
+)
+def test_explicit_single_plan_failure_is_diagnostic_and_can_retry_without_duplicates(api, failure):
+    client, store, provider = api
+    path, fid = planning_workspace(api)
+    valid = frequency_plan(fid, "rango")
+    bad = copy.deepcopy(valid)
+    if failure == "proposal_missing":
+        answer = reply(response="He preparado una propuesta. ¿Deseas revisarla?", suggested_stage="proposal")
+    elif failure == "response_content":
+        answer = reply(response="Acepta la propuesta en el módulo Contexto.", proposals=[bad])
+    else:
+        if failure == "objective_variables":
+            bad["objective"] = "Describir las mediciones."
+        else:
+            bad["methodology_confirmed"] = False
+        answer = reply(proposals=[bad])
+    provider.replies.extend([answer, copy.deepcopy(answer), reply(proposals=[valid])])
+    request_id = str(uuid4())
+    response = turn(client, path, content=ASK_ONE, request_id=request_id)
+    assert response.status_code == 502 and failure in response.headers["x-statia-validation"]
+    assert "Puedes reintentar" in response.json()["detail"]
+    detail = client.get(path).json()
+    assert not detail["proposals"] and detail["retry_turn"]["request_id"] == request_id
+    assert turn(client, path, content=ASK_ONE, request_id=request_id).status_code == 200
+    detail = client.get(path).json()
+    assert len(detail["proposals"]) == 1
+    assert len([msg for msg in detail["messages"] if msg["content"] == ASK_ONE]) == 1
+    assert provider.contexts[-1][0]["proposal_limit"] == 1 and not store.data["analysis_runs"]
+
+
+def test_methodological_discussion_stays_without_proposals(api):
+    client, store, provider = api
+    path, fid = planning_workspace(api)
+    provider.replies.append(
+        reply(
+            response="Las frecuencias describen categorías y la mediana necesita un orden interpretable.",
+            proposals=[frequency_plan(fid, "rango")],
+        )
+    )
+    response = turn(client, path, content="¿Qué métodos descriptivos serían adecuados? Solo explica, sin propuestas.")
+    assert response.status_code == 200, response.text
+    assert provider.contexts[0][0]["interaction_mode"] == "methodology"
+    detail = client.get(path).json()
+    assert "frecuencias" in detail["messages"][-1]["content"]
+    assert not detail["proposals"] and not store.data["analysis_runs"]
+
+
+def test_explicit_plan_cannot_treat_mixed_column_as_numeric(api):
+    client, store, provider = api
+    path, fid = planning_workspace(api)
+    bad = frequency_plan(fid, "mixta")
+    bad.update(method="Media de mixta", expected_outputs=["Media"])
+    provider.replies = [reply(proposals=[bad]), reply(proposals=[bad])]
+    assert turn(client, path, content=ASK_ONE).status_code == 200
+    assert "output_capability" in provider.contexts[-1][1]
+    detail = client.get(path).json()
+    assert "no generó un plan válido" in detail["messages"][-1]["content"]
+    assert not detail["proposals"] and not store.data["analysis_runs"]
+
+
 def test_pure_document_detection_does_not_consume_methodology_answer_as_query():
     assert (
         interaction_mode(

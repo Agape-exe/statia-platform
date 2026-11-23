@@ -8,6 +8,29 @@ from app.services.planning_errors import PlanningError
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 
 
+def validate_proposal_text(reply):
+    text = normalized(" ".join([reply.response, *reply.questions, *reply.warnings]))
+    for sentence in re.split(r"[.!?]", text):
+        if re.search(r"\bno\b", sentence):
+            continue
+        if re.search(r"\b(?:propuestas?|planes?|alternativas?)\b", sentence):
+            if re.search(r"\b(?:acept|aprob|confirm)\w*", sentence) and re.search(
+                r"\b(?:en|desde) (?:el )?(?:modulo )?contexto\b", sentence
+            ):
+                raise PlanningError(
+                    "response_content",
+                    "Las propuestas estadísticas se aceptan en el asistente. En Contexto se guarda el documento de investigación.",
+                )
+            if not reply.proposals and re.search(
+                r"\b(?:he (?:preparado|generado|creado|elaborado)|(?:prepare|genere|cree|elabore)|"
+                r"(?:preparamos|generamos|creamos|elaboramos)|(?:quedaron|estan) (?:listas?|disponibles?))\b",
+                sentence,
+            ):
+                raise PlanningError(
+                    "proposal_missing", "No anuncies propuestas listas si no devuelves sus objetos estructurados."
+                )
+
+
 def result_ids(context):
     ids = set()
     for result in (context or {}).get("analysis_results", []):

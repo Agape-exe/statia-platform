@@ -305,7 +305,7 @@ def test_omitted_workbook_column_remains_available_for_rows_profile_and_later_pl
     assert [column["name"] for column in client.get(base + "/profile").json()["profile"]["columns"]] == columns
     assert client.get(base + "/rows?limit=1").json()["columns"] == columns
     provider.replies = [reply(proposals=[descriptive(file["id"], sheet, columns[-1])])]
-    result = turn(client, path, content=f"Quiero una descriptiva de `{columns[-1]}`.")
+    result = turn(client, path, content=f"Prepara una propuesta descriptiva de `{columns[-1]}`. No ejecutes cálculos.")
     assert result.status_code == 200, result.text
     proposal = client.get(path).json()["proposals"][0]
     assert proposal["analysis_plan"]["variables"][0]["column"] == columns[-1]

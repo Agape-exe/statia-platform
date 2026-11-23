@@ -87,7 +87,7 @@ def http_diagnostic(response):
     return diagnostic(category, local, status)
 
 
-def parse_reply(data, interaction_mode=None):
+def parse_reply(data, interaction_mode=None, *, validate_plans_separately=False):
     if not isinstance(data, dict):
         raise diagnostic("invalid_response")
     if data.get("status") != "completed" or data.get("incomplete_details") or data.get("error"):
@@ -106,7 +106,7 @@ def parse_reply(data, interaction_mode=None):
             parts.append(part["text"])
     from app.services.reply_contract import parse_assistant_reply
 
-    return parse_assistant_reply("".join(parts), interaction_mode)
+    return parse_assistant_reply("".join(parts), interaction_mode, validate_plans_separately=validate_plans_separately)
 
 
 class OpenAIProvider:
@@ -170,7 +170,9 @@ class OpenAIProvider:
                         "cached_input_tokens": (raw.get("input_tokens_details") or {}).get("cached_tokens"),
                         "reasoning_tokens": (raw.get("output_tokens_details") or {}).get("reasoning_tokens"),
                     }
-                reply = parse_reply(data, context.get("interaction_mode"))
+                reply = parse_reply(
+                    data, context.get("interaction_mode"), validate_plans_separately="proposal_limit" in context
+                )
             category = "completed"
             return reply
         except (TimeoutError, httpx.TimeoutException):

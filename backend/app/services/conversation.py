@@ -4,11 +4,11 @@ from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
 from app.services.gemini import build_context
-from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, interaction_mode, technical_details_requested
+from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, interaction_mode, proposal_limit, technical_details_requested
 from app.services.methodology import levels
 from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
-from app.services.planning_errors import PlanningIssue, log_issues
+from app.services.planning_errors import FAILURE_DETAILS, PlanningIssue, log_issues
 from app.services.planning_validation import Assessment, assess_reply, retain_valid_plans
 from app.services.analysis_context import saved_results_context
 from app.services.research_context import current_context
@@ -137,6 +137,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     datasets = [f for f in files if f['file_role'] == 'dataset']
     from app.services.reply_contract import NON_PLANNING, normalize_reply
     mode = interaction_mode(turn)
+    explicit_proposal = action == 'message' and proposal_limit(turn.content) is not None
     if action == 'message' and mode in ('planning', 'methodology') and any(f['file_role'] == 'instrument' for f in files) and not statistical_request(turn.content):
         from app.services.instrument_context import codes, search_query
         asks_for_items = re.search(r'^(?:que|cual(?:es)?|identifica|busca|recupera|muestra|lista|indicame) (?:son )?(?:las? |los? )?(?:preguntas|items|enunciados)\b', normalized)
@@ -148,7 +149,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         raise HTTPException(422, 'Adjunta al menos un dataset antes de solicitar su comprensión.')
     if any(not f['metadata'].get('profile') and not f['metadata'].get('sheet_profiles') for f in datasets):
         raise HTTPException(422, 'Elige una hoja para cada libro XLSX antes de continuar.')
-    conversation, scope_result = (conversation, None) if alternative or result_discussion(turn.content) else comparison_scope(conversation, turn, files)
+    discusses_results = not explicit_proposal and result_discussion(turn.content)
+    conversation, scope_result = (conversation, None) if alternative or discusses_results else comparison_scope(conversation, turn, files)
     if scope_result:
         return scope_result
     if action == 'keep_goal':
@@ -175,8 +177,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     except ValueError as exc:
         return static_result(conversation, 'clarification', str(exc))
     analysis_results = await saved_results_context(store, conversation, turn.content)
-    discussion = mode != 'document' and bool(analysis_results) and turn.action == 'message' and (result_discussion(turn.content) or not statistical_request(turn.content))
-    scope = None if alternative or discussion or mode in NON_PLANNING or result_discussion(turn.content) else requested_scope(conversation, messages, turn)
+    discussion = not explicit_proposal and mode != 'document' and bool(analysis_results) and turn.action == 'message' and (discusses_results or not statistical_request(turn.content))
+    scope = None if alternative or discussion or mode in NON_PLANNING or discusses_results else requested_scope(conversation, messages, turn)
     if scope:
         data['requested_scope'] = scope
     conversation = {**conversation, 'stage_data': data}
@@ -242,6 +244,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
     validation_history = []
     partial = False
     for attempt in range(2):
+        invalid_positions = reply._invalid_plan_positions
         try:
             reply = normalize_reply(reply, mode)
             if alternative:
@@ -260,7 +263,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 reply = reply.model_copy(update={'questions': [], 'warnings': [], 'context_summary': None})
             validate_explanation(reply.response, context)
             reply = humanize_reply(reply, files, result_ids(context) if context['technical_details'] else ())
-            assessment = assess_reply(reply, files, project, context)
+            assessment = assess_reply(reply, files, project, context, invalid_positions)
         except (ValidationError, ValueError) as exc:
             # Conservar la corrección acotada si la normalización deja contenido inválido.
             assessment = Assessment([], [PlanningIssue.from_error(exc) if isinstance(exc, ValueError) and not isinstance(exc, ValidationError) else PlanningIssue('internal_contract',
@@ -269,7 +272,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             break
         log_issues(assessment.issues, attempt + 1)
         validation_history.append({'attempt': attempt + 1, 'issues': [issue.safe_metadata() for issue in assessment.issues]})
-        if attempt and not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
+        if attempt and not explicit_proposal and not scope and not discussion and not alternative and any(issue.category == 'output_scope' for issue in assessment.issues):
             # No convertir sugerencias del modelo en requisitos del usuario.
             # Sin alcance verificable tampoco se puede aprobar una sustitución.
             scope = {'version': 1, 'products': [], 'unresolved': True, 'mode': 'analysis', 'source_requests': [str(turn.request_id)]}
@@ -281,7 +284,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             if retained:
                 reply, partial = retained, True
                 break
-            if scope and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') for issue in assessment.issues):
+            if scope and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') and
+                             (not explicit_proposal or issue.plan_index is not None) for issue in assessment.issues):
                 reply = scope_question(scope, provider_failed=True)
                 break
             type_problems = list(dict.fromkeys(issue.message for issue in assessment.issues if issue.category == 'variable_type'))
@@ -289,6 +293,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 detail = 'El proveedor no pudo responder con evidencia suficiente. No se guardó la respuesta; puedes reintentar.'
             elif type_problems:
                 detail = 'El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000] + ' No se guardó una propuesta inválida; solicita una reformulación compatible.'
+            elif explicit_proposal and (reasons := list(dict.fromkeys(FAILURE_DETAILS[issue.category] for issue in assessment.issues if issue.category in FAILURE_DETAILS))):
+                detail = ' '.join(reasons) + ' No se guardó ninguna propuesta. Puedes reintentar.'
             else:
                 detail = 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.'
             raise HTTPException(502, detail,
@@ -313,6 +319,10 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         reply.goal_change = False
     from app.services.plan_capabilities import warn_capabilities
     reply = warn_capabilities(reply)
+    if reply.proposals and not reply.goal_change and not partial:
+        count = len(reply.proposals)
+        ready = 'Hay una propuesta lista para revisar.' if count == 1 else f'Hay {count} propuestas listas para revisar.'
+        reply.response = ready + ' Puedes aceptar o rechazar cada propuesta en su tarjeta.'
     if mode in NON_PLANNING:
         reply.detected_goal = reply.suggested_title = None
         reply.goal_change = False
