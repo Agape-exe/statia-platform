@@ -319,7 +319,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         reply.goal_change = False
     from app.services.plan_capabilities import warn_capabilities
     reply = warn_capabilities(reply)
-    if reply.proposals and not reply.goal_change and not partial:
+    if explicit_proposal and reply.proposals and not reply.goal_change and not partial:
         count = len(reply.proposals)
         ready = 'Hay una propuesta lista para revisar.' if count == 1 else f'Hay {count} propuestas listas para revisar.'
         reply.response = ready + ' Puedes aceptar o rechazar cada propuesta en su tarjeta.'
