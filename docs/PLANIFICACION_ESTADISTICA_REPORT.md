@@ -85,4 +85,6 @@ La reproducción local no requiere Gemini real ni usa Terra como sustituto de un
 
 E2E-06, E2E-07 y E2E-08 se beneficiarían si fallaron por un producto descriptivo inferido indebidamente, un anuncio sin objeto o un componente redundante equivalente. Si el proveedor devolvió variables ausentes, roles incompatibles, componentes realmente distintos o un método inaplicable, la propuesta seguirá siendo rechazada. Los escenarios, solicitudes y trazas de esos tres casos no estaban disponibles para reproducirlos por identificador.
 
-La revisión del diff y `git diff --check` pasaron. La búsqueda de patrones de secretos en líneas añadidas no encontró coincidencias. La lista de archivos versionados contiene código, pruebas y este informe. El árbol de trabajo quedó limpio y la rama está lista para abrir un PR con los commits locales cuando se autorice publicarla.
+La revisión previa a la publicación reprodujo un caso adicional. Si el nombre del método venía entre comillas invertidas, la preparación podía tratarlo como ausente y elegir otro método. Se conservan los métodos y productos escritos de esa forma, y se omiten como términos estadísticos las referencias a columnas identificadas. La regresión cubre también la confirmación de varianzas al preparar una t de Student.
+
+La rama desactiva el despliegue automático de Vercel mediante una regla específica en `frontend/vercel.json`. La regla permite revisar el PR y ejecutar GitHub Actions sin habilitar una vista previa de esta rama.
