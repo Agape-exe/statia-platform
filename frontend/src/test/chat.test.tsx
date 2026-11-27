@@ -1169,6 +1169,58 @@ it('muestra la etapa actual de aclaración en presencia de una ejecución histó
   expect(screen.queryByText('Análisis completado')).not.toBeInTheDocument()
 })
 
+it('mantiene la aclaración visible hasta recibir el mensaje con la tarjeta persistida', async () => {
+  detail.conversation.current_stage = 'clarification'
+  detail.files = [dataset]
+  vi.mocked(chatService.turn)
+    .mockImplementationOnce(async () => {
+      detail.messages.push({
+        id: 'aclaracion-pendiente',
+        position: 2,
+        role: 'assistant',
+        content: 'La propuesta para esta solicitud sigue pendiente.',
+        message_type: 'question',
+        metadata: {
+          interaction_mode: 'methodology',
+          clarification_required: true,
+          questions: ['¿Las mediciones están pareadas?'],
+        },
+      })
+      return { status: 'completed' }
+    })
+    .mockImplementationOnce(async () => {
+      detail.conversation.current_stage = 'proposal'
+      detail.messages.push({
+        id: 'plan-validado',
+        position: 3,
+        role: 'assistant',
+        content: 'Hay una propuesta lista para revisar.',
+        message_type: 'proposal',
+        metadata: { interaction_mode: 'planning' },
+      })
+      detail.proposals = [
+        { ...structuredClone(proposal), source_message_id: 'plan-validado' },
+      ]
+      return { status: 'completed' }
+    })
+  const user = userEvent.setup()
+  chat()
+  const input = await screen.findByLabelText('Mensaje para Statia')
+  await user.type(input, '¿Qué debo aclarar?{Enter}')
+  expect(
+    await screen.findByText('¿Las mediciones están pareadas?'),
+  ).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Aceptar plan' })).toBeNull()
+  await user.type(input, 'Son mediciones independientes.{Enter}')
+  const card = await screen.findByRole('article', {
+    name: 'Propuesta: Describir notas',
+  })
+  expect(
+    within(card).getByRole('button', { name: 'Aceptar plan' }),
+  ).toBeVisible()
+  expect(analysisService.execute).not.toHaveBeenCalled()
+})
+
 it('un plan recién aceptado conserva su estado aunque exista una ejecución anterior de otro plan', async () => {
   detail.conversation.current_stage = 'ready'
   detail.latest_analysis_run = {
