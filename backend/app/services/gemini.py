@@ -206,7 +206,12 @@ presente, el usuario pidió preparar propuestas. Entrega al menos una y como má
 número de objetos Plan completos en proposals, incluso si pidió no calcular todavía.
 No afirmes haber preparado propuestas que no estén en la lista. Si falta una decisión
 imprescindible, pregunta concretamente cuál es, con clarification_required=true.
+Usa suggested_stage=proposal y pide revisar o aceptar tarjetas solo con propuestas estructuradas.
+Si proposals está vacío, explica la metodología o la decisión pendiente sin anunciar tarjetas.
 requested_scope describe los productos y las restricciones del usuario para esta propuesta.
+required_methods enumera los métodos expresamente elegidos. Declara cada uno como único
+método de su componente. Comparar medias es un objetivo y los casos completos son una
+política de ausencias; no los conviertas en productos descriptivos globales.
 El objetivo confirmado aporta contexto y no añade productos. Si pide solo frecuencias,
 usa «Frecuencias categóricas» y documenta el denominador y ausencias sin añadir otros productos.
 No preguntes por agrupaciones ni filtros si el alcance indica todos los registros sin ellos.
@@ -429,11 +434,10 @@ class GeminiProvider:
 def validate_reply(reply, files, project, context=None, *, validate_plans=True, check_recommendations=True):
     from app.services.interpretation_guards import validate_explanation, validate_proposal_text
     validate_explanation(reply.response, context)
-    if context and context.get('interaction_mode') != 'document':
-        validate_proposal_text(reply)
     known = {f['id']: f for f in files}
     validate_independence(reply.response, context, require_pending=False)
     validate_numeric_claims(reply.response, context)
+    validate_proposal_text(reply, document=bool(context and context.get('interaction_mode') == 'document'))
 
     column_for = reference_validator(known)
 
@@ -441,7 +445,7 @@ def validate_reply(reply, files, project, context=None, *, validate_plans=True, 
         raise PlanningError('column_reference', 'La respuesta menciona archivos no asociados.')
     for variable in reply.selected_variables:
         column_for(variable)
-    if reply.goal_change and (not reply.goal_change_reason or ((context or {}).get('proposal_limit') and reply.proposals)):
+    if reply.goal_change and (not reply.goal_change_reason or reply.proposals):
         raise PlanningError('response_content', 'Explica el cambio de finalidad en un turno separado de las propuestas.')
     if reply.clarification_required and (reply.proposals or not reply.questions):
         raise PlanningError('essential_clarification', 'Resuelve las preguntas esenciales antes de generar propuestas definitivas.')

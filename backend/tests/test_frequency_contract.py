@@ -16,7 +16,11 @@ from test_thesis_stability import frequency_plan
 
 from app.models.research_context import ResearchContext
 from app.services.reply_contract import parse_assistant_reply
-from app.services.requested_scope import product_request, request_clauses
+from app.services.requested_scope import (
+    SCOPE_RECOGNIZER_VERSION,
+    product_request,
+    request_clauses,
+)
 
 REQUEST = "Ahora sí, prepara una única propuesta estadística descriptiva para la variable sun_reaction del archivo nhanes_dermatology.csv.\n\nUtiliza el Contexto de tesis confirmado y las definiciones verificables del instrumento DEQ_J.pdf.\n\nAlcance: describir todos los registros disponibles, sin filtros, comparaciones ni agrupaciones.\n\nProcedimiento: distribución de frecuencias categóricas.\n\nProducto solicitado: exclusivamente una tabla de frecuencias absolutas y porcentajes por categoría, indicando el denominador utilizado y los valores ausentes.\n\nNo incluir resúmenes globales adicionales, gráficos, otras variables ni pruebas inferenciales.\n\nPresenta la propuesta para revisarla y aceptarla. No ejecutes cálculos todavía y no modifiques el Contexto de tesis."
 
@@ -239,7 +243,7 @@ def test_existing_conversation_replaces_old_unresolved_scope_and_preserves_retry
     assert len(detail["proposals"]) == 1
     scope = detail["messages"][-1]["metadata"]["requested_scope"]
     assert scope["source_requests"] == [request_id] and scope["products"] == ["frequencies"]
-    assert scope["recognizer_version"] == 6 and not scope["unresolved"]
+    assert scope["recognizer_version"] == SCOPE_RECOGNIZER_VERSION and not scope["unresolved"]
     assert len([m for m in detail["messages"] if m["content"] == REQUEST]) == 1
 
 

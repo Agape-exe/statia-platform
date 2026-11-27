@@ -22,8 +22,10 @@ from app.services.plan_capabilities import (
     validate_products,
 )
 from app.services.planning_errors import PlanningError
+from app.services.statistics.catalog import CATALOG
+from app.services.statistics.methods import methods_in_text, supported_request
 
-SCOPE_RECOGNIZER_VERSION = 6
+SCOPE_RECOGNIZER_VERSION = 7
 
 LABELS = {
     **SUMMARY_STATISTICS,
@@ -62,7 +64,15 @@ NATURAL_PRODUCTS = (
     (r"\b(?:pearson|correlacion de pearson)\b", "correlation_coefficient"),
     (r"\b(?:anova(?: de welch)?|f de welch)\b", "global_test"),
 )
-NEGATION = re.compile(r"\b(?:no (?:quiero|incluir|incluyas|solicito|necesito)|sin|excepto|excluir|excluye)\s+")
+NEGATION = re.compile(
+    r"\b(?:no (?:quiero|incluir|incluyas|solicito|necesito|usar|uses|aplicar|apliques)|"
+    r"y no|sin|excepto|en lugar de|excluir|excluye)\s+"
+)
+COMPLETE_CASES = re.compile(r"\b(?:casos|registros|datos|filas|observaciones) complet[oa]s\b")
+MEAN_OBJECTIVE = re.compile(
+    r"\b(?:compar|contrast)(?:a(?:r|me)?|e[ns]?|amos|ando|acion de)\s+(?:(?:la|las|el|los)\s+)?"
+    r"(?:medias?|promedios?)\b(?!\s+global)"
+)
 FREQUENCIES = re.compile(r"\b(?:tabla de )?frecuencias(?: absolutas)?(?: y porcentajes)?\b")
 EXCLUSIONS = {
     "no_filters": r"\b(?:sin filtros|todos los registros(?: disponibles)?|todas las observaciones)\b",
@@ -93,14 +103,14 @@ def request_clauses(text):
                 negative.append(clause[match.end() :])
                 excluded = True
             else:
-                if re.match(r"\s*(?:quiero|solicito|incluye|incluir|agrega|necesito)\b", clause):
+                if re.match(r"\s*(?:quiero|solicito|incluye|incluir|agrega|necesito|usa|utiliza|aplica|con)\b", clause):
                     excluded = False
                 (negative if excluded else positive).append(clause)
     return positive, negative
 
 
-def parse_products(text):
-    products, residue = set(), text
+def parse_products(text, grouping_columns=()):
+    products, residue = set(), re.sub(r"`[^`]+`", " ", text)
     for alias in sorted(USER_ALIASES, key=len, reverse=True):
         pattern = r"(?<!\w)" + re.escape(alias) + r"(?!\w)"
         if re.search(pattern, residue):
@@ -125,20 +135,25 @@ def parse_products(text):
         products.add("grouped")
     # «p global»/«contraste global» no describe el alcance de las medias.
     summary_scope = re.sub(r"\b(?:p|anova|contraste|prueba|estadistico(?: de prueba)?) global\b", "", text)
+    grouped = re.search(r"\b(?:por|en cada) (?:grupo|categoria|nivel|estrato)\w*\b|\bsegun [\w`]+", text) or any(
+        re.search(r"\bpor (?:la columna |la variable )?`?" + re.escape(column) + r"(?!\w)", text)
+        for column in grouping_columns
+    )
     if (
-        re.search(r"por grupo|segun [\w`]+", text)
-        and not re.search(r"global", summary_scope)
+        grouped
+        and not re.search(r"\bglobal(?:es|mente)?\b", summary_scope)
         and products & {"global", "mean", "sample_sd", "valid_n"}
     ):
+        means_only = products & {"global", "mean", "sample_sd", "valid_n"} == {"mean"}
         products.discard("global")
         # N/media/DE por grupo ya pertenecen al resumen agrupado. No exigir
         # además un descriptivo de todas las filas por reconocer cada nombre.
         products.difference_update({"mean", "sample_sd", "valid_n"})
-        products.add("grouped")
+        products.add("group_means" if means_only else "grouped")
     return products, residue
 
 
-def product_request(text):
+def product_request(text, grouping_columns=()):
     literal = normalized(text)
     if proposal_limit(text) is None and informational_mode(text):
         return set(), set(), False, False
@@ -152,7 +167,9 @@ def product_request(text):
     # Separar exclusiones antes de reconocer productos; nunca acreditarlas como solicitudes.
     positive, negative = request_clauses(literal)
     positive = ["de muestral" if clause.strip() == "de" else clause for clause in positive]
-    products, residue = parse_products(" ".join(positive))
+    products, residue = parse_products(
+        " ".join(MEAN_OBJECTIVE.sub(" ", clause) for clause in positive), grouping_columns
+    )
     if proposal_limit(text) is not None:
         # La forma genérica de presentar los productos del plan no pide un
         # gráfico concreto ni sustituye los productos estadísticos solicitados.
@@ -161,12 +178,11 @@ def product_request(text):
             "",
             residue,
         )
-    excluded, excluded_residue = parse_products(" ".join(negative))
+    excluded, _ = parse_products(" ".join(negative), grouping_columns)
     # Sin IC es una restricción ejecutable del descriptivo, no una solicitud de IC.
     if re.search(r"sin intervalos(?: de confianza)?", literal):
         products.add("no_intervals")
         excluded.discard("mean_interval")
-        excluded_residue = re.sub(r"intervalos(?: de confianza)?", "", excluded_residue)
     if re.search(r"(?:sin|no (?:quiero|incluir|incluyas)) (?:comparaciones )?post[ -]?hoc", literal):
         excluded.add("posthoc")
     if re.search(r"sin inferencia|exclusivamente descriptiv|solo descriptiv", literal) or re.search(
@@ -182,13 +198,17 @@ def product_request(text):
                 "paired_change_interval",
             }
         )
-    mentioned = bool(products or excluded or PRODUCT_WORDS.search(literal))
+    prose = re.sub(r"`[^`]+`", " ", literal)
+    mentioned = bool(products or excluded or PRODUCT_WORDS.search(prose))
     residue = re.sub(r"\b(?:productos|resultados)\s*:", "", residue)
     # Nombres de columnas/finalidad en prosa son válidos; productos desconocidos,
     # calificativos no ejecutables y ligaduras libres sí necesitan aclaración.
     uncertain = bool(
         PRODUCT_WORDS.search(residue)
-        or re.search(r"\b(?:predicciones|avanzados|completos|componente|sustituye|reemplaza|quita|elimina)\b", literal)
+        or re.search(
+            r"\b(?:predicciones|avanzados|completos|componente|sustituye|reemplaza|quita|elimina)\b",
+            COMPLETE_CASES.sub(" ", prose),
+        )
     )
     return products, excluded, uncertain, mentioned
 
@@ -209,7 +229,13 @@ def requested_scope(conversation, messages, turn, files=()):
             saved = None
     scope = dict(saved) if saved else {"version": 1, "products": [], "unresolved": False, "mode": "analysis"}
     scope["source_requests"] = list(scope.get("source_requests", []))
-    scope["recognizer_version"] = SCOPE_RECOGNIZER_VERSION
+    scope.setdefault("recognizer_version", SCOPE_RECOGNIZER_VERSION)
+    grouping_columns = {
+        normalized(column["name"])
+        for file in files
+        for column in file["metadata"].get("profile", {}).get("columns", [])
+        if column.get("statistical_type") in {"categorical", "categorical_or_ordinal"}
+    }
     if saved:
         watermark = saved.get("through_position", -1)
         candidates = [
@@ -235,14 +261,23 @@ def requested_scope(conversation, messages, turn, files=()):
     for message in candidates:
         literal = normalized(message["content"])
         decision = literal.startswith(("confirmo alcance:", "cambio de alcance:"))
-        products, excluded, uncertain, mentioned = product_request(message["content"])
+        products, excluded, uncertain, mentioned = product_request(message["content"], grouping_columns)
         count = proposal_limit(message["content"])
+        positive, negative = request_clauses(literal)
+        method_text = " ".join(positive)
+        # Una lista de opciones no elige un método. Los nombres en exclusiones
+        # e intervenciones informativas tampoco son compromisos del usuario.
+        methods, excluded_methods = set(), set()
+        if count is not None or not informational_mode(literal):
+            excluded_methods = methods_in_text(" ".join(negative)) - {"descriptive"}
+            if not re.search(r"\b(?:o|versus|alternativas)\b", method_text):
+                methods = methods_in_text(method_text) - {"descriptive"}
+        mentioned = mentioned or bool(methods or excluded_methods)
         constraints = (
             {name for name, pattern in EXCLUSIONS.items() if re.search(pattern, literal)}
             if count or mentioned
             else set()
         )
-        _, negative = request_clauses(literal)
         exclusions = " ".join(negative)
         if count or mentioned:
             for name, pattern in {
@@ -271,20 +306,18 @@ def requested_scope(conversation, messages, turn, files=()):
         if decision or natural_decision or independent:
             scope["products"], scope["unresolved"] = [], False
             scope["excluded_products"] = []
+            scope["excluded_methods"] = []
             scope["constraints"] = []
             scope.pop("variables", None)
             scope.pop("product_sources", None)
             if independent or literal.startswith("cambio de alcance:"):
                 scope["required_methods"] = []
-            if independent:
                 scope["source_requests"] = []
-        # Un contraste expresamente pedido no puede sustituirse por otro que
-        # entregue productos parecidos. Las exclusiones no crean compromisos.
-        positive = " ".join(
-            clause.split("sin ")[0] for clause in re.split(r"[.;!]", literal) if not NEGATION.match(clause.strip())
-        )
-        if re.search(r"\banova(?: de)? welch\b", positive) and not re.search(r"\bo\b|alternativas", positive):
-            scope["required_methods"] = sorted(set(scope.get("required_methods", [])) | {"welch_anova"})
+                scope["recognizer_version"] = SCOPE_RECOGNIZER_VERSION
+        if methods:
+            scope["required_methods"] = sorted(set(scope.get("required_methods", [])) | methods)
+        if excluded_methods:
+            scope["excluded_methods"] = sorted(set(scope.get("excluded_methods", [])) | excluded_methods)
         scope["products"] = sorted(set(scope["products"]) | products)
         scope["excluded_products"] = sorted(set(scope.get("excluded_products", [])) | excluded)
         if constraints:
@@ -300,7 +333,9 @@ def requested_scope(conversation, messages, turn, files=()):
             ]
             if matching:
                 scope["variables"] = matching
-        if set(scope["products"]) & set(scope["excluded_products"]):
+        if set(scope["products"]) & set(scope["excluded_products"]) or (
+            set(scope.get("required_methods", [])) & set(scope.get("excluded_methods", []))
+        ):
             uncertain = True
         scope["unresolved"] = scope["unresolved"] or uncertain
         if "mismo analisis" in literal or decision or count == 1:
@@ -323,7 +358,12 @@ def requested_scope(conversation, messages, turn, files=()):
     )
     return (
         scope
-        if scope["products"] or scope.get("excluded_products") or scope.get("constraints") or scope["unresolved"]
+        if scope["products"]
+        or scope.get("required_methods")
+        or scope.get("excluded_methods")
+        or scope.get("excluded_products")
+        or scope.get("constraints")
+        or scope["unresolved"]
         else None
     )
 
@@ -352,11 +392,25 @@ def validate_plan_scope(plan, scope, files):
         re.search(r"\b(?:graficos?|png|histogramas?)\b", normalized(text)) for text in plan.expected_outputs
     ):
         raise PlanningError("requested_scope", "El usuario excluyó los gráficos de los productos esperados.")
-    methods = set().union(*(named_methods(s) for s in steps))
-    if not set(scope.get("required_methods", [])) <= methods:
+    wanted_methods = set(scope.get("required_methods", []))
+    proposed_methods = [(step, named_methods(step)) for step in steps]
+    if any(names.intersection(scope.get("excluded_methods", [])) for _, names in proposed_methods):
+        raise PlanningError("requested_scope", "La propuesta incluye un método excluido expresamente por el usuario.")
+    missing_methods = wanted_methods - {
+        method
+        for step, names in proposed_methods
+        for method in wanted_methods
+        if names == {method}
+        and method in CATALOG
+        and step.procedure in CATALOG[method].families
+        and supported_request(step)
+    }
+    if missing_methods:
         raise PlanningError(
             "requested_scope",
-            "Conserva el ANOVA de Welch solicitado: no lo sustituyas por ANOVA clásico ni por otro contraste.",
+            "Conserva el método solicitado en su componente correspondiente: "
+            + ", ".join(CATALOG[method].name if method in CATALOG else method for method in sorted(missing_methods))
+            + ".",
         )
     validate_products(plan, files)  # Conserva también las ligaduras a componentes.
     declared = {kind for text in plan.expected_outputs for kind in OUTPUTS.get(output_request(text)[1], ())}
@@ -372,7 +426,13 @@ def validate_plan_scope(plan, scope, files):
     ):
         # El motor del descriptivo simple ya entrega estos productos. Comprobar
         # la cobertura real antes de acreditar un alias, sin cambiar el método.
-        for product in set(scope["products"]) & {"global", "grouped", "frequencies", "grouped_frequencies"}:
+        for product in set(scope["products"]) & {
+            "global",
+            "grouped",
+            "group_means",
+            "frequencies",
+            "grouped_frequencies",
+        }:
             validate_products(plan.model_copy(update={"expected_outputs": [LABELS[product]]}), files)
             declared.add(product)
     if (
@@ -411,6 +471,9 @@ def validate_plan_scope(plan, scope, files):
         # para las variables/agrupaciones requeridas, no basta una etiqueta.
         validate_products(plan.model_copy(update={"expected_outputs": [LABELS["grouped"]]}), files)
         declared.add("grouped")
+    if "grouped" in declared and "group_means" in scope["products"]:
+        validate_products(plan.model_copy(update={"expected_outputs": [LABELS["group_means"]]}), files)
+        declared.add("group_means")
     missing = set(scope["products"]) - declared
     if missing:
         raise PlanningError(
@@ -466,14 +529,18 @@ def scope_question(scope, *, provider_failed=False):
         )
     products = "; ".join(LABELS[k] for k in scope["products"])
     detail = (
-        ("Siguen pendientes los productos solicitados: " + products + ". ")
+        ("Identifiqué estos productos en tu solicitud: " + products + ". ")
         if products
         else "No podemos verificar qué productos debe incluir la propuesta. "
     )
-    question = "No pude interpretar todo el alcance de la solicitud. Indica qué producto adicional o cambio deseas, conservando los productos y restricciones ya reconocidos."
+    conflicts = set(scope.get("required_methods", [])) & set(scope.get("excluded_methods", []))
+    if conflicts:
+        names = ", ".join(CATALOG[method].name for method in sorted(conflicts))
+        question = f"La solicitud incluye y excluye {names}. ¿Qué método quieres usar?"
+    else:
+        question = "Indica qué producto adicional o cambio deseas. Puedes mantener los productos y restricciones ya reconocidos."
     return AssistantReply(
-        response=detail
-        + "No se guardó una propuesta que reduzca ese alcance. Necesitamos aclararlo o generar componentes que lo cubran.",
+        response=detail + "Necesito aclarar el resto del alcance antes de preparar la propuesta.",
         suggested_stage="clarification",
         questions=[question],
         clarification_required=True,

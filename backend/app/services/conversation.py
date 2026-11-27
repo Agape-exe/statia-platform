@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
 from app.services.gemini import build_context
-from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, normalize, statistical_request, humanize_reply, independent_proposal, interaction_mode, proposal_limit, technical_details_requested
+from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, asks_about_clarification, normalize, statistical_request, humanize_reply, independent_proposal, interaction_mode, proposal_limit, technical_details_requested
 from app.services.methodology import levels
 from app.services.titles import automatic_title
 from app.services.independence import user_independence_evidence
@@ -171,6 +171,19 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         actions = {r['request_id']: r['payload'].get('action', 'message') for r in requests}
         messages = [{**m, 'metadata': {**m.get('metadata', {}), 'turn_action': actions[m['metadata']['request_id']]}}
                     if m.get('metadata', {}).get('request_id') in actions else m for m in messages]
+    if stage == 'clarification' and action == 'message' and mode != 'document' and asks_about_clarification(turn.content):
+        pending = next((m.get('metadata', {}) for m in reversed(messages) if m['role'] == 'assistant'
+                        and m.get('metadata', {}).get('interaction_mode') != 'document'
+                        and (m.get('message_type') == 'proposal' or m.get('metadata', {}).get('clarification_required'))), {})
+        if pending.get('clarification_required') and (questions := pending.get('questions')):
+            pending_scope = pending.get('requested_scope') or conversation.get('stage_data', {}).get('requested_scope')
+            if (pending_scope or {}).get('unresolved'):
+                current_scope = requested_scope(conversation, messages, turn, files)
+                if not current_scope or not current_scope['unresolved']:
+                    questions = ['Puedes volver a pedir la propuesta con el alcance que ya indicaste.']
+            result = static_result(conversation, stage, 'La propuesta para esta solicitud sigue pendiente.')
+            result['metadata'] = {'questions': questions, 'clarification_required': True, 'interaction_mode': 'methodology'}
+            return result
     data = dict(conversation.get('stage_data', {}))
     data['independence_evidence'] = user_independence_evidence(messages, data.get('independence_evidence'))
     from app.services.variable_types import bind_confirmations, capture_confirmations
@@ -294,13 +307,19 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             if retained:
                 reply, partial = retained, True
                 break
-            if scope and not scope.get('constraints') and any(issue.category in ('requested_scope', 'output_scope', 'output_capability') and
-                             (not explicit_proposal or issue.plan_index is not None) for issue in assessment.issues):
+            scope_failures = {'requested_scope', 'output_scope', 'output_capability'}
+            if (scope and not scope.get('constraints')
+                and all(issue.category in scope_failures | {'proposal_missing'} for issue in assessment.issues)
+                and any(issue.category in scope_failures and (not explicit_proposal or issue.plan_index is not None)
+                        for issue in assessment.issues)):
                 reply = scope_question(scope, provider_failed=True)
                 break
             type_problems = list(dict.fromkeys(issue.message for issue in assessment.issues if issue.category == 'variable_type'))
             if mode in NON_PLANNING:
-                detail = 'El proveedor no pudo responder con evidencia suficiente. No se guardó la respuesta; puedes reintentar.'
+                reason = ('El proveedor anunció una propuesta que no está disponible.'
+                          if any(issue.category == 'proposal_missing' for issue in assessment.issues)
+                          else 'El proveedor no pudo responder con evidencia suficiente.')
+                detail = reason + ' No se guardó la respuesta; puedes reintentar.'
             elif type_problems:
                 detail = 'El plan no es ejecutable con el perfil actual. ' + ' '.join(type_problems)[:3000] + ' No se guardó una propuesta inválida; solicita una reformulación compatible.'
             elif scope and scope.get('constraints') and (
@@ -336,7 +355,7 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
         reply.goal_change = False
     from app.services.plan_capabilities import warn_capabilities
     reply = warn_capabilities(reply)
-    if explicit_proposal and reply.proposals and not reply.goal_change and not partial:
+    if explicit_proposal and reply.proposals and not partial:
         count = len(reply.proposals)
         ready = 'Hay una propuesta lista para revisar.' if count == 1 else f'Hay {count} propuestas listas para revisar.'
         reply.response = ready + ' Puedes aceptar o rechazar cada propuesta en su tarjeta.'
@@ -386,6 +405,8 @@ def reply_result(reply: AssistantReply, conversation, *, files=None, scope=...):
     if reply.context_summary:
         data['context_summary'] = reply.context_summary
     metadata = reply.model_dump(mode='json')
+    if scope or reply.proposals:
+        metadata['requested_scope'] = scope
     if reply.goal_change and conversation.get('primary_goal'):
         data['goal_change'] = {'goal': reply.detected_goal, 'reason': reply.goal_change_reason, 'title': reply.suggested_title}
         return {'stage': conversation['current_stage'], 'content': reply.response, 'message_type': 'confirmation',
@@ -395,7 +416,6 @@ def reply_result(reply: AssistantReply, conversation, *, files=None, scope=...):
     data['title_provisional'] = provisional
     # El modelo solo sugiere; la aplicación decide las transiciones y nunca acepta planes.
     if reply.proposals:
-        metadata['requested_scope'] = scope
         data['canonical_objectives'] = True
         stage, kind = 'proposal', 'proposal'
     elif reply.questions:
