@@ -23,7 +23,11 @@ from app.services.plan_capabilities import (
 )
 from app.services.planning_errors import PlanningError
 from app.services.statistics.catalog import CATALOG
-from app.services.statistics.methods import methods_in_text, supported_request
+from app.services.statistics.methods import (
+    methods_in_text,
+    supported_request,
+    unquote_column_references,
+)
 
 SCOPE_RECOGNIZER_VERSION = 7
 
@@ -109,8 +113,8 @@ def request_clauses(text):
     return positive, negative
 
 
-def parse_products(text, grouping_columns=()):
-    products, residue = set(), re.sub(r"`[^`]+`", " ", text)
+def parse_products(text, grouping_columns=(), column_names=()):
+    products, residue = set(), unquote_column_references(text, column_names)
     for alias in sorted(USER_ALIASES, key=len, reverse=True):
         pattern = r"(?<!\w)" + re.escape(alias) + r"(?!\w)"
         if re.search(pattern, residue):
@@ -153,7 +157,7 @@ def parse_products(text, grouping_columns=()):
     return products, residue
 
 
-def product_request(text, grouping_columns=()):
+def product_request(text, grouping_columns=(), column_names=()):
     literal = normalized(text)
     if proposal_limit(text) is None and informational_mode(text):
         return set(), set(), False, False
@@ -168,7 +172,7 @@ def product_request(text, grouping_columns=()):
     positive, negative = request_clauses(literal)
     positive = ["de muestral" if clause.strip() == "de" else clause for clause in positive]
     products, residue = parse_products(
-        " ".join(MEAN_OBJECTIVE.sub(" ", clause) for clause in positive), grouping_columns
+        " ".join(MEAN_OBJECTIVE.sub(" ", clause) for clause in positive), grouping_columns, column_names
     )
     if proposal_limit(text) is not None:
         # La forma genérica de presentar los productos del plan no pide un
@@ -178,7 +182,7 @@ def product_request(text, grouping_columns=()):
             "",
             residue,
         )
-    excluded, _ = parse_products(" ".join(negative), grouping_columns)
+    excluded, _ = parse_products(" ".join(negative), grouping_columns, column_names)
     # Sin IC es una restricción ejecutable del descriptivo, no una solicitud de IC.
     if re.search(r"sin intervalos(?: de confianza)?", literal):
         products.add("no_intervals")
@@ -198,7 +202,7 @@ def product_request(text, grouping_columns=()):
                 "paired_change_interval",
             }
         )
-    prose = re.sub(r"`[^`]+`", " ", literal)
+    prose = unquote_column_references(literal, column_names)
     mentioned = bool(products or excluded or PRODUCT_WORDS.search(prose))
     residue = re.sub(r"\b(?:productos|resultados)\s*:", "", residue)
     # Nombres de columnas/finalidad en prosa son válidos; productos desconocidos,
@@ -230,10 +234,11 @@ def requested_scope(conversation, messages, turn, files=()):
     scope = dict(saved) if saved else {"version": 1, "products": [], "unresolved": False, "mode": "analysis"}
     scope["source_requests"] = list(scope.get("source_requests", []))
     scope.setdefault("recognizer_version", SCOPE_RECOGNIZER_VERSION)
+    columns = [column for file in files for column in file["metadata"].get("profile", {}).get("columns", [])]
+    column_names = {normalized(column["name"]) for column in columns}
     grouping_columns = {
         normalized(column["name"])
-        for file in files
-        for column in file["metadata"].get("profile", {}).get("columns", [])
+        for column in columns
         if column.get("statistical_type") in {"categorical", "categorical_or_ordinal"}
     }
     if saved:
@@ -261,7 +266,7 @@ def requested_scope(conversation, messages, turn, files=()):
     for message in candidates:
         literal = normalized(message["content"])
         decision = literal.startswith(("confirmo alcance:", "cambio de alcance:"))
-        products, excluded, uncertain, mentioned = product_request(message["content"], grouping_columns)
+        products, excluded, uncertain, mentioned = product_request(message["content"], grouping_columns, column_names)
         count = proposal_limit(message["content"])
         positive, negative = request_clauses(literal)
         method_text = " ".join(positive)
@@ -269,9 +274,9 @@ def requested_scope(conversation, messages, turn, files=()):
         # e intervenciones informativas tampoco son compromisos del usuario.
         methods, excluded_methods = set(), set()
         if count is not None or not informational_mode(literal):
-            excluded_methods = methods_in_text(" ".join(negative)) - {"descriptive"}
+            excluded_methods = methods_in_text(" ".join(negative), column_names) - {"descriptive"}
             if not re.search(r"\b(?:o|versus|alternativas)\b", method_text):
-                methods = methods_in_text(method_text) - {"descriptive"}
+                methods = methods_in_text(method_text, column_names) - {"descriptive"}
         mentioned = mentioned or bool(methods or excluded_methods)
         constraints = (
             {name for name, pattern in EXCLUSIONS.items() if re.search(pattern, literal)}

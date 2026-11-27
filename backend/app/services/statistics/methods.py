@@ -45,13 +45,17 @@ def normalized(value):
 
 
 def named_methods(source):
-    return methods_in_text(source.method)
+    columns = {normalized(v.column) for v in getattr(source, "variables", ())}
+    return methods_in_text(source.method, columns)
 
 
-def methods_in_text(text):
-    text = normalized(text)
-    # Un nombre exacto de columna entre backticks no es una elección de método.
-    text = re.sub(r"`[^`]+`", "", text)
+def unquote_column_references(text, columns):
+    # El formato Markdown también puede delimitar un método o producto.
+    return re.sub(r"`([^`]+)`", lambda match: " " if match[1] in columns else match[1], text)
+
+
+def methods_in_text(text, columns=()):
+    text = unquote_column_references(normalized(text), columns)
     text = re.sub(r"\b(?:z de fisher|welch\s*[-–—]\s*holm)\b", "", text)
     text = re.sub(r"(\bchi[–—\s_-]*cuadrado)(?: de)? pearson\b", r"\1", text)
     found = set()

@@ -356,17 +356,20 @@ def test_welch_allows_explicit_degrees_of_freedom_and_available_cases(local):
     client, _, provider = local
     path, file = upload_welch(local)
     plan = welch_proposal(file)
+    plan["method"] = "`t de Welch` bilateral"
     plan["expected_outputs"].append("Grados de libertad del contraste")
     provider.replies.append(reply(proposals=[plan]))
     response = turn(
         client,
         path,
-        content="Prepara un plan para una t de Welch que contraste el promedio de `medicion` según `grupo`. "
-        "Usa los casos disponibles sin imputar. Reporta valor p y grados de libertad.",
+        content="Prepara un plan para una `t de Welch` que contraste el promedio de `medicion` según `grupo`. "
+        "Usa los casos disponibles sin imputar. Reporta `valor p` y `grados de libertad`.",
     )
     assert response.status_code == 200, response.text
     assert len(client.get(path).json()["proposals"]) == 1
-    assert provider.contexts[0][0]["requested_scope"]["products"] == ["degrees_of_freedom", "p_value"]
+    scope = provider.contexts[0][0]["requested_scope"]
+    assert scope["products"] == ["degrees_of_freedom", "p_value"]
+    assert scope["required_methods"] == ["welch_t"]
 
 
 @pytest.mark.parametrize("extension,provider_id", [("json", "gemini"), ("xlsx", "openai")])
