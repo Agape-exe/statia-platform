@@ -1,3 +1,4 @@
+import { methodNames } from '../lib/analysis-methods'
 import type { ProjectFile, Proposal } from '../types/chat'
 import { statisticalTypeLabel, visibleChatText } from '../lib/chat-text'
 
@@ -34,7 +35,12 @@ export function ProposalCard({
       <h3>{visible(proposal.title)}</h3>
       <p>{visible(proposal.objective)}</p>
       <p>
-        <strong>Procedimiento:</strong> {visible(plan.method)}
+        <strong>Procedimiento:</strong>{' '}
+        {visible(
+          Object.hasOwn(methodNames, plan.method)
+            ? methodNames[plan.method]
+            : plan.method,
+        )}
       </p>
       <details className="plan-scope">
         <summary>Revisar dataset y variables ({plan.variables.length})</summary>
@@ -92,8 +98,12 @@ export function ProposalCard({
           <ul>
             {plan.components.map((step, index) => (
               <li key={index}>
-                {visible(step.method)}:{' '}
-                {step.variables.map((variable) => variable.column).join(', ')}
+                {visible(
+                  Object.hasOwn(methodNames, step.method)
+                    ? methodNames[step.method]
+                    : step.method,
+                )}
+                : {step.variables.map((variable) => variable.column).join(', ')}
               </li>
             ))}
           </ul>

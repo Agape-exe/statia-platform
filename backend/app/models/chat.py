@@ -55,7 +55,7 @@ class Variable(StrictModel):
     file_id: str = Field(min_length=1, max_length=36)
     sheet: str = Field(min_length=1, max_length=120)
     column: str = Field(min_length=1, max_length=240)
-    role: Literal['outcome', 'predictor', 'group', 'time', 'pair_id', 'description']
+    role: Literal['outcome', 'predictor', 'group', 'time', 'pair_id', 'description', 'filter']
 
 
 class Join(StrictModel):

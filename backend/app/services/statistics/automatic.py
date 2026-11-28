@@ -21,6 +21,7 @@ from app.models.analysis import (
     PreparationQuestion,
 )
 from app.models.chat import Plan
+from app.services.plan_capabilities import OUTPUTS, output_request
 from app.services.profiling import numeric
 from app.services.statistics.catalog import CATALOG
 from app.services.statistics.methods import named_methods, supported_request
@@ -38,6 +39,12 @@ from app.services.statistics.preparation import (
     sources,
     validate_spec,
 )
+
+FREQUENCY_OUTPUTS = {
+    label
+    for label, kinds in OUTPUTS.items()
+    if set(kinds) <= {"frequencies", "grouped_frequencies", "group_frequencies"}
+}
 
 
 def digest(value):
@@ -209,6 +216,7 @@ def assess(job):
         elif (
             all(s.procedure in {"descriptive", "exploratory"} for s in sources(plan))
             and column["physical_type"] == "numeric"
+            and all(output_request(text)[1] in FREQUENCY_OUTPUTS for text in plan.expected_outputs)
         ):
             kind = "nominal"
             note(

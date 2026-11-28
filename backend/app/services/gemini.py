@@ -165,8 +165,8 @@ normalidad por grupo con gráficos/distribución y tamaño muestral, no solo Sha
 Welch NO requiere igualdad de varianzas: variance_assumption=unequal_allowed.
 Define el efecto y su estandarizador: por ejemplo d=(mean1-mean2)/s_p, donde
 s_p=sqrt(((n1-1)*s1^2+(n2-1)*s2^2)/(n1+n2-2)); o g=J(df)*d con corrección por sesgo.
-Se puede elegir SD combinada, sqrt((s1^2+s2^2)/2) o SD de referencia, justificando
-interpretación y limitaciones con heterogeneidad; Welch no impone una única variante.
+Usa diferencia de medias sin estandarizar salvo que se solicite un efecto estandarizado.
+El motor solo implementa d/g con SD combinada y J exacto para g. El IC es de la diferencia, nunca de d/g.
 Documenta intervalos de confianza a estimar después. Para múltiples estratos explica
 multiplicidad y considera Holm según finalidad confirmatoria/exploratoria; no universalizar.
 Si falta una decisión imprescindible, pregunta por qué importa y no generes un plan
@@ -289,7 +289,7 @@ def build_context(project, conversation, messages, files, turn, settings, analys
                             'kind': 'action' if action_of(m) != 'message' else 'message',
                             'content': redact(m['content'][:6000])} for m in messages[-18:]],
                'files': [], 'analysis_results': analysis_results or [],
-               'execution_methods': [{'code': p.code, 'name': p.name, 'families': p.families, 'variables': p.variable_types} for p in CATALOG.values()]}
+               'execution_methods': [{'code': p.code, 'name': p.name, 'families': p.families, 'variables': p.variable_types, 'output_products': p.output_products} for p in CATALOG.values()]}
     if turn.action == 'message' and (limit := proposal_limit(turn.content)) is not None:
         context['proposal_limit'] = limit
     if conversation.get('stage_data', {}).get('confirmed_variable_types'):
@@ -335,6 +335,11 @@ def build_context(project, conversation, messages, files, turn, settings, analys
             if turn.share_instrument_text:
                 item['untrusted_instrument_excerpt'] = '\n'.join(f['text'] for f in item['instrument']['fragments_shared'])[:6000]
         context['files'].append(item)
+    compact_context(context, context_limit)
+    return context
+
+
+def compact_context(context, context_limit):
     # Reducir solo elementos opcionales; jamás cortar JSON o esconder columnas a validar.
     if len(json.dumps(context, ensure_ascii=False)) > context_limit:
         context['history'] = context['history'][-6:]
@@ -357,7 +362,21 @@ def build_context(project, conversation, messages, files, turn, settings, analys
             summaries.remove(largest)
     if len(json.dumps(context, ensure_ascii=False)) > context_limit:
         raise HTTPException(413, 'El contexto supera el límite del proveedor. Usa menos archivos o columnas en esta conversación.')
-    return context
+
+
+GEMINI_PLANNING = """
+En modo understanding, explica solamente la estructura del archivo y pregunta por la finalidad.
+Aunque research_context tenga un objetivo, no prepares ni anuncies una propuesta en comprensión.
+Para planning usa expected_outputs con IDs de execution_methods.output_products y component=plan
+en planes simples. Los nombres en español de estas instrucciones describen esos IDs.
+En planes integrales utiliza method=integral. En planes simples components=[] siempre. method debe ser el code exacto de execution_methods.
+global_test es el contraste ómnibus, nunca la t de dos grupos. Usa t_statistic, difference_interval,
+mean_difference y p_value para dos medias. Un filtro de filas va en filters del plan, incluso
+para descriptivos con comparison=null. Declara la columna usada solo para selección con role=filter.
+Al recibir confirmed_variable_types del usuario, conserva su solicitud anterior y genera su propuesta con esas decisiones.
+Para un puntaje numérico ambiguo puedes proponer un resumen global condicionado a confirmar
+su escala en preparación. Una columna con pocos valores distintos también puede ser una medida.
+"""
 
 
 class GeminiProvider:
@@ -392,8 +411,8 @@ class GeminiProvider:
                     async with asyncio.timeout(self.settings.gemini_timeout_seconds):
                         response = await client.models.generate_content(
                             model=self.settings.gemini_model, contents=prompt,
-                            config=types.GenerateContentConfig(system_instruction=SYSTEM + PRODUCT_INSTRUCTIONS, response_mime_type='application/json',
-                                                               response_schema=reply_schema(), max_output_tokens=self.settings.gemini_max_output_tokens,
+                            config=types.GenerateContentConfig(system_instruction=SYSTEM + PRODUCT_INSTRUCTIONS + GEMINI_PLANNING, response_mime_type='application/json',
+                                                               response_schema=reply_schema(interaction_mode), max_output_tokens=self.settings.gemini_max_output_tokens,
                                                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)),
                         )
                     raw = getattr(response, 'usage_metadata', None)

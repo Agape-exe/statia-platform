@@ -9,7 +9,7 @@ from app.models.chat import AssistantReply
 from app.services.gemini import validate_reply
 from app.services.methodology import available_analyses
 from app.services.profiling import inspect_file
-from test_chat_api import api, new, turn, reply  # Fixture HTTP con repositorio/proveedor controlados.
+from test_chat_api import api as api, new, turn, reply  # Fixture HTTP con repositorio/proveedor controlados.
 
 FILE_ID = '20000000-0000-0000-0000-000000000001'
 DATA = (Path(__file__).parent / 'fixtures/penguins.csv').read_bytes()
@@ -128,7 +128,11 @@ def test_effect_size_alternatives_are_defined_without_computing_them(kind):
         effect.update(standardizer='average_variance_sd', definition='(mean1-mean2)/sqrt((s1^2+s2^2)/2), raíz del promedio de varianzas.')
     else:
         effect.update(name='glass_delta', standardizer='reference_group_sd', definition='(mean_male-mean_female)/SD_female; female es el grupo de referencia.')
-    validated(plan, scope())
+    if kind == 'hedges':
+        validated(plan, scope())
+    else:
+        with pytest.raises(ValueError, match='no está implementado'):
+            validated(plan, scope())
 
 
 def test_constant_variables_are_not_correlation_recommendations():

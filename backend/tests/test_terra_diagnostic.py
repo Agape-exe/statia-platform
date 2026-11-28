@@ -144,8 +144,8 @@ def test_legacy_a_d_bytes_and_converter_unchanged_without_import_or_execution():
     function = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "schema_openai")
     namespace = {}
     exec(compile(ast.Module(body=[function], type_ignores=[]), "legacy_converter_only", "exec"), namespace)
-    expected = namespace["schema_openai"](reply_schema())
-    assert diagnostic.schema_openai(reply_schema()) == expected
+    expected = namespace["schema_openai"](reply_schema(structured=False))
+    assert diagnostic.schema_openai(reply_schema(structured=False)) == expected
     assert diagnostic.build_case("M").schema == diagnostic.build_case("I").schema == expected
 
 
@@ -540,6 +540,8 @@ def test_saved_live_plans_preserve_evidence_and_unverified_outputs_require_scope
     assert case.context["instrument_text_authorized"] is False
     assert not any(f["role"] == "instrument" for f in case.context["files"])
     case.context.pop("instrument_text_authorized")
+    for method in case.context["execution_methods"]:
+        method.pop("output_products")
     assert diagnostic.digest(case.context) == metrics["context_sha256"]
     # Auditoría de una llamada histórica: usar su prompt congelado, nunca el
     # prompt actual ni cambiar los hashes/planes realmente observados.

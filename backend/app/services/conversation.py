@@ -3,7 +3,7 @@ import re
 from pydantic import ValidationError
 
 from app.models.chat import AssistantReply
-from app.services.gemini import build_context
+from app.services.gemini import build_context, compact_context
 from app.services.conversation_text import ACTION_LABELS as ACTION_LABELS, asks_about_clarification, normalize, statistical_request, humanize_reply, independent_proposal, interaction_mode, proposal_limit, technical_details_requested
 from app.services.methodology import levels
 from app.services.titles import automatic_title
@@ -255,12 +255,8 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             {'file_id': f['file_id'], **{key: value for key, value in f['instrument'].items() if key != 'fragments_shared'}}
             for f in context['files'] if 'instrument' in f]
         return result
-    import json
     context_limit = settings.gemini_context_chars - min(4000, settings.gemini_context_chars // 5)
-    while len(json.dumps(context, ensure_ascii=False)) > context_limit and len(context['history']) > 1:
-        context['history'].pop(0)
-    if len(json.dumps(context, ensure_ascii=False)) > context_limit:
-        raise HTTPException(413, 'El contexto indispensable supera el presupuesto del proveedor y su corrección acotada. Reduce archivos o identifica una consulta más concreta; se conserva tu solicitud.')
+    compact_context(context, context_limit)
     async def generate(correction=None):
         try:
             return await provider.generate(context, correction)
@@ -302,6 +298,14 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             break
         log_issues(assessment.issues, attempt + 1)
         validation_history.append({'attempt': attempt + 1, 'issues': [issue.safe_metadata() for issue in assessment.issues]})
+        if not assessment.valid_plans and all(issue.category == 'measurement_scale' for issue in assessment.issues):
+            detail = ' '.join(dict.fromkeys(issue.message for issue in assessment.issues))
+            reply = AssistantReply(response=detail, suggested_stage='clarification', clarification_required=True,
+                                   questions=['¿Representan cantidades discretas, cantidades continuas o códigos? '
+                                              'Para una medida, responde «Confirmo que `columna` es cuantitativa discreta» '
+                                              'o «Confirmo que `columna` es cuantitativa continua» con su nombre exacto. '
+                                              'Si son códigos, indica qué representan para revisar el análisis.'])
+            break
         if attempt:
             retained = retain_valid_plans(reply, assessment, files, project, context)
             if retained:
@@ -313,6 +317,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
                 and any(issue.category in scope_failures and (not explicit_proposal or issue.plan_index is not None)
                         for issue in assessment.issues)):
                 reply = scope_question(scope, provider_failed=True)
+                detail = ' '.join(dict.fromkeys(issue.message for issue in assessment.issues if issue.plan_index is not None))
+                if detail:
+                    reply.response += ' ' + detail[:1200]
                 break
             type_problems = list(dict.fromkeys(issue.message for issue in assessment.issues if issue.category == 'variable_type'))
             if mode in NON_PLANNING:
@@ -330,7 +337,9 @@ async def process_turn(store, project, conversation, turn, files, provider, sett
             ):
                 detail = ' '.join(violations) + ' No se guardó la propuesta. Puedes reintentar.'
             elif reasons := list(dict.fromkeys(FAILURE_DETAILS[issue.category] for issue in assessment.issues if issue.category in FAILURE_DETAILS)):
-                detail = ' '.join(reasons) + ' No se guardó ninguna propuesta. Puedes reintentar.'
+                details = list(dict.fromkeys(i.message for i in assessment.issues
+                                             if i.category in {'output_scope', 'output_capability', 'component_variables'}))
+                detail = ' '.join([*reasons, *details])[:2400] + ' No se guardó ninguna propuesta. Puedes reintentar.'
             else:
                 detail = 'El proveedor propuso variables o decisiones metodológicas incompletas. No se guardó una propuesta inválida; puedes reintentar.'
             raise HTTPException(502, detail,

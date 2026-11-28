@@ -5,7 +5,7 @@ from dataclasses import dataclass
 CATEGORIES = frozenset({
     'output_scope', 'output_capability', 'requested_scope',
     'column_reference', 'objective_variables', 'component_variables', 'variable_type',
-    'comparison_design', 'comparison_scope', 'effect_definition', 'independence',
+    'measurement_scale', 'comparison_design', 'comparison_scope', 'effect_definition', 'independence',
     'essential_clarification', 'recommendation_coverage', 'cross_table_relation',
     'response_content', 'document_evidence', 'semantic_validation', 'internal_contract',
     'proposal_missing', 'proposal_limit',
@@ -20,6 +20,7 @@ FAILURE_DETAILS = {
     'essential_clarification': 'Quedó una decisión metodológica imprescindible sin resolver.',
     'output_scope': 'La propuesta incluye entregables cuyo alcance no se puede verificar.',
     'output_capability': 'El procedimiento no puede producir todos los entregables propuestos.',
+    'measurement_scale': 'El tipo estadístico de la variable necesita confirmación.',
     'requested_scope': 'El plan no cumple el alcance estadístico solicitado.',
     'internal_contract': 'La respuesta no incluyó todos los campos obligatorios en el formato esperado.',
     'response_content': 'La respuesta incluyó una afirmación que Statia no pudo verificar.',

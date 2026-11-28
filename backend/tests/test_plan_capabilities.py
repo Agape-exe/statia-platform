@@ -108,6 +108,10 @@ def test_supported_products_pass_validation_preparation_and_execution(kind):
         {"project_type": "general"},
     )
     result = assess(job)
+    if result["questions"]:
+        assert all(q["subject"].endswith(":type") for q in result["questions"])
+        job["answers"] = {q["id"]: "continuous" for q in result["questions"]}
+        result = assess(job)
     assert result["status"] == "READY", result
     output, _ = calculate(job)
     assert output["status"] == "completed"

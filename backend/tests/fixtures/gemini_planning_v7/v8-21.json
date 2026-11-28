@@ -1,0 +1,82 @@
+{
+  "case": "07",
+  "response": {
+    "response": "He preparado la propuesta descriptiva global para la variable `puntaje_total` en la hoja «tabla» del archivo escala_tesis.csv, considerando las doce observaciones válidas de la muestra.",
+    "suggested_stage": "proposal",
+    "detected_goal": "Genera una propuesta descriptiva global para puntaje_total con las doce observaciones válidas.",
+    "suggested_title": "Propuesta descriptiva global de puntaje_total",
+    "questions": [],
+    "clarification_required": false,
+    "involved_file_ids": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "selected_variables": [
+      {
+        "file_id": "00000000-0000-4000-8000-000000000001",
+        "sheet": "tabla",
+        "column": "puntaje_total",
+        "role": "description"
+      }
+    ],
+    "proposals": [
+      {
+        "title": "Análisis descriptivo global de puntaje_total",
+        "objective": "Describir la distribución global de la variable `puntaje_total` en la hoja «tabla» utilizando las doce observaciones válidas de la muestra.",
+        "variables": [
+          {
+            "file_id": "00000000-0000-4000-8000-000000000001",
+            "sheet": "tabla",
+            "column": "puntaje_total",
+            "role": "description"
+          }
+        ],
+        "procedure": "descriptive",
+        "method": "descriptive",
+        "justification": "Permite obtener un resumen numérico central y de dispersión para la variable cuantitativa discreta `puntaje_total` en toda la muestra.",
+        "requirements": [
+          "Verificar la presencia de las doce observaciones válidas de `puntaje_total` en la hoja «tabla» de escala_tesis.csv."
+        ],
+        "limitations": [
+          "Alcance estrictamente descriptivo univariado sin inferencia ni segmentación por grupos."
+        ],
+        "expected_outputs": [
+          {
+            "product": "valid_n",
+            "component": "plan"
+          },
+          {
+            "product": "mean",
+            "component": "plan"
+          },
+          {
+            "product": "median",
+            "component": "plan"
+          },
+          {
+            "product": "sample_sd",
+            "component": "plan"
+          },
+          {
+            "product": "minimum",
+            "component": "plan"
+          },
+          {
+            "product": "maximum",
+            "component": "plan"
+          }
+        ],
+        "filters": [],
+        "joins": [],
+        "methodology_confirmed": true,
+        "comparison": null,
+        "components": []
+      }
+    ],
+    "warnings": [],
+    "confirmation_required": true,
+    "goal_change": false,
+    "goal_change_reason": null,
+    "context_summary": "Se confirmó que la variable `puntaje_total` en escala_tesis.csv (hoja «tabla») es cuantitativa discreta. Se solicita y prepara una propuesta descriptiva global utilizando las doce observaciones válidas."
+  },
+  "observed_issues": []
+}

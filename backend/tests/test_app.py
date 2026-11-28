@@ -10,7 +10,7 @@ def test_health():
     response = TestClient(app).get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "service": "statia-platform-api"}
-    assert response.headers["X-Statia-Planning-Version"] == "7"
+    assert response.headers["X-Statia-Planning-Version"] == "8"
 
 
 def test_origins_and_cors():

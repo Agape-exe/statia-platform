@@ -1,0 +1,125 @@
+{
+  "response": {
+    "response": "He preparado la propuesta para la prueba t de Welch bilateral comparando la variable `medicion` entre los grupos A y B de la variable `grupo` en el archivo `grupos_welch.csv` (tabla tabla). Por favor, revisa la tarjeta de propuesta.",
+    "suggested_stage": "proposal",
+    "detected_goal": "Comparar la media de la variable medicion entre los grupos A y B utilizando una prueba t de Welch bilateral.",
+    "suggested_title": "Prueba t de Welch para medicion por grupo",
+    "questions": [],
+    "clarification_required": false,
+    "involved_file_ids": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "selected_variables": [
+      {
+        "file_id": "00000000-0000-4000-8000-000000000001",
+        "sheet": "tabla",
+        "column": "medicion",
+        "role": "outcome"
+      },
+      {
+        "file_id": "00000000-0000-4000-8000-000000000001",
+        "sheet": "tabla",
+        "column": "grupo",
+        "role": "group"
+      }
+    ],
+    "proposals": [
+      {
+        "title": "Prueba t de Welch bilateral entre grupos A y B",
+        "objective": "Comparar la media de la variable `medicion` entre los grupos A y B de la variable `grupo` utilizando una prueba t de Welch bilateral.",
+        "variables": [
+          {
+            "file_id": "00000000-0000-4000-8000-000000000001",
+            "sheet": "tabla",
+            "column": "medicion",
+            "role": "outcome"
+          },
+          {
+            "file_id": "00000000-0000-4000-8000-000000000001",
+            "sheet": "tabla",
+            "column": "grupo",
+            "role": "group"
+          }
+        ],
+        "procedure": "group_comparison",
+        "method": "welch_t",
+        "justification": "Permite comparar las medias de dos grupos independientes cuando no se asume homogeneidad de varianzas.",
+        "requirements": [
+          "Verificar independencia de las observaciones entre grupos",
+          "Disponer de datos cuantitativos continuos para el resultado y dos categorías en el agrupador"
+        ],
+        "limitations": [
+          "Sensible a valores atípicos severos en muestras pequeñas",
+          "No asume varianzas iguales"
+        ],
+        "expected_outputs": [
+          "Resúmenes por grupo",
+          "Estadístico de prueba global",
+          "Grados de libertad",
+          "Valores p",
+          "Tamaño del efecto"
+        ],
+        "joins": [],
+        "methodology_confirmed": true,
+        "comparison": {
+          "design": "independent",
+          "groups": [
+            "A",
+            "B"
+          ],
+          "filters": [],
+          "strata": null,
+          "independence": "Supuesto pendiente de verificar con el diseño muestral; se asume independencia entre filas.",
+          "valid_observations": "Casos completos en `medicion` y `grupo` para las categorías A y B.",
+          "missing_data": "Excluir del cálculo solo ausencias en las variables necesarias, sin modificar las originales.",
+          "outliers": "Revisar posibles valores atípicos por grupo mediante distribución y gráficos.",
+          "normality": "Verificar normalidad aproximada por grupo mediante distribución y tamaño muestral.",
+          "variance_assumption": "unequal_allowed",
+          "effect_size": {
+            "name": "hedges_g",
+            "standardizer": "pooled_sd",
+            "definition": "g = J(nu_H) * (mean1 - mean2) / s_p, donde s_p es la desviación estándar combinada y J es la corrección por sesgo.",
+            "correction": "Corrección de Hedges aplicada al tamaño del efecto.",
+            "confidence_interval": "Estimación del intervalo de confianza para la diferencia de medias y el tamaño del efecto en la ejecución."
+          },
+          "purpose": "confirmatory",
+          "multiplicity": "none",
+          "multiplicity_reason": "Un único contraste entre dos grupos no requiere ajuste por multiplicidad."
+        },
+        "components": [
+          {
+            "procedure": "group_comparison",
+            "method": "welch_t",
+            "variables": [
+              {
+                "file_id": "00000000-0000-4000-8000-000000000001",
+                "sheet": "tabla",
+                "column": "medicion",
+                "role": "outcome"
+              },
+              {
+                "file_id": "00000000-0000-4000-8000-000000000001",
+                "sheet": "tabla",
+                "column": "grupo",
+                "role": "group"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "warnings": [],
+    "confirmation_required": true,
+    "goal_change": false,
+    "goal_change_reason": null,
+    "context_summary": "El usuario solicita una propuesta para una prueba t de Welch bilateral para comparar la variable medicion entre los grupos A y B de la variable grupo en el dataset grupos_welch.csv."
+  },
+  "observed_issues": [
+    {
+      "category": "effect_definition",
+      "message": "Con SD combinada, Hedges usa ν_H=n1+n2−2 en J(ν_H); no usar los grados de libertad Welch–Satterthwaite del contraste. Diferencia ambos y conserva el IC previsto.",
+      "plan_index": 0
+    }
+  ],
+  "interaction_mode": "planning"
+}

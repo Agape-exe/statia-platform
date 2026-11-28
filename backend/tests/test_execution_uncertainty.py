@@ -259,7 +259,9 @@ def test_changing_one_file_invalidates_only_its_clarifications():
         "files": first["files"] + second["files"],
     }
     initial = assess(job)
-    job["answers"] = {q["id"]: "missing" for q in initial["questions"]}
+    job["answers"] = {
+        q["id"]: "continuous" if q["subject"].endswith(":type") else "missing" for q in initial["questions"]
+    }
     ready = assess(job)
     assert ready["status"] == "READY"
     job["clarifications"] = ready["clarifications"]
