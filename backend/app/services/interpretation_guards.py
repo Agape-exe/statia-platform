@@ -6,12 +6,33 @@ from app.services.plan_capabilities import normalized
 from app.services.planning_errors import PlanningError
 
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+PLAN_NOUN = r"(?:propuestas?|plan(?:es)?|alternativas?)"
+DELIVERY = re.compile(
+    r"\b(?:(?:he|hemos|se ha|se han)(?: \w+){0,2} "
+    r"(?:preparad[oa]|generad[oa]|cread[oa]|elaborad[oa]|estructurad[oa]|guardad[oa]|dejado|adjuntado)|"
+    r"prepare|genere|cree|elabore|estructure|guarde|preparamos|generamos|creamos|elaboramos|"
+    r"(?:qued(?:a|an|o|aron)|est(?:a|an)|ya (?:hay|tienes|puedes ver))\b.{0,90}\b(?:listas?|disponibles?|guardadas?)|"
+    rf"ya (?:hay|tienes|puedes ver)\b.{{0,60}}\b{PLAN_NOUN}|aqui (?:esta|estan|tienes))\b"
+)
+CARD_REVIEW = re.compile(
+    r"\b(?:acept|aprob|confirm|revis|rechaz)\w*\b.{0,80}\b(?:en|desde) "
+    r"(?:(?:la|las|su|sus|tu|tus) )?(?:propia |correspondiente )?tarjetas?\b"
+)
 
 
-def validate_proposal_text(reply):
-    text = normalized(" ".join([reply.response, *reply.questions, *reply.warnings]))
+def validate_proposal_text(reply, *, document=False):
+    if not reply.proposals and (
+        reply.suggested_stage == "proposal" or reply.confirmation_required and not reply.goal_change
+    ):
+        raise PlanningError(
+            "proposal_missing", "La respuesta señala una propuesta sin devolver su objeto estructurado."
+        )
+    text = normalized(". ".join([reply.response, *reply.questions, *reply.warnings]))
+    if document:
+        text = re.sub(r"«[^»]+»", "", text)  # Las citas documentales se verifican por separado.
     for sentence in re.split(r"[.!?]", text):
-        if re.search(r"\b(?:propuestas?|plan(?:es)?|alternativas?)\b", sentence):
+        mentions_plan = re.search(rf"\b{PLAN_NOUN}\b", sentence)
+        if mentions_plan:
             if (
                 not re.search(r"\bno\b", sentence)
                 and re.search(r"\b(?:acept|aprob|confirm)\w*", sentence)
@@ -21,15 +42,17 @@ def validate_proposal_text(reply):
                     "response_content",
                     "Las propuestas estadísticas se aceptan en el asistente. En Contexto se guarda el documento de investigación.",
                 )
-            claim = re.search(
-                r"\b(?:(?:he|hemos|se ha|se han) (?:preparado|generado|creado|elaborado)|(?:prepare|genere|cree|elabore)|"
-                r"(?:preparamos|generamos|creamos|elaboramos)|(?:quedaron|estan) (?:listas?|disponibles?))\b",
-                sentence,
+        claim = CARD_REVIEW.search(sentence) or (DELIVERY.search(sentence) if mentions_plan else None)
+        if (
+            not reply.proposals
+            and claim
+            and not re.search(
+                r"\b(?:no|nunca)\s+(?:(?:la|las|lo|los|se|te|aun|todavia)\s+)*$", sentence[: claim.start()]
             )
-            if not reply.proposals and claim and not re.search(r"\b(?:no|nunca)\s*$", sentence[: claim.start()]):
-                raise PlanningError(
-                    "proposal_missing", "No anuncies propuestas listas si no devuelves sus objetos estructurados."
-                )
+        ):
+            raise PlanningError(
+                "proposal_missing", "No anuncies propuestas listas si no devuelves sus objetos estructurados."
+            )
 
 
 def result_ids(context):

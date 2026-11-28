@@ -39,10 +39,13 @@ def assess_reply(reply, files, project, context, invalid_positions=()):
             validate_recommendations(reply.model_copy(update={'proposals': valid}), project, context)
         except ValueError as exc:
             issues.append(PlanningIssue.from_error(exc))
-    try:
-        validate_scope_reply(reply, scope, files)
-    except ValueError as exc:
-        issues.append(PlanningIssue.from_error(exc))
+    # El alcance de cada plan ya se contrasta después de su integridad. Aquí
+    # solo queda comprobar el contrato de la respuesta sin propuestas.
+    if not reply.proposals and not invalid_positions:
+        try:
+            validate_scope_reply(reply, scope, files)
+        except ValueError as exc:
+            issues.append(PlanningIssue.from_error(exc))
     return Assessment(valid, issues, envelope_valid)
 
 

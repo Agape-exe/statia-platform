@@ -47,9 +47,18 @@ def informational_mode(text):
     text = normalize(text)
     if re.match(r'^que (?:contiene|incluye|hay en|columnas tiene|variables tiene)\b', text):
         return 'understanding'
-    if re.match(r'^(?:que|cual(?:es)?|como|por que|en que)\b', text):
+    if re.match(r'^(?:que|cual(?:es)?|como|por que|en que|explica(?:me)?)\b', text):
         return 'methodology'
     return None
+
+
+def asks_about_clarification(text):
+    text = normalize(text)
+    return bool(re.search(
+        r'^(?:(?:dime |explicame )?(?:que (?:necesitas|falta|debo (?:aclarar|confirmar|responder))|'
+        r'cual es la (?:duda|aclaracion)|(?:puedes |podrias )?(?:aclarar|reformular) (?:la|tu) pregunta)|'
+        r'no (?:entiendo|comprendo)(?: (?:la|tu) pregunta| (?:que|a que)\b.*)?$)', text
+    ) and proposal_limit(text) is None)
 
 
 def statistical_request(text):
@@ -79,6 +88,8 @@ def interaction_mode(turn):
         return 'planning'
     if proposal_limit(text) is not None:
         return 'planning'
+    if asks_about_clarification(text):
+        return 'methodology'
     if re.search(r'^(?:comprende|comprender|ayudame a comprender|quiero comprender|necesito comprender|revisa|identifica|describe) (?:los |mis |estos |las )?(?:archivos|adjuntos|datasets|columnas|hojas)', text) and not re.search(r'\bplan|propuesta|ejecut', text):
         return 'understanding'
     if re.search(r'instrumento|cuestionario|documento|\bpdf\b|\bdocx\b', text) and re.search(r'\?|^(?:que|cual|puedes|podrias|dime|explica|describe|muestra|recupera|busca|identifica|consulta)|necesito.*(?:preguntas|codigos|opciones)', text) and not statistical_request(text):

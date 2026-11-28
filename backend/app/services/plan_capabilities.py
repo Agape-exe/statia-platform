@@ -14,7 +14,7 @@ Para productos descriptivos en expected_outputs usa el catálogo verificable:
 «Resúmenes globales», «Resúmenes por grupo», «Frecuencias categóricas»,
 «Frecuencias categóricas por grupo», «Frecuencias de la variable de agrupación».
 Los productos inferenciales incluyen «Valores p», «Coeficientes de correlación»,
-«Intervalo de confianza para Pearson» y «Comparaciones post hoc», únicamente si
+«Medias por grupo», «Intervalo de confianza para Pearson» y «Comparaciones post hoc», únicamente si
 el catálogo del motor y las opciones confirmadas los permiten. Para vincular un
 producto a un componente usa «Componente N: producto» (N empieza en 1).
 Cada producto debe quedar cubierto por los componentes para todas sus variables
@@ -104,6 +104,7 @@ OUTPUTS = {
     "p global": ("p_value",),
     "valor p global": ("p_value",),
     "grados de libertad": ("degrees_of_freedom",),
+    "grados de libertad del contraste": ("degrees_of_freedom",),
     "grados de libertad del numerador y denominador": ("degrees_of_freedom",),
     "estimacion del cambio con incertidumbre": ("paired_change_interval",),
 }
@@ -360,6 +361,20 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                         "output_capability", "Conserva la exclusión de comparaciones post hoc del plan aceptado."
                     )
                 continue
+            if kind == "group_means" and groups:
+                targets = {(v, group) for v in measures for group in groups if v[:2] == group[:2]}
+                quantitative = (
+                    {key(d.variable) for d in decisions if d.statistical_type in {"continuous", "discrete"}}
+                    if decisions is not None
+                    else {
+                        (f["id"], f["metadata"].get("selected_sheet"), c["name"])
+                        for f in files or []
+                        for c in f["metadata"].get("profile", {}).get("columns", [])
+                        if c.get("statistical_type") == "quantitative"
+                    }
+                )
+                if targets and measures <= quantitative and targets <= covered["grouped"]:
+                    continue
             if kind in {
                 "p_value",
                 "correlation_coefficient",

@@ -83,7 +83,7 @@ CATALOG = {
             ["t", "gl", "p", "IC diferencia"],
             ["diferencia", "d de Cohen (SD combinada)", "g de Hedges (J exacto)"],
             ["Sin IC de d/g."],
-            ["p_value", "group_means"],
+            ["p_value", "group_means", "degrees_of_freedom"],
         ),
         entry(
             "welch_t",
@@ -96,7 +96,7 @@ CATALOG = {
             ["t", "gl Welch–Satterthwaite", "p", "IC diferencia"],
             ["diferencia", "d de Cohen (SD combinada)", "g de Hedges (J exacto)"],
             ["SD combinada es un estandarizador descriptivo con heterocedasticidad; sin IC de d/g."],
-            ["p_value", "group_means"],
+            ["p_value", "group_means", "degrees_of_freedom"],
         ),
         entry(
             "anova",

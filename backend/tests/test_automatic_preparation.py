@@ -148,6 +148,23 @@ def test_existing_group_methods_with_arbitrary_columns(method):
     assert ready["specification"]["components"][0]["method"] == method
 
 
+def test_student_formatted_as_code_preserves_method_and_variance_confirmation():
+    job = ranked_job("student_t", {"A": [1, 2, 3], "B": [4, 5, 6]})
+    job["plan"]["method"] = "`t de Student`"
+    initial = assess(job)
+    assert any("varianzas comparables" in question["prompt"] for question in initial["questions"])
+    ready = resolve(job)
+    assert ready["status"] == "READY", ready
+    assert ready["specification"]["components"][0]["method"] == "student_t"
+
+
+def test_column_named_like_a_method_does_not_override_the_formatted_method():
+    source = SimpleNamespace(
+        method="`Spearman` entre `Pearson` y otra medida", variables=[SimpleNamespace(column="Pearson")]
+    )
+    assert named_methods(source) == {"spearman"}
+
+
 @pytest.mark.parametrize("method", ["pearson", "spearman"])
 def test_correlations_require_design_and_respect_method(method):
     job = job_for(procedure="correlation", methods=[method])

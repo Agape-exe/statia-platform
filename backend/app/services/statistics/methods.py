@@ -11,16 +11,18 @@ ALIASES = {
     "descriptive": r"\bdescriptiv\w*|\bfrecuencias\b",
     "pearson": r"\bpearson\b",
     "spearman": r"\bspearman\b",
-    "student_t": r"\bstudent\b",
-    "welch_t": r"\bwelch\b",
+    "student_t": r"\bstudent(?:_t)?\b",
+    "welch_t": r"\bwelch(?:_t)?\b",
     "anova": r"\banova\b",
-    "paired_t": r"\bt (?:de student )?pareada\b|\bpaired_t\b",
-    "mann_whitney": r"\bmann[–\s_-]*whitney\b",
+    "paired_t": r"\bt (?:de student )?(?:pareada|para (?:muestras |datos )?(?:paread[ao]s|dependientes))\b|\bpaired_t\b",
+    "mann_whitney": r"\bmann[–—\s_-]*whitney\b",
     "wilcoxon": r"\bwilcoxon\b",
     "kruskal": r"\bkruskal\b",
-    "chi_square": r"\bchi[–\s_-]*(?:cuadrado|square)\b|\bchi2\b",
-    "fisher_exact": r"\bfisher\b",
+    "chi_square": r"\bchi[–—\s_-]*(?:cuadrado|square)\b|\bchi[2²]\b",
+    "fisher_exact": r"\bfisher(?:_exact)?\b",
 }
+WELCH_ANOVA = re.compile(r"\b(?:anova(?: de)? (?:\(\s*)?welch|welch anova|welch_anova|f de welch)\b")
+CLASSIC_OR_WELCH = re.compile(r"\banova clasic[oa] o (?:de )?welch\b")
 UNSUPPORTED_TERMS = (
     "regresion",
     "logistica",
@@ -43,18 +45,27 @@ def normalized(value):
 
 
 def named_methods(source):
-    text = normalized(source.method)
-    found = {code for code, pattern in ALIASES.items() if re.search(pattern, text)}
-    if "anova" in found and "welch_t" in found:
-        found.difference_update({"anova", "welch_t"})
+    columns = {normalized(v.column) for v in getattr(source, "variables", ())}
+    return methods_in_text(source.method, columns)
+
+
+def unquote_column_references(text, columns):
+    # El formato Markdown también puede delimitar un método o producto.
+    return re.sub(r"`([^`]+)`", lambda match: " " if match[1] in columns else match[1], text)
+
+
+def methods_in_text(text, columns=()):
+    text = unquote_column_references(normalized(text), columns)
+    text = re.sub(r"\b(?:z de fisher|welch\s*[-–—]\s*holm)\b", "", text)
+    text = re.sub(r"(\bchi[–—\s_-]*cuadrado)(?: de)? pearson\b", r"\1", text)
+    found = set()
+    if CLASSIC_OR_WELCH.search(text):
+        found.update({"anova", "welch_anova"})
+        text = CLASSIC_OR_WELCH.sub(" ", text)
+    if WELCH_ANOVA.search(text):
         found.add("welch_anova")
-        if re.search(r"\bt\s+(?:de\s+)?welch\b", text):
-            found.add("welch_t")
-        if re.search(r"\bclasico\b|\bclasica\b", text):
-            found.add("anova")
+        text = WELCH_ANOVA.sub(" ", text)
+    found.update(code for code, pattern in ALIASES.items() if re.search(pattern, text))
     if "paired_t" in found:
         found.discard("student_t")
-    # Literal catalog codes are also accepted in old plans.
-    if text in {"welch_anova", "chi_square", "fisher_exact", "student_t", "welch_t", "mann_whitney"}:
-        return {text}
     return found

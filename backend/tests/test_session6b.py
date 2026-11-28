@@ -20,6 +20,7 @@ from app.services.data_preview import preview_rows
 from app.services.interpretation_guards import validate_explanation
 from app.services.profiling import inspect_file
 from app.services.requested_scope import (
+    SCOPE_RECOGNIZER_VERSION,
     product_request,
     requested_scope,
     validate_plan_scope,
@@ -296,7 +297,7 @@ def test_repeated_request_repairs_old_scope_only_from_complete_user_evidence(loc
     detail = client.get(path).json()
     assert len(detail["proposals"]) == 1
     scope = detail["conversation"]["stage_data"]["requested_scope"]
-    assert "global" not in scope["products"] and scope["recognizer_version"] == 6
+    assert "global" not in scope["products"] and scope["recognizer_version"] == SCOPE_RECOGNIZER_VERSION
     assert old_message == frozen
 
 
