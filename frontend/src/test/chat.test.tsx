@@ -600,40 +600,74 @@ describe('chat persistente y acciones', () => {
     expect(screen.getByText(/posibles ausencias ambiguas/)).toBeInTheDocument()
   })
 
-  it('permite seleccionar una entre varias propuestas sin decidir las restantes', async () => {
+  it('muestra el plan recién aceptado abierto al final y conserva las demás propuestas', async () => {
     detail.conversation.current_stage = 'proposal'
     detail.files = [dataset]
     detail.proposals = [
-      structuredClone(proposal),
-      { ...structuredClone(proposal), id: 'pr2', title: 'Comparar grupos' },
+      {
+        ...structuredClone(proposal),
+        id: 'pr2',
+        title: 'Comparar grupos',
+        source_message_id: 'm1',
+      },
+      { ...structuredClone(proposal), source_message_id: 'm1' },
     ]
     vi.mocked(chatService.decide).mockImplementation(
       async (_project, _chat, id, status) => {
         detail.proposals = detail.proposals.map((item) =>
           item.id === id ? { ...item, status } : item,
         )
+        detail.conversation.current_stage = 'ready'
+        detail.messages.push({
+          id: 'decision',
+          position: 2,
+          role: 'system',
+          content: 'Confirma la ejecución cuando esté lista.',
+          message_type: 'event',
+          metadata: { proposal_id: id, status },
+        })
         return {}
       },
     )
-    chat()
+    const view = chat()
     const user = userEvent.setup()
     const choice = await screen.findByRole('article', {
       name: 'Propuesta: Comparar grupos',
     })
+    const transcript = screen.getByLabelText('Mensajes y archivos')
+    Object.defineProperties(transcript, {
+      scrollHeight: { value: 1600 },
+      clientHeight: { value: 400 },
+    })
+    transcript.scrollTop = 200
+    fireEvent.scroll(transcript)
     await user.click(
       within(choice).getByRole('button', { name: 'Aceptar plan' }),
     )
-    await waitFor(() =>
-      expect(
-        within(
-          screen.getByRole('article', { name: 'Propuesta: Comparar grupos' }),
-        ).getByText('PLAN ACEPTADO'),
-      ).toBeInTheDocument(),
-    )
+    const accepted = await screen.findByText('Plan aceptado: Comparar grupos', {
+      selector: 'summary',
+    })
+    const acceptedCard = accepted.closest('details')!
+    expect(acceptedCard).toHaveAttribute('open')
+    expect(transcript.firstElementChild?.lastElementChild).toBe(acceptedCard)
+    expect(transcript.scrollTop).toBe(transcript.scrollHeight)
     expect(
-      within(
-        screen.getByRole('article', { name: 'Propuesta: Describir notas' }),
-      ).getByRole('button', { name: 'Aceptar plan' }),
+      within(acceptedCard).getByRole('button', { name: 'Ejecutar análisis' }),
+    ).toBeEnabled()
+    expect(
+      screen.getAllByRole('article', { name: 'Propuesta: Comparar grupos' }),
+    ).toHaveLength(1)
+    expect(chatService.turn).not.toHaveBeenCalled()
+    expect(analysisService.execute).not.toHaveBeenCalled()
+    const alternative = screen.getByRole('article', {
+      name: 'Propuesta: Describir notas',
+    })
+    expect(
+      alternative.compareDocumentPosition(screen.getByText('Estado del plan')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      within(alternative).getByRole('button', { name: 'Aceptar plan' }),
     ).toBeEnabled()
     expect(chatService.decide).toHaveBeenCalledExactlyOnceWith(
       'p1',
@@ -641,6 +675,52 @@ describe('chat persistente y acciones', () => {
       'pr2',
       'accepted',
     )
+
+    view.unmount()
+    chat()
+    expect(
+      (
+        await screen.findByText('Plan aceptado: Comparar grupos', {
+          selector: 'summary',
+        })
+      ).closest('details'),
+    ).toHaveAttribute('open')
+  })
+
+  it('conserva el plan aceptado junto a su decisión cuando hay mensajes posteriores', async () => {
+    detail.conversation.current_stage = 'ready'
+    detail.proposals = [{ ...proposal, status: 'accepted' }]
+    detail.messages.push(
+      {
+        id: 'decision',
+        position: 2,
+        role: 'system',
+        content: 'Confirma la ejecución cuando esté lista.',
+        message_type: 'event',
+        metadata: { proposal_id: proposal.id, status: 'accepted' },
+      },
+      {
+        id: 'later',
+        position: 3,
+        role: 'user',
+        content: 'Tengo otra pregunta.',
+        message_type: 'text',
+        metadata: {},
+      },
+    )
+    chat()
+    const accepted = await screen.findByText('Plan aceptado: Describir notas', {
+      selector: 'summary',
+    })
+    expect(accepted.closest('details')).not.toHaveAttribute('open')
+    expect(
+      accepted.compareDocumentPosition(
+        screen.getByText('Tengo otra pregunta.'),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      screen.queryByText('Propuestas anteriores sin posición registrada'),
+    ).not.toBeInTheDocument()
   })
 
   it('continúa la reutilización con No y oculta UUID de texto legado', async () => {

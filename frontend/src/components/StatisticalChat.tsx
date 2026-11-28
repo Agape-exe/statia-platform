@@ -141,7 +141,7 @@ export function StatisticalChat({ project }: { project: Project }) {
         : new Error('No se pudo completar la operación.'),
     )
 
-  async function refresh(id = selectedRef.current) {
+  async function refresh(id = selectedRef.current, followLatest = false) {
     const version = ++generation.current
     const [list, files, current] = await Promise.all([
       chatService.list(project.id),
@@ -149,6 +149,7 @@ export function StatisticalChat({ project }: { project: Project }) {
       id ? chatService.get(project.id, id) : Promise.resolve(null),
     ])
     if (version !== generation.current) return
+    if (followLatest) requestFollow()
     setConversations(list)
     setProjectFiles(files)
     setDetail(current)
@@ -401,9 +402,28 @@ export function StatisticalChat({ project }: { project: Project }) {
     )
   const disabled = busy || opening || providerUncertain
   const headingRun = latestRun || detail?.latest_analysis_run
-  const lastAcceptance = [...(detail?.messages || [])]
-    .reverse()
-    .find((message) => message.metadata.status === 'accepted')
+  const lastMessage = detail?.messages.at(-1)
+  const lastAcceptance = detail?.messages.findLast(
+    (message) => message.metadata.status === 'accepted',
+  )
+  const acceptanceMessages = new Map<string, string>()
+  for (const message of detail?.messages ?? []) {
+    const { proposal_id, status } = message.metadata
+    if (status === 'accepted' && proposal_id)
+      acceptanceMessages.set(proposal_id, message.id)
+  }
+  const latestAcceptedPlan =
+    lastMessage && lastMessage.id === lastAcceptance?.id
+      ? detail?.proposals.find(
+          (proposal) =>
+            proposal.status === 'accepted' &&
+            proposal.id === lastMessage.metadata.proposal_id,
+        )
+      : undefined
+  const unpositionedProposals = detail?.proposals.filter(
+    (proposal) =>
+      !proposal.source_message_id && !acceptanceMessages.has(proposal.id),
+  )
   const preparationPending =
     !!conversation?.stage_data.execution_preparation &&
     ['NEEDS_CLARIFICATION', 'BLOCKED_UNCERTAINTY', 'PARTIALLY_READY'].includes(
@@ -531,7 +551,7 @@ export function StatisticalChat({ project }: { project: Project }) {
   const unlinked = projectFiles.filter(
     (file) => !detail?.files.some((linked) => linked.id === file.id),
   )
-  function renderProposal(proposal: Proposal) {
+  function renderProposal(proposal: Proposal, expanded = false) {
     if (!detail || !conversation) return null
     const card = (
       <ProposalCard
@@ -559,7 +579,7 @@ export function StatisticalChat({ project }: { project: Project }) {
         onDecide={(status) =>
           perform(async () => {
             await chatService.decide(project.id, selected, proposal.id, status)
-            await refresh()
+            await refresh(selected, status === 'accepted')
           })
         }
       />
@@ -567,7 +587,7 @@ export function StatisticalChat({ project }: { project: Project }) {
     return proposal.status === 'proposed' ? (
       card
     ) : (
-      <details className="historical-card">
+      <details className="historical-card" open={expanded}>
         <summary>
           {proposal.status === 'accepted'
             ? 'Plan aceptado'
@@ -1023,7 +1043,12 @@ export function StatisticalChat({ project }: { project: Project }) {
                       </article>
                     )}
                     {detail.proposals
-                      .filter((p) => p.source_message_id === message.id)
+                      .filter(
+                        (p) =>
+                          p.id !== latestAcceptedPlan?.id &&
+                          (acceptanceMessages.get(p.id) ??
+                            p.source_message_id) === message.id,
+                      )
                       .map((p) => (
                         <Fragment key={p.id}>{renderProposal(p)}</Fragment>
                       ))}
@@ -1239,13 +1264,7 @@ export function StatisticalChat({ project }: { project: Project }) {
                     </button>
                   </div>
                 )}
-                {detail.proposals.length > 1 && (
-                  <p className="notice">
-                    Elige la propuesta que prefieras. Aceptarla conserva el
-                    estado de las demás; todavía no se ejecutan análisis.
-                  </p>
-                )}
-                {detail.proposals.some((p) => !p.source_message_id) && (
+                {!!unpositionedProposals?.length && (
                   <details className="historical-card">
                     <summary>
                       Propuestas anteriores sin posición registrada
@@ -1253,11 +1272,9 @@ export function StatisticalChat({ project }: { project: Project }) {
                     <p className="muted">
                       Este historial antiguo no registra el mensaje de origen.
                     </p>
-                    {detail.proposals
-                      .filter((p) => !p.source_message_id)
-                      .map((p) => (
-                        <Fragment key={p.id}>{renderProposal(p)}</Fragment>
-                      ))}
+                    {unpositionedProposals.map((p) => (
+                      <Fragment key={p.id}>{renderProposal(p)}</Fragment>
+                    ))}
                   </details>
                 )}
                 {!preparationMessageId && preparationCard}
@@ -1286,6 +1303,11 @@ export function StatisticalChat({ project }: { project: Project }) {
                       </button>
                     </div>
                   </div>
+                )}
+                {latestAcceptedPlan && (
+                  <Fragment key={latestAcceptedPlan.id}>
+                    {renderProposal(latestAcceptedPlan, true)}
+                  </Fragment>
                 )}
               </div>
             </div>
