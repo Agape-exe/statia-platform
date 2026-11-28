@@ -222,6 +222,21 @@ def user_products(text):
     return products, uncertain, mentioned
 
 
+def has_method_disjunction(clauses, column_names):
+    previous = ""
+    for clause in clauses:
+        text = unquote_column_references(clause, column_names).strip()
+        # Una coma antes de «o» puede separar dos opciones del mismo contraste.
+        choice = f"{previous} {text}" if re.match(r"^o\b", text) else text
+        options = re.split(r"\bo\b", choice)
+        if len(options) > 1:
+            methods = [methods_in_text(option) - {"descriptive"} for option in options]
+            if any(left and right and left != right for left, right in zip(methods, methods[1:])):
+                return True
+        previous = text
+    return False
+
+
 def requested_scope(conversation, messages, turn, files=()):
     saved = conversation.get("stage_data", {}).get("requested_scope")
     if saved and saved.get("recognizer_version") != SCOPE_RECOGNIZER_VERSION:
@@ -275,7 +290,9 @@ def requested_scope(conversation, messages, turn, files=()):
         methods, excluded_methods = set(), set()
         if count is not None or not informational_mode(literal):
             excluded_methods = methods_in_text(" ".join(negative), column_names) - {"descriptive"}
-            if not re.search(r"\b(?:o|versus|alternativas)\b", method_text):
+            if not re.search(r"\b(?:versus|alternativas)\b", method_text) and not has_method_disjunction(
+                positive, column_names
+            ):
                 methods = methods_in_text(method_text, column_names) - {"descriptive"}
         mentioned = mentioned or bool(methods or excluded_methods)
         constraints = (

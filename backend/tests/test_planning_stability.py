@@ -279,6 +279,40 @@ def test_other_inferential_method_is_not_replaced_by_matching_outputs(local):
     assert client.get(path).json()["proposals"][0]["analysis_plan"]["method"] == "U de Mann–Whitney"
 
 
+@pytest.mark.parametrize(
+    "user_request",
+    [
+        "Aplica una t de Welch. Si hay datos ausentes o incompletos, utiliza los casos completos.",
+        "Aplica una t de Welch y utiliza casos completos si hay datos ausentes o incompletos.",
+    ],
+)
+def test_disjunction_about_missing_data_preserves_requested_method(local, user_request):
+    client, _, provider = local
+    path, file = upload_welch(local)
+    welch = welch_proposal(file)
+    student = copy.deepcopy(welch)
+    student["method"] = "t de Student"
+    student["comparison"]["variance_assumption"] = "equal_required"
+    provider.replies.extend([reply(proposals=[student]), reply(proposals=[welch])])
+    response = turn(client, path, content=user_request)
+    assert response.status_code == 200, response.text
+    assert client.get(path).json()["proposals"][0]["analysis_plan"]["method"] == welch["method"]
+    assert provider.contexts[0][0]["requested_scope"]["required_methods"] == ["welch_t"]
+    assert "Conserva el método solicitado" in provider.contexts[1][1]
+
+
+@pytest.mark.parametrize("separator", [" o ", ", o "])
+def test_disjunction_between_methods_leaves_the_choice_open(local, separator):
+    client, _, provider = local
+    path, file = upload_welch(local)
+    provider.replies.append(reply(proposals=[welch_proposal(file)]))
+    response = turn(client, path, content=f"Aplica una t de Welch{separator}una t de Student.")
+    assert response.status_code == 200, response.text
+    scope = provider.contexts[0][0].get("requested_scope") or {}
+    assert not scope.get("required_methods")
+    assert len(client.get(path).json()["proposals"]) == 1
+
+
 def test_welch_rejects_groups_that_do_not_exist_in_the_profile(local):
     client, store, provider = local
     path, file = upload_welch(local)
