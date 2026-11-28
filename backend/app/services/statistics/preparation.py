@@ -33,7 +33,24 @@ def key(variable):
 
 
 def sources(plan):
-    return plan.components if plan.procedure == "integral" else [plan]
+    steps = plan.components if plan.procedure == "integral" else [plan]
+    selectors = {key(v) for v in plan.variables if v.role == "filter"}
+    step_selectors = {key(v) for s in steps for v in s.variables if v.role == "filter"}
+    if not selectors and not step_selectors:
+        return steps
+    require(
+        selectors <= {key(f.variable) for f in plan_filters(plan)} and step_selectors <= selectors,
+        "Cada variable exclusiva de filtro debe estar declarada con sus valores en el plan.",
+    )
+    require(
+        not any(key(v) in selectors and v.role != "filter" for s in [plan, *steps] for v in s.variables),
+        "Una variable exclusiva de filtro no puede tener simultáneamente un rol de análisis.",
+    )
+    projected = [s.model_copy(update={"variables": [v for v in s.variables if v.role != "filter"]}) for s in steps]
+    require(
+        all(s.variables for s in projected), "Cada procedimiento necesita una variable de análisis además del filtro."
+    )
+    return projected
 
 
 def component_order(plan):

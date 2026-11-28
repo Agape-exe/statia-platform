@@ -15,6 +15,7 @@ from app.services.conversation_text import (
     proposal_limit,
 )
 from app.services.plan_capabilities import (
+    LABELS,
     OUTPUTS,
     SUMMARY_STATISTICS,
     normalized,
@@ -29,29 +30,8 @@ from app.services.statistics.methods import (
     unquote_column_references,
 )
 
-SCOPE_RECOGNIZER_VERSION = 7
+SCOPE_RECOGNIZER_VERSION = 8
 
-LABELS = {
-    **SUMMARY_STATISTICS,
-    "numeric_summary": "N válido, media, mediana, DE muestral, mínimo y máximo",
-    "global": "Resúmenes globales",
-    "grouped": "Resúmenes por grupo",
-    "frequencies": "Frecuencias categóricas",
-    "grouped_frequencies": "Frecuencias categóricas por grupo",
-    "group_frequencies": "Frecuencias de la variable de agrupación",
-    "mean_interval": "Intervalo de confianza de la media",
-    "no_intervals": "Tablas descriptivas sin intervalos de confianza",
-    "pearson_interval": "Intervalo de confianza para Pearson",
-    "combined_report": "Informes consolidados de descriptivos, correlación y comparación",
-    "p_value": "Valores p",
-    "correlation_coefficient": "Coeficientes de correlación",
-    "posthoc": "Comparaciones post hoc",
-    "no_posthoc": "Sin comparaciones post hoc",
-    "global_test": "Estadístico de prueba global",
-    "group_means": "Medias por grupo",
-    "degrees_of_freedom": "Grados de libertad",
-    "paired_change_interval": "Estimación del cambio con incertidumbre",
-}
 USER_ALIASES = {
     **{alias: kinds for alias, kinds in OUTPUTS.items() if alias != "de"},
     "globales y por grupo": ("global", "grouped"),
@@ -237,6 +217,40 @@ def has_method_disjunction(clauses, column_names):
     return False
 
 
+def explicit_filters(text, files):
+    """Igualdades explícitas con una sola columna y categoría observada inequívocas."""
+    if not re.search(r"\b(?:filtr\w*|donde|restring\w*|limitad[oa]s?)\b", text):
+        return [], False
+    equalities = list(re.finditer(r"(?:\bigual a\b|(?<![<>=!])=(?!=))", text))
+    if not equalities:
+        return [], False
+    if re.search(r"\b(?:no|excepto|exclu\w*)\s+(?:\w+\s+){0,3}(?:filtr\w*|igual a)\b", text):
+        return [], True
+    matches = []
+    for file in files:
+        meta = file["metadata"]
+        for column in meta.get("profile", {}).get("columns", []):
+            name = normalized(column["name"])
+            pattern = rf"(?<!\w)`?{re.escape(name)}`?\s*(?:igual a\s+|=\s*)"
+            for match in re.finditer(pattern, text):
+                tail = text[match.end() :].lstrip("`\"'«")
+                values = [str(level["value"]) for level in column.get("levels", [])]
+                found = [v for v in values if re.match(re.escape(normalized(v)) + r"(?![\w-])", tail)]
+                if len(found) == 1:
+                    rest = tail[len(normalized(found[0])) :].lstrip("`\"'» ")
+                    if rest and (rest[0] not in ".;!?" or re.match(r"[.,]\d", rest)):
+                        return [], True
+                matches.append((match.start(), file["id"], meta.get("selected_sheet"), column["name"], found))
+    if len({m[0] for m in matches}) != len(equalities):
+        return [], True
+    result = []
+    for position, file_id, sheet, name, values in matches:
+        if len(values) != 1 or sum(m[0] == position for m in matches) != 1:
+            return [], True
+        result.append({"file_id": file_id, "sheet": sheet, "column": name, "values": values})
+    return result, False
+
+
 def requested_scope(conversation, messages, turn, files=()):
     saved = conversation.get("stage_data", {}).get("requested_scope")
     if saved and saved.get("recognizer_version") != SCOPE_RECOGNIZER_VERSION:
@@ -294,7 +308,9 @@ def requested_scope(conversation, messages, turn, files=()):
                 positive, column_names
             ):
                 methods = methods_in_text(method_text, column_names) - {"descriptive"}
-        mentioned = mentioned or bool(methods or excluded_methods)
+        filters, ambiguous_filter = explicit_filters(literal, files) if not informational_mode(literal) else ([], False)
+        mentioned = mentioned or bool(methods or excluded_methods or filters or ambiguous_filter)
+        uncertain = uncertain or ambiguous_filter
         constraints = (
             {name for name, pattern in EXCLUSIONS.items() if re.search(pattern, literal)}
             if count or mentioned
@@ -331,11 +347,18 @@ def requested_scope(conversation, messages, turn, files=()):
             scope["excluded_methods"] = []
             scope["constraints"] = []
             scope.pop("variables", None)
+            scope.pop("filters", None)
+            scope.pop("ambiguous_filter", None)
             scope.pop("product_sources", None)
             if independent or literal.startswith("cambio de alcance:"):
                 scope["required_methods"] = []
                 scope["source_requests"] = []
                 scope["recognizer_version"] = SCOPE_RECOGNIZER_VERSION
+        if ambiguous_filter:
+            scope["ambiguous_filter"] = True
+        if filters:
+            current = scope.setdefault("filters", [])
+            current.extend(f for f in filters if f not in current)
         if methods:
             scope["required_methods"] = sorted(set(scope.get("required_methods", [])) | methods)
         if excluded_methods:
@@ -381,6 +404,7 @@ def requested_scope(conversation, messages, turn, files=()):
     return (
         scope
         if scope["products"]
+        or scope.get("filters")
         or scope.get("required_methods")
         or scope.get("excluded_methods")
         or scope.get("excluded_products")
@@ -402,6 +426,15 @@ def validate_plan_scope(plan, scope, files):
 
     steps = plan.components if plan.procedure == "integral" else [plan]
     constraints = set(scope.get("constraints", []))
+    if scope.get("filters"):
+        required = {(f["file_id"], f["sheet"], f["column"], frozenset(f["values"])) for f in scope["filters"]}
+        actual = {
+            (f.variable.file_id, f.variable.sheet, f.variable.column, frozenset(f.values)) for f in plan_filters(plan)
+        }
+        if actual != required:
+            raise PlanningError(
+                "requested_scope", "Conserva exactamente los filtros de requested_scope.filters en filters del plan."
+            )
     if "no_filters" in constraints and (plan_filters(plan) or plan.comparison and plan.comparison.strata):
         raise PlanningError("requested_scope", "Usa todos los registros y conserva la solicitud sin filtros.")
     if "no_groups" in constraints and any(v.role == "group" for step in steps for v in step.variables):
@@ -556,7 +589,9 @@ def scope_question(scope, *, provider_failed=False):
         else "No podemos verificar qué productos debe incluir la propuesta. "
     )
     conflicts = set(scope.get("required_methods", [])) & set(scope.get("excluded_methods", []))
-    if conflicts:
+    if scope.get("ambiguous_filter"):
+        question = "¿Qué columna y valores deben incluirse? Confirma el cambio de alcance con el nombre exacto de la columna y una categoría observada por igualdad."
+    elif conflicts:
         names = ", ".join(CATALOG[method].name for method in sorted(conflicts))
         question = f"La solicitud incluye y excluye {names}. ¿Qué método quieres usar?"
     else:

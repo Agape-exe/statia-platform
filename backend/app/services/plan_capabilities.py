@@ -8,6 +8,12 @@ import re
 import unicodedata
 
 from app.services.planning_errors import PlanningError
+from app.services.statistics.catalog import CATALOG
+from app.services.statistics.preparation import sources
+
+INFERENTIAL_PRODUCTS = frozenset(
+    product for code, entry in CATALOG.items() if code != "descriptive" for product in entry.output_products
+)
 
 PRODUCT_INSTRUCTIONS = """
 Para productos descriptivos en expected_outputs usa el catálogo verificable:
@@ -41,6 +47,41 @@ SUMMARY_STATISTICS = {
     "maximum": "Máximo",
 }
 
+LABELS = {
+    **SUMMARY_STATISTICS,
+    "u_statistic": "Estadístico U",
+    "rank_biserial": "Correlación biserial de rangos",
+    "w_statistic": "Estadístico W",
+    "h_statistic": "Estadístico H",
+    "chi2_statistic": "Estadístico chi-cuadrado",
+    "cramers_v": "V de Cramér",
+    "odds_ratio": "Odds ratio",
+    "eta_squared": "Eta cuadrado",
+    "paired_dz": "d de Cohen para diferencias pareadas",
+    "t_statistic": "Estadístico t",
+    "mean_difference": "Diferencia de medias",
+    "difference_interval": "Intervalo de confianza de la diferencia de medias",
+    "cohen_d": "d de Cohen con SD combinada",
+    "hedges_g": "g de Hedges con SD combinada",
+    "numeric_summary": "N válido, media, mediana, DE muestral, mínimo y máximo",
+    "global": "Resúmenes globales",
+    "grouped": "Resúmenes por grupo",
+    "frequencies": "Frecuencias categóricas",
+    "grouped_frequencies": "Frecuencias categóricas por grupo",
+    "group_frequencies": "Frecuencias de la variable de agrupación",
+    "mean_interval": "Intervalo de confianza de la media",
+    "no_intervals": "Tablas descriptivas sin intervalos de confianza",
+    "pearson_interval": "Intervalo de confianza para Pearson",
+    "combined_report": "Informes consolidados de descriptivos, correlación y comparación",
+    "p_value": "Valores p",
+    "correlation_coefficient": "Coeficientes de correlación",
+    "posthoc": "Comparaciones post hoc",
+    "no_posthoc": "Sin comparaciones post hoc",
+    "global_test": "Estadístico de prueba global",
+    "group_means": "Medias por grupo",
+    "degrees_of_freedom": "Grados de libertad",
+    "paired_change_interval": "Estimación del cambio con incertidumbre",
+}
 DEFAULT_OUTPUTS = frozenset(
     {
         "tabla descriptiva",
@@ -108,12 +149,16 @@ OUTPUTS = {
     "grados de libertad del numerador y denominador": ("degrees_of_freedom",),
     "estimacion del cambio con incertidumbre": ("paired_change_interval",),
 }
+
 DESCRIPTIVE = {"descriptive", "exploratory"}
 
 
 def normalized(text):
     text = "".join(c for c in unicodedata.normalize("NFD", text.casefold()) if not unicodedata.combining(c))
     return " ".join(text.split()).rstrip(". ")
+
+
+OUTPUTS.update({normalized(label): (kind,) for kind, label in LABELS.items()})
 
 
 def key(variable):
@@ -137,10 +182,10 @@ def separated_descriptives(plan):
 
 def product_coverage(plan, files=None, decisions=None, execution_components=None):
     """Cobertura estructural por columna; no convierte tipos ambiguos en hechos."""
-    steps = plan.components if plan.procedure == "integral" else [plan]
+    steps = sources(plan)
     descriptive = [s for s in steps if s.procedure in DESCRIPTIVE]
     groups = {key(v) for s in steps for v in s.variables if v.role == "group"}
-    measures = {key(v) for v in plan.variables} - groups
+    measures = {key(v) for step in steps for v in step.variables} - groups
     categories = set()
     for file in files or []:
         for column in file["metadata"].get("profile", {}).get("columns", []):
@@ -148,7 +193,7 @@ def product_coverage(plan, files=None, decisions=None, execution_components=None
                 categories.add((file["id"], file["metadata"].get("selected_sheet"), column["name"]))
     if decisions is not None:
         categories = {key(d.variable) for d in decisions if d.statistical_type in {"nominal", "binary", "ordinal"}}
-    categories &= {key(v) for v in plan.variables}
+    categories &= measures | groups
     covered = {kind: set() for kind in ("global", "grouped", "frequencies", "grouped_frequencies")}
     for source in descriptive:
         # describe() se despacha por archivo; nunca agrupa columnas de tablas distintas.
@@ -192,11 +237,13 @@ def output_request(text):
 def component_plan(plan, index):
     if index is None:
         return plan
-    steps = plan.components if plan.procedure == "integral" else [plan]
+    steps = sources(plan)
     if index >= len(steps):
         raise PlanningError("output_capability", "El producto menciona un componente inexistente.")
     source = steps[index]
-    return plan.model_copy(update={"procedure": source.procedure, "variables": source.variables, "components": []})
+    return plan.model_copy(
+        update={"procedure": source.procedure, "method": source.method, "variables": source.variables, "components": []}
+    )
 
 
 def executable_product(source, method, files, decisions, execution):
@@ -256,12 +303,12 @@ def supports_inference(plan, kind, binding, files, decisions, execution_componen
     from app.services.statistics.catalog import CATALOG
     from app.services.statistics.methods import named_methods, supported_request
 
-    steps = plan.components if plan.procedure == "integral" else [plan]
+    steps = sources(plan)
     selected = {c.source_index: c for c in execution_components or []}
     for index, source in enumerate(steps):
         if binding is not None and binding != index:
             continue
-        if not supported_request(source):
+        if source.procedure in DESCRIPTIVE or not supported_request(source):
             continue
         named = named_methods(source)
         if not named and source.procedure == "correlation" and "correlacion" in normalized(source.method):
@@ -325,7 +372,7 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
         if kinds is None:
             raise PlanningError(
                 "output_scope",
-                f"El producto esperado {index + 1} no tiene un alcance verificable. "
+                f"El producto esperado {index + 1} «{text}» no tiene un alcance verificable. "
                 "Aclara el alcance y solicita una propuesta revisada con productos del catálogo: "
                 "Resúmenes globales; Resúmenes por grupo; Frecuencias categóricas; "
                 "Frecuencias categóricas por grupo; Frecuencias de la variable de agrupación; "
@@ -344,6 +391,22 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                     if decisions is None
                     else {key(d.variable) for d in decisions if d.statistical_type in {"continuous", "discrete"}}
                 )
+                if decisions is None and measures and measures <= covered["global"]:
+                    pending = {
+                        (f["id"], f["metadata"].get("selected_sheet"), c["name"])
+                        for f in files or []
+                        for c in f["metadata"].get("profile", {}).get("columns", [])
+                        if c.get("physical_type") == "numeric"
+                        and c.get("statistical_type") == "categorical_or_ordinal"
+                        and not c.get("possible_identifier")
+                        and not c.get("possible_temporal")
+                    }
+                    missing = measures - quantitative
+                    if missing and missing <= pending:
+                        names = ", ".join(f"«{column}»" for _, _, column in sorted(missing))
+                        raise PlanningError(
+                            "measurement_scale", f"El producto «{text}» requiere confirmar la escala de {names}."
+                        )
                 if not measures or not measures <= quantitative or not measures <= covered["global"]:
                     raise PlanningError(
                         "output_capability",
@@ -351,7 +414,7 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                     )
                 continue
             if kind == "no_posthoc":
-                steps = plan.components if plan.procedure == "integral" else [plan]
+                steps = sources(plan)
                 if any(requests_posthoc(s.method) for s in steps):
                     raise PlanningError(
                         "output_capability", "El plan excluye comparaciones post hoc pero su método las solicita."
@@ -375,21 +438,12 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                 )
                 if targets and measures <= quantitative and targets <= covered["grouped"]:
                     continue
-            if kind in {
-                "p_value",
-                "correlation_coefficient",
-                "pearson_interval",
-                "posthoc",
-                "global_test",
-                "group_means",
-                "degrees_of_freedom",
-                "paired_change_interval",
-            }:
+            if kind in INFERENTIAL_PRODUCTS:
                 if not supports_inference(plan, kind, binding, files, decisions, execution_components):
                     raise PlanningError(
                         "output_capability",
-                        f"El producto esperado {index + 1} no tiene un componente ejecutable que lo produzca "
-                        "con el método y las opciones definidos. Aclara las decisiones pendientes sin sustituir el producto.",
+                        f"El producto esperado {index + 1} «{text}» ({kind}) no tiene un componente ejecutable que lo produzca "
+                        f"con el método {scoped.method} y las opciones definidos. Consulta output_products de execution_methods.",
                     )
                 continue
             if kind in {"mean_interval", "no_intervals", "combined_report"}:
@@ -399,7 +453,7 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
                         for product in ("correlation_coefficient", "group_means")
                     )
                 elif execution_components is not None:
-                    all_steps = plan.components if plan.procedure == "integral" else [plan]
+                    all_steps = sources(plan)
                     descriptive_indexes = {
                         i
                         for i, s in enumerate(all_steps)
@@ -461,7 +515,7 @@ def validate_products(plan, files=None, decisions=None, execution_components=Non
 
 def descriptive_warnings(plan):
     """Aviso explicativo; no sustituye validate_products en ningún punto de control."""
-    steps = plan.components if plan.procedure == "integral" else [plan]
+    steps = sources(plan)
     if any(s.procedure in DESCRIPTIVE and any(v.role == "group" for v in s.variables) for s in steps):
         return [
             "El descriptivo agrupado produce únicamente los productos cubiertos por sus componentes; "

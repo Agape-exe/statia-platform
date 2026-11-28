@@ -1,0 +1,31 @@
+{
+  "joins": [],
+  "title": "Estadística descriptiva global de puntaje_total",
+  "method": "Estadística descriptiva univariada",
+  "filters": [],
+  "objective": "Describir la distribución de `puntaje_total` en la hoja tabla del archivo escala_tesis.csv empleando toda la muestra de doce observaciones válidas.",
+  "procedure": "descriptive",
+  "variables": [
+    {
+      "role": "outcome",
+      "sheet": "tabla",
+      "column": "puntaje_total",
+      "file_id": "00000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "comparison": null,
+  "components": [],
+  "limitations": [
+    "Alcance estrictamente descriptivo global sin desagregaciones ni inferencia estadística"
+  ],
+  "requirements": [
+    "Verificar que la columna `puntaje_total` contenga registros válidos"
+  ],
+  "justification": "Permite resumir las características centrales y de dispersión de la variable cuantitativa `puntaje_total` en el conjunto total de observaciones.",
+  "schema_version": 1,
+  "expected_outputs": [
+    "Resúmenes globales"
+  ],
+  "type_confirmations": [],
+  "methodology_confirmed": true
+}

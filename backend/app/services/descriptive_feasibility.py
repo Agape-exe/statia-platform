@@ -4,10 +4,10 @@ from app.services.planning_errors import PlanningError
 
 
 def validate_descriptive_feasibility(plan, column_for):
-    from app.services.statistics.preparation import plan_filters
+    from app.services.statistics.preparation import plan_filters, sources
 
     scoped = bool(plan_filters(plan) or plan.comparison and plan.comparison.strata)
-    steps = plan.components if plan.procedure == "integral" else [plan]
+    steps = sources(plan)
     problems = []
     for step in steps:
         if step.procedure not in {"descriptive", "exploratory"}:

@@ -24,17 +24,17 @@ def _array(items):
     return {'type': 'array', 'items': items}
 
 
-def _variable():
+def _variable(*, planning=False):
     return _object({
         'file_id': _text('ID exacto de un dataset asociado.'),
         'sheet': _text('Hoja seleccionada, exactamente como aparece en el contexto.'),
         'column': _text('Nombre exacto de una columna existente.'),
-        'role': _text(enum=['outcome', 'predictor', 'group', 'time', 'pair_id', 'description']),
+        'role': _text(enum=['outcome', 'predictor', 'group', 'time', 'pair_id', 'description'] + (['filter'] if planning else [])),
     })
 
 
-def _selection():
-    return _object({'variable': _variable(), 'values': _array(_text())})
+def _selection(*, planning=False):
+    return _object({'variable': _variable(planning=planning), 'values': _array(_text())})
 
 
 def _comparison():
@@ -62,11 +62,11 @@ def _comparison():
     return {**schema, 'nullable': True, 'description': 'Detalles para una comparación de dos grupos. Usar null para ANOVA global, descripción y correlación. No inventar dos grupos cuando hay tres o más categorías.'}
 
 
-def _plan():
-    return _object({
+def _plan(planning):
+    properties = {
         'title': _text(),
         'objective': _text(),
-        'variables': _array(_variable()),
+        'variables': _array(_variable(planning=planning)),
         'procedure': _text(enum=['descriptive', 'exploratory', 'group_comparison', 'correlation',
                                  'paired_comparison', 'inferential', 'integral']),
         'method': _text('Procedimiento propuesto, sin resultados calculados.'),
@@ -82,14 +82,33 @@ def _plan():
         'comparison': _comparison(),
         'components': _array(_object({
             'procedure': _text(enum=['descriptive', 'exploratory', 'group_comparison', 'correlation', 'paired_comparison', 'inferential']),
-            'method': _text(), 'variables': _array(_variable()),
+            'method': _text(), 'variables': _array(_variable(planning=planning)),
         })),
-    })
+    }
+    if planning:
+        from app.services.plan_capabilities import LABELS
+        from app.services.statistics.catalog import CATALOG
+        properties['filters'] = _array(_selection(planning=True))
+        properties['method'] = _text(enum=[*CATALOG, 'integral'])
+        properties['components']['items']['properties']['method'] = _text(enum=list(CATALOG))
+        properties['expected_outputs'] = _array(_object({
+            'product': _text('ID del producto permitido para el método.', enum=list(LABELS)),
+            'component': _text('plan para productos del plan o índice del componente integral.',
+                               enum=['plan', '1', '2', '3', '4']),
+        }))
+        effect = properties['comparison']['properties']['effect_size']['properties']
+        effect['name'] = _text(enum=['cohen_d', 'hedges_g', 'mean_difference'])
+        effect['standardizer'] = _text(enum=['pooled_sd', 'none'])
+        effect['confidence_interval'] = _text(enum=[
+            'Intervalo de confianza para la diferencia de medias.',
+            'Intervalo de confianza para la media de las diferencias pareadas.',
+        ])
+    return _object(properties)
 
 
-def reply_schema():
+def reply_schema(interaction_mode=None, *, structured=True):
     """Nueva instancia por llamada: el SDK puede transformar el diccionario."""
-    return _object({
+    properties = {
         'response': _text('Respuesta conversacional en español; no inventar estadísticas.'),
         'suggested_stage': _text(enum=['understanding', 'clarification', 'goal', 'proposal']),
         'detected_goal': _text(nullable=True),
@@ -97,11 +116,16 @@ def reply_schema():
         'questions': _array(_text()),
         'clarification_required': {'type': 'boolean'},
         'involved_file_ids': _array(_text()),
-        'selected_variables': _array(_variable()),
-        'proposals': _array(_plan()),
+        'selected_variables': _array(_variable(planning=structured)),
+        'proposals': _array(_plan(structured)),
         'warnings': _array(_text()),
         'confirmation_required': {'type': 'boolean'},
         'goal_change': {'type': 'boolean'},
         'goal_change_reason': _text(nullable=True),
         'context_summary': _text(nullable=True),
-    })
+    }
+    if interaction_mode in {"understanding", "methodology", "document"}:
+        for field in ("proposals", "confirmation_required", "selected_variables", "goal_change", "goal_change_reason"):
+            properties.pop(field)
+        properties["suggested_stage"] = _text(enum=["understanding", "clarification", "goal"])
+    return _object(properties)

@@ -1,0 +1,129 @@
+{
+  "case": "05",
+  "response": {
+    "response": "He preparado la propuesta solicitada para realizar una prueba t de Welch bilateral comparando la variable `medicion` entre los grupos A y B de la columna `grupo` en el archivo grupos_welch.csv.",
+    "suggested_stage": "proposal",
+    "detected_goal": "Comparar la media de medicion entre los grupos A y B con una prueba t de Welch",
+    "suggested_title": "Comparación de medicion entre grupos A y B con prueba t de Welch",
+    "questions": [],
+    "clarification_required": false,
+    "involved_file_ids": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "selected_variables": [
+      {
+        "file_id": "00000000-0000-4000-8000-000000000001",
+        "sheet": "tabla",
+        "column": "grupo",
+        "role": "group"
+      },
+      {
+        "file_id": "00000000-0000-4000-8000-000000000001",
+        "sheet": "tabla",
+        "column": "medicion",
+        "role": "outcome"
+      }
+    ],
+    "proposals": [
+      {
+        "title": "Prueba t de Welch para medicion según grupo",
+        "objective": "Comparar la media de la variable cuantitativa continua `medicion` entre los grupos A y B de la variable categórica `grupo` utilizando una prueba t de Welch bilateral para muestras independientes con varianzas heterogéneas.",
+        "variables": [
+          {
+            "file_id": "00000000-0000-4000-8000-000000000001",
+            "sheet": "tabla",
+            "column": "grupo",
+            "role": "group"
+          },
+          {
+            "file_id": "00000000-0000-4000-8000-000000000001",
+            "sheet": "tabla",
+            "column": "medicion",
+            "role": "outcome"
+          }
+        ],
+        "procedure": "group_comparison",
+        "method": "welch_t",
+        "justification": "Permite contrastar las medias de dos grupos independientes cuando no se asume homogeneidad de varianzas, cumpliendo con la especificación de diseño y los datos disponibles en la hoja tabla de grupos_welch.csv.",
+        "requirements": [
+          "Variable de resultado cuantitativa continua (`medicion`)",
+          "Variable de agrupación con exactamente dos categorías (`grupo`)",
+          "Observaciones independientes entre filas"
+        ],
+        "limitations": [
+          "Supuesto pendiente de verificar con el diseño sobre independencia de las observaciones",
+          "Varianzas distintas entre grupos permitidas por la prueba t de Welch"
+        ],
+        "expected_outputs": [
+          {
+            "product": "p_value",
+            "component": "plan"
+          },
+          {
+            "product": "group_means",
+            "component": "plan"
+          },
+          {
+            "product": "degrees_of_freedom",
+            "component": "plan"
+          },
+          {
+            "product": "t_statistic",
+            "component": "plan"
+          },
+          {
+            "product": "mean_difference",
+            "component": "plan"
+          },
+          {
+            "product": "difference_interval",
+            "component": "plan"
+          },
+          {
+            "product": "cohen_d",
+            "component": "plan"
+          },
+          {
+            "product": "hedges_g",
+            "component": "plan"
+          }
+        ],
+        "filters": [],
+        "joins": [],
+        "methodology_confirmed": true,
+        "comparison": {
+          "design": "independent",
+          "groups": [
+            "A",
+            "B"
+          ],
+          "filters": [],
+          "strata": null,
+          "independence": "Supuesto pendiente de verificar con el diseño; cada fila representa una observación independiente.",
+          "valid_observations": "Casos completos en `medicion` y `grupo` para los niveles A y B.",
+          "missing_data": "Excluir del cálculo solo ausencias en las variables necesarias sin modificar los datos originales.",
+          "outliers": "Revisar distribuciones y valores atípicos por grupo mediante gráficos y estadísticas descriptivas.",
+          "normality": "Evaluar la distribución por grupo y el tamaño muestral al ejecutar.",
+          "variance_assumption": "unequal_allowed",
+          "effect_size": {
+            "name": "cohen_d",
+            "standardizer": "pooled_sd",
+            "definition": "d = (mean1 - mean2) / s_p, donde s_p es la desviación estándar combinada de ambos grupos.",
+            "correction": "Se incluye g de Hedges con corrección por sesgo basada en grados de libertad.",
+            "confidence_interval": "Intervalo de confianza para la diferencia de medias estimado en la ejecución."
+          },
+          "purpose": "confirmatory",
+          "multiplicity": "none",
+          "multiplicity_reason": "Se realiza un único contraste entre dos grupos, por lo que no se requiere ajuste por multiplicidad."
+        },
+        "components": []
+      }
+    ],
+    "warnings": [],
+    "confirmation_required": true,
+    "goal_change": false,
+    "goal_change_reason": null,
+    "context_summary": "Se ha definido el objetivo de comparar la media de `medicion` entre los grupos A y B de la variable `grupo` en el archivo grupos_welch.csv mediante una prueba t de Welch bilateral para grupos independientes."
+  },
+  "observed_issues": []
+}

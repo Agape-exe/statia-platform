@@ -147,7 +147,7 @@ def result_discussion(text):
         and re.search(r"pendientes|preparar|respuesta|independencia", text)
     )
     interpretation = bool(
-        re.search(r"explic|interpret|significa|conclusion|que indican|que procedimientos|por que no", text)
+        re.search(r"explic|interpret|significa\b|conclusion|que indican|que procedimientos|por que no", text)
         and re.search(r"resultad|tabla|grafico|media|mediana|frecuencia|desviacion|anova|pearson|pendiente", text)
     )
     return management or interpretation

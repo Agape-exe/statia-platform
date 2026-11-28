@@ -5,12 +5,23 @@ import json
 from pydantic import ValidationError
 
 from app.models.chat import AssistantReply, Plan
+from app.services.plan_capabilities import LABELS
 
 NON_PLANNING = {"understanding", "methodology", "document"}
 
 
 def parse_assistant_reply(text, interaction_mode=None, *, validate_plans_separately=False):
     data = json.loads(text)
+    if isinstance(data, dict) and isinstance(data.get("proposals"), list):
+        for plan in data["proposals"]:
+            if not isinstance(plan, dict) or not isinstance(plan.get("expected_outputs"), list):
+                continue
+            for i, item in enumerate(plan["expected_outputs"]):
+                if isinstance(item, dict) and set(item) == {"product", "component"}:
+                    product, component = item["product"], item["component"]
+                    if isinstance(product, str) and product in LABELS and component in ("plan", "1", "2", "3", "4"):
+                        prefix = "" if component == "plan" else f"Componente {component}: "
+                        plan["expected_outputs"][i] = prefix + LABELS[product]
     if interaction_mode in NON_PLANNING and isinstance(data, dict):
         # Los planes no solicitados jamás se validan, muestran ni persisten.
         # Conserva la contradicción de un anuncio estructurado sin objetos para

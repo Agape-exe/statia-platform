@@ -70,7 +70,13 @@ def validate_methodology(plan, column_for, context=None):
     context = context or {}
     selections = {_key(v) for v in plan.variables}
     from app.services.statistics.preparation import AnalysisError, component_order, plan_filters
-    for selection in plan_filters(plan):
+    from app.services.statistics.preparation import sources
+    try:
+        sources(plan)
+        filters = plan_filters(plan)
+    except AnalysisError as exc:
+        raise PlanningError('comparison_scope', str(exc)) from None
+    for selection in filters:
         column = column_for(selection.variable)
         if _key(selection.variable) not in selections or not set(selection.values) <= levels(column):
             raise PlanningError('comparison_scope', 'Los filtros deben declarar columnas del plan y categorías reales del archivo.')
@@ -83,7 +89,7 @@ def validate_methodology(plan, column_for, context=None):
         if len(plan.components) < 2 or (len({s.procedure for s in plan.components}) < 2 and not separated_descriptives(plan)):
             raise PlanningError('component_variables', 'El plan integral debe declarar al menos dos procedimientos distintos, pertinentes y verificables en components.')
     elif plan.components:
-        raise PlanningError('component_variables', 'Solo un plan integral puede agrupar componentes.')
+        raise PlanningError('component_variables', f'El procedimiento {plan.procedure} es simple: devuelve components=[] y declara método, variables y filters en el plan. Se recibió {len(plan.components)} componente(s), primero: {plan.components[0].method}.')
     steps = plan.components if plan.procedure == 'integral' else [plan]
     has_welch = False
     for step in steps:
@@ -162,12 +168,8 @@ def validate_methodology(plan, column_for, context=None):
         raise PlanningError('effect_definition', 'Documenta la diferencia de medias y la fórmula o definición del tamaño del efecto.')
     if effect.standardizer == 'pooled_sd' and not re.search(r'combinad|pooled|n_?1|n₁', effect.definition, re.I):
         raise PlanningError('comparison_design', 'Para d o g combinadas, define explícitamente la desviación estándar combinada y sus ponderaciones.')
-    if effect.standardizer == 'average_variance_sd' and not re.search(r'promedio.*varianz|average.*varian|s.?1.*s.?2|s₁.*s₂', effect.definition, re.I):
-        raise PlanningError('effect_definition', 'Define el estandarizador alternativo mediante la raíz del promedio de varianzas de ambos grupos.')
-    if effect.name == 'glass_delta' and effect.standardizer != 'reference_group_sd':
-        raise PlanningError('effect_definition', 'Glass delta requiere la desviación estándar de un grupo de referencia explícito.')
-    if effect.standardizer == 'reference_group_sd' and not any(group.lower() in effect.definition.lower() for group in comparison.groups):
-        raise PlanningError('comparison_design', 'Identifica qué grupo aporta la desviación estándar de referencia.')
+    if effect.standardizer in ('reference_group_sd', 'average_variance_sd') or effect.name == 'glass_delta':
+        raise PlanningError('effect_definition', 'El motor calcula la diferencia de medias y d/g con SD combinada. El estandarizador solicitado no está implementado; si lo pidió el usuario, explica el límite y solicita una decisión.')
     if effect.name == 'hedges_g' and (re.search(r'no aplica|ninguna|sin correcci', effect.correction, re.I) or not re.search(r'J|Hedges|factor|sesgo', effect.correction, re.I)):
         raise PlanningError('effect_definition', 'g de Hedges debe documentar su factor de corrección por sesgo.')
     effect_details = effect.definition + '. ' + effect.correction

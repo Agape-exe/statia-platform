@@ -70,7 +70,11 @@ def test_valid_transport_matches_isolated_schema_and_has_no_tools_or_retries(cap
     assert payload["model"] == MODEL and payload["store"] is False
     assert payload["max_output_tokens"] == 8000 and payload["reasoning"] == {"effort": "medium"}
     assert "tools" not in payload and "previous_response_id" not in payload
-    assert payload["text"]["format"]["schema"] == schema_openai(reply_schema()) == reply_schema_openai(reply_schema())
+    assert (
+        payload["text"]["format"]["schema"]
+        == schema_openai(reply_schema(structured=False))
+        == reply_schema_openai(reply_schema(structured=False))
+    )
     assert session.trace["requests"] == 1
     assert session.trace["generations"][0]["usage"]["reasoning_tokens"] == 150
     assert session.trace["generations"][0]["request_id"] == "req_synthetic"

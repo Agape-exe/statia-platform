@@ -50,7 +50,9 @@ def confirmed_job(job, preparation):
 
 
 def test_ready_preserves_confirmation_and_does_not_calculate(monkeypatch):
-    job = job_for(procedure="descriptive")
+    job = job_for(
+        b"cantidad,estrato,otra\n" + b"".join(f"{i},A,{2 * i}\n".encode() for i in range(15)), procedure="descriptive"
+    )
     monkeypatch.setattr(
         "app.services.statistics.engine.run_component", lambda *args: pytest.fail("Se calculó durante preparación")
     )

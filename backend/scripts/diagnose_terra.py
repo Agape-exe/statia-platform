@@ -121,7 +121,7 @@ def build_case(identifier):
         settings,
     )
     # Se conserva la detección real: I no contiene un pedido de alternativas múltiples.
-    case = Case(identifier, SYSTEM, context, schema_openai(reply_schema()), files)
+    case = Case(identifier, SYSTEM, context, schema_openai(reply_schema(structured=False)), files)
     validate_case(case)
     return case
 

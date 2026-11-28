@@ -138,7 +138,7 @@ class OpenAIProvider:
                     "type": "json_schema",
                     "name": "statia_reply",
                     "strict": True,
-                    "schema": reply_schema_openai(reply_schema()),
+                    "schema": reply_schema_openai(reply_schema(structured=False)),
                 }
             },
             "max_output_tokens": self.settings.openai_max_output_tokens,

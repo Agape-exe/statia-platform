@@ -1,0 +1,82 @@
+{
+  "case": "06",
+  "response": {
+    "response": "He preparado la propuesta de análisis descriptivo global para la variable `puntaje_total` en el archivo escala_tesis.csv, considerando la confirmación de su escala cuantitativa discreta para las doce observaciones.",
+    "suggested_stage": "proposal",
+    "detected_goal": "Describir globalmente puntaje_total en doce observaciones sintéticas independientes.",
+    "suggested_title": "Análisis descriptivo global de puntaje_total",
+    "questions": [],
+    "clarification_required": false,
+    "involved_file_ids": [
+      "00000000-0000-4000-8000-000000000001"
+    ],
+    "selected_variables": [
+      {
+        "file_id": "00000000-0000-4000-8000-000000000001",
+        "sheet": "tabla",
+        "column": "puntaje_total",
+        "role": "description"
+      }
+    ],
+    "proposals": [
+      {
+        "title": "Descriptivo global de puntaje_total",
+        "objective": "Describir globalmente la variable `puntaje_total` en la hoja tabla del archivo escala_tesis.csv mediante estadísticos de resumen.",
+        "variables": [
+          {
+            "file_id": "00000000-0000-4000-8000-000000000001",
+            "sheet": "tabla",
+            "column": "puntaje_total",
+            "role": "description"
+          }
+        ],
+        "procedure": "descriptive",
+        "method": "descriptive",
+        "justification": "Permite obtener un resumen estadístico global para la variable cuantitativa discreta `puntaje_total` sobre las doce observaciones disponibles.",
+        "requirements": [
+          "Escala cuantitativa confirmada para la variable `puntaje_total`."
+        ],
+        "limitations": [
+          "El análisis descriptivo global se limita a la muestra disponible de 12 registros y no permite inferencias causales ni comparaciones entre grupos."
+        ],
+        "expected_outputs": [
+          {
+            "product": "valid_n",
+            "component": "plan"
+          },
+          {
+            "product": "mean",
+            "component": "plan"
+          },
+          {
+            "product": "median",
+            "component": "plan"
+          },
+          {
+            "product": "sample_sd",
+            "component": "plan"
+          },
+          {
+            "product": "minimum",
+            "component": "plan"
+          },
+          {
+            "product": "maximum",
+            "component": "plan"
+          }
+        ],
+        "filters": [],
+        "joins": [],
+        "methodology_confirmed": true,
+        "comparison": null,
+        "components": []
+      }
+    ],
+    "warnings": [],
+    "confirmation_required": true,
+    "goal_change": false,
+    "goal_change_reason": null,
+    "context_summary": "Se confirmó que la variable `puntaje_total` es cuantitativa discreta y se solicita la propuesta de análisis descriptivo global para las doce observaciones."
+  },
+  "observed_issues": []
+}
